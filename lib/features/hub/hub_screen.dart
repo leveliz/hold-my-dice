@@ -48,12 +48,26 @@ class _HelperCard extends StatelessWidget {
               ),
               child: Icon(helper.icon, size: 28, color: helper.color),
             ),
-            const Spacer(),
-            Text(helper.name, style: text.titleLarge),
-            Text(
-              helper.subtitle,
-              style: text.bodyMedium?.copyWith(
-                color: scheme.onSurface.withValues(alpha: 0.65),
+            Expanded(
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                // Scales down on narrow screens instead of overflowing.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.bottomLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(helper.name, style: text.titleLarge),
+                      Text(
+                        helper.subtitle,
+                        style: text.bodyMedium?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.65),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],

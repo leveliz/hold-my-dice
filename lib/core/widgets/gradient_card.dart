@@ -6,13 +6,13 @@ class GradientCard extends StatefulWidget {
   const GradientCard({
     super.key,
     required this.accent,
-    required this.onTap,
+    this.onTap,
     required this.child,
     this.radius = 28,
   });
 
   final Color accent;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Widget child;
   final double radius;
 

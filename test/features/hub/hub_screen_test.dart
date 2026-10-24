@@ -32,7 +32,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('helper-bank')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Pocket Banker'), findsWidgets);
+    expect(find.text('ตั้งค่าเกม'), findsOneWidget);
     expect(find.byKey(const ValueKey('helper-bank')), findsNothing);
   });
 }
