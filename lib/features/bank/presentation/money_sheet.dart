@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/widgets/balance_chip.dart';
 import 'package:hold_my_dice/features/bank/domain/player.dart';
+import 'package:hold_my_dice/features/bank/presentation/transfer_pair.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class MoneyResult {
@@ -12,13 +13,16 @@ class MoneyResult {
 }
 
 /// Opens the amount entry sheet. [isPay] is the "−" flow; the "+" flow lets
-/// the player switch between receiving from the bank and mortgaging.
+/// the player switch between receiving from the bank and mortgaging (unless
+/// [allowMortgage] is off). With a [recipient] it is a transfer from [player].
 Future<MoneyResult?> showMoneySheet(
   BuildContext context, {
   required Player player,
   required int balance,
   required bool isPay,
   required List<int> recent,
+  Player? recipient,
+  bool allowMortgage = true,
 }) {
   return showModalBottomSheet<MoneyResult>(
     context: context,
@@ -29,6 +33,8 @@ Future<MoneyResult?> showMoneySheet(
       balance: balance,
       isPay: isPay,
       recent: recent,
+      recipient: recipient,
+      allowMortgage: allowMortgage,
     ),
   );
 }
@@ -40,12 +46,16 @@ class MoneySheet extends StatefulWidget {
     required this.balance,
     required this.isPay,
     required this.recent,
+    this.recipient,
+    this.allowMortgage = true,
   });
 
   final Player player;
   final int balance;
   final bool isPay;
   final List<int> recent;
+  final Player? recipient;
+  final bool allowMortgage;
 
   @override
   State<MoneySheet> createState() => _MoneySheetState();
@@ -97,40 +107,79 @@ class _MoneySheetState extends State<MoneySheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: accent,
-                    shape: BoxShape.circle,
+            if (widget.recipient case final to?)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'โอนเงิน',
+                    key: const ValueKey('sheet-transfer-title'),
+                    style: text.titleMedium,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    widget.player.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.titleLarge,
+                  const SizedBox(height: 8),
+                  TransferPair(
+                    key: const ValueKey('transfer-pair'),
+                    from: widget.player,
+                    to: to,
+                    center: true,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  widget.isPay ? 'จ่ายธนาคาร' : 'รับเงิน',
-                  style: text.titleMedium,
-                ),
-              ],
-            ),
-            if (!widget.isPay) ...[
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Text(
+                    widget.isPay ? 'จ่ายธนาคาร' : 'รับเงิน',
+                    key: const ValueKey('sheet-kind-label'),
+                    style: text.titleMedium,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Row(
+                        key: const ValueKey('sheet-player'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              color: accent,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              widget.player.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.titleLarge,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            if (!widget.isPay && widget.allowMortgage) ...[
               const SizedBox(height: 10),
               SegmentedButton<bool>(
                 key: const ValueKey('sheet-kind'),
                 showSelectedIcon: false,
                 segments: const [
-                  ButtonSegment(value: false, label: Text('รับจากธนาคาร')),
-                  ButtonSegment(value: true, label: Text('จำนอง')),
+                  ButtonSegment(
+                    value: false,
+                    icon: Icon(LucideIcons.landmark),
+                    label: Text('รับจากธนาคาร'),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    icon: Icon(LucideIcons.handCoins),
+                    label: Text('จำนอง'),
+                  ),
                 ],
                 selected: {_mortgage},
                 onSelectionChanged: (s) => setState(() => _mortgage = s.first),
@@ -162,6 +211,7 @@ class _MoneySheetState extends State<MoneySheet> {
                   for (final r in widget.recent)
                     ActionChip(
                       key: ValueKey('recent-$r'),
+                      avatar: const Icon(LucideIcons.history, size: 18),
                       label: Text('ล่าสุด ${formatMoney(r)}'),
                       onPressed: () => setState(() => _digits = '$r'),
                     ),
@@ -190,7 +240,7 @@ class _MoneySheetState extends State<MoneySheet> {
               ],
             ),
             const SizedBox(height: 12),
-            FilledButton(
+            FilledButton.icon(
               key: const ValueKey('sheet-ok'),
               onPressed: _amount > 0
                   ? () => Navigator.pop(
@@ -205,7 +255,8 @@ class _MoneySheetState extends State<MoneySheet> {
                 ),
                 textStyle: text.titleLarge,
               ),
-              child: const Text('ตกลง'),
+              icon: const Icon(LucideIcons.check),
+              label: const Text('ตกลง'),
             ),
           ],
         ),

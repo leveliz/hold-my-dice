@@ -16,7 +16,11 @@ class PlayerCard extends StatelessWidget {
     required this.onReceive,
     required this.onPay,
     required this.onGo,
+    required this.onTap,
+    this.bankrupt = false,
   });
+
+  static double radiusFor({required bool compact}) => compact ? 20 : 28;
 
   final Player player;
   final int balance;
@@ -24,6 +28,12 @@ class PlayerCard extends StatelessWidget {
   final VoidCallback onReceive;
   final VoidCallback onPay;
   final VoidCallback onGo;
+
+  /// Tapping the card itself starts a transfer.
+  final VoidCallback onTap;
+
+  /// A bankrupt player is out of the game: shown dimmed, no actions.
+  final bool bankrupt;
 
   @override
   Widget build(BuildContext context) {
@@ -73,10 +83,44 @@ class PlayerCard extends StatelessWidget {
       child: const Text('GO'),
     );
 
+    if (bankrupt) {
+      return Opacity(
+        opacity: 0.55,
+        child: GradientCard(
+          key: ValueKey('player-card-${player.id}'),
+          accent: Colors.grey,
+          radius: radiusFor(compact: compact),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 14,
+                  height: 14,
+                  decoration: const BoxDecoration(
+                    color: Colors.grey,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: name()),
+                Text(
+                  'ล้มละลาย',
+                  key: ValueKey('bankrupt-${player.id}'),
+                  style: text.titleMedium,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return GradientCard(
       key: ValueKey('player-card-${player.id}'),
       accent: accent,
-      radius: compact ? 20 : 28,
+      radius: radiusFor(compact: compact),
+      onTap: onTap,
       child: Padding(
         padding: compact
             ? const EdgeInsets.symmetric(horizontal: 12, vertical: 8)

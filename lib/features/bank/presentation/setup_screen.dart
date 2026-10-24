@@ -175,8 +175,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               keyboardType: TextInputType.number,
               inputFormatters: const [ThousandsFormatter()],
               style: text.headlineSmall,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'ใส่จำนวน',
+                hintStyle: text.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                ),
                 border: InputBorder.none,
               ),
               onChanged: (_) => setState(() {}),
@@ -251,7 +254,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-              child: FilledButton(
+              child: FilledButton.icon(
                 key: const ValueKey('start-game'),
                 onPressed: _canStart ? _start : null,
                 style: FilledButton.styleFrom(
@@ -261,7 +264,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   ),
                   textStyle: text.titleLarge,
                 ),
-                child: const Text('เริ่มเกม'),
+                icon: const Icon(LucideIcons.play),
+                label: const Text('เริ่มเกม'),
               ),
             ),
           ],

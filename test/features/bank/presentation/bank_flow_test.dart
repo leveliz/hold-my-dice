@@ -336,18 +336,21 @@ void main() {
       expect(find.text('จ่ายธนาคาร ผู้เล่น 3 -500'), findsOneWidget);
     });
 
-    testWidgets('paying more than the balance is refused with the shortfall', (
+    testWidgets('paying more than the balance opens the shortfall page', (
       tester,
     ) async {
-      await pumpAt(tester, '/bank/play', container: gameWith(3));
+      final c = gameWith(3);
+      await pumpAt(tester, '/bank/play', container: c);
       await tester.tap(byKey('btn-minus-p1'));
       await tester.pumpAndSettle();
       await typeKeys(tester, ['2', '000']);
       await tester.tap(byKey('sheet-ok'));
       await tester.pumpAndSettle();
-      expect(find.text('เงินไม่พอ ขาด 500'), findsOneWidget);
-      expect(balance(tester, 'p1'), '1,500');
-      expect(byKey('undo-bar'), findsNothing);
+      expect(byKey('shortfall-summary'), findsOneWidget);
+      expect(chipText(tester, 'shortfall-amount'), '500');
+      // Nothing has been charged yet.
+      expect(c.read(bankProvider)!.game.balanceOf('p1'), 1500);
+      expect(c.read(bankProvider)!.undoAvailable, isFalse);
     });
 
     testWidgets('the sheet offers recent amounts and backspace', (

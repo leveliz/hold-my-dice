@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hold_my_dice/core/format.dart';
+import 'package:hold_my_dice/features/bank/application/entry_labels.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
 
 class BankSession {
@@ -28,8 +28,6 @@ class BankNotifier extends Notifier<BankSession?> {
 
   GameState get _game => state!.game;
 
-  String _name(String id) => _game.players.firstWhere((p) => p.id == id).name;
-
   void start({
     required List<Player> players,
     required int startingCash,
@@ -44,40 +42,39 @@ class BankNotifier extends Notifier<BankSession?> {
     );
   }
 
-  void passGo(String id) {
-    final amount = _game.goAmount;
-    _commit(
-      _game.passGo(id),
-      'ผ่านจุดเริ่ม ${_name(id)} +${formatMoney(amount)}',
-    );
-  }
+  void passGo(String id) => _commit(_game.passGo(id));
 
-  void receive(String id, int amount) {
-    _commit(
-      _game.receiveFromBank(id, amount),
-      'รับจากธนาคาร ${_name(id)} +${formatMoney(amount)}',
+  void receive(String id, int amount) =>
+      _commit(_game.receiveFromBank(id, amount), amount: amount);
+
+  void mortgage(String id, int amount) =>
+      _commit(_game.mortgage(id, amount), amount: amount);
+
+  PayResult pay(String id, int amount) =>
+      _commitPay(_game.payBank(id, amount), amount);
+
+  PayResult transfer(String fromId, String toId, int amount) =>
+      _commitPay(_game.transfer(fromId, toId, amount), amount);
+
+  /// Mortgages [mortgages] and then pays [amount] to [payeeId] (the bank or a
+  /// player) as one undoable entry.
+  PayResult payWithMortgage({
+    required String payerId,
+    required String payeeId,
+    required int amount,
+    required List<int> mortgages,
+  }) {
+    final result = _game.payWithMortgage(
+      payerId: payerId,
+      payeeId: payeeId,
       amount: amount,
+      mortgages: mortgages,
     );
+    return _commitPay(result, amount);
   }
 
-  void mortgage(String id, int amount) {
-    _commit(
-      _game.mortgage(id, amount),
-      'จำนอง ${_name(id)} +${formatMoney(amount)}',
-      amount: amount,
-    );
-  }
-
-  PayResult pay(String id, int amount) {
-    final result = _game.payBank(id, amount);
-    if (result is Paid) {
-      _commit(
-        result.state,
-        'จ่ายธนาคาร ${_name(id)} -${formatMoney(amount)}',
-        amount: amount,
-      );
-    }
-    return result;
+  void declareBankrupt(String id, {required int owed, String? creditorId}) {
+    _commit(_game.declareBankrupt(id, owed: owed, creditorId: creditorId));
   }
 
   void end() => state = null;
@@ -88,7 +85,12 @@ class BankNotifier extends Notifier<BankSession?> {
     state = BankSession(game: s.game.undo(), recentAmounts: s.recentAmounts);
   }
 
-  void _commit(GameState game, String label, {int? amount}) {
+  PayResult _commitPay(PayResult result, int amount) {
+    if (result is Paid) _commit(result.state, amount: amount);
+    return result;
+  }
+
+  void _commit(GameState game, {int? amount}) {
     final recent = amount == null
         ? state!.recentAmounts
         : [
@@ -98,7 +100,7 @@ class BankNotifier extends Notifier<BankSession?> {
     state = BankSession(
       game: game,
       undoAvailable: true,
-      lastLabel: label,
+      lastLabel: describeEntry(game, game.history.last).title,
       recentAmounts: recent,
     );
   }
