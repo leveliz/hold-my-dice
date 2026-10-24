@@ -5,7 +5,10 @@ import 'package:hold_my_dice/features/bank/presentation/setup_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/shortfall_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/summary_screen.dart';
 import 'package:hold_my_dice/features/hub/hub_screen.dart';
-import 'package:hold_my_dice/features/score/presentation/score_screen.dart';
+import 'package:hold_my_dice/features/score/presentation/score_board_screen.dart';
+import 'package:hold_my_dice/features/score/presentation/score_setup_screen.dart';
+import 'package:hold_my_dice/features/score/presentation/score_summary_screen.dart';
+import 'package:hold_my_dice/features/score/presentation/score_table_screen.dart';
 
 GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
   initialLocation: initialLocation,
@@ -29,7 +32,22 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
       path: '/bank/summary',
       builder: (context, state) => const SummaryScreen(),
     ),
-    GoRoute(path: '/score', builder: (context, state) => const ScoreScreen()),
+    GoRoute(
+      path: '/score',
+      builder: (context, state) => const ScoreSetupScreen(),
+    ),
+    GoRoute(
+      path: '/score/play',
+      builder: (context, state) => const ScoreBoardScreen(),
+    ),
+    GoRoute(
+      path: '/score/summary',
+      builder: (context, state) => const ScoreSummaryScreen(),
+    ),
+    GoRoute(
+      path: '/score/table',
+      builder: (context, state) => const ScoreTableScreen(),
+    ),
   ],
 );
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/players/player.dart';
 import 'package:hold_my_dice/core/players/player_colors.dart';
 import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/widgets/dashed_border.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -225,11 +226,8 @@ class _AddPlayerButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
-    return CustomPaint(
-      painter: _DashedBorderPainter(
-        color: onSurface.withValues(alpha: 0.3),
-        radius: 18,
-      ),
+    return DashedBorder(
+      color: onSurface.withValues(alpha: 0.3),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
@@ -247,38 +245,4 @@ class _AddPlayerButton extends StatelessWidget {
       ),
     );
   }
-}
-
-class _DashedBorderPainter extends CustomPainter {
-  const _DashedBorderPainter({required this.color, required this.radius});
-
-  final Color color;
-  final double radius;
-
-  static const _dash = 7.0;
-  static const _gap = 5.0;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    final outline = Path()
-      ..addRRect(
-        RRect.fromRectAndRadius(
-          (Offset.zero & size).deflate(1),
-          Radius.circular(radius),
-        ),
-      );
-    for (final metric in outline.computeMetrics()) {
-      for (var d = 0.0; d < metric.length; d += _dash + _gap) {
-        canvas.drawPath(metric.extractPath(d, d + _dash), paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedBorderPainter old) =>
-      old.color != color || old.radius != radius;
 }

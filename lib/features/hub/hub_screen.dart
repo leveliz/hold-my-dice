@@ -5,6 +5,8 @@ import 'package:hold_my_dice/core/widgets/gradient_card.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
+import 'package:hold_my_dice/features/score/application/score_session.dart';
+import 'package:hold_my_dice/features/score/data/score_storage.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class HubScreen extends ConsumerStatefulWidget {
@@ -21,49 +23,86 @@ class _HubScreenState extends ConsumerState<HubScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _offerResume());
   }
 
-  /// A game left in the backup (the app was closed mid-game) can be resumed.
+  /// Games left in a backup (the app was closed mid-game) can be resumed.
+  /// Each helper with one is asked about in turn; resuming one opens it and
+  /// leaves any other backup for the next launch.
   Future<void> _offerResume() async {
-    if (ref.read(bankProvider) != null) return;
-    final storage = ref.read(bankStorageProvider);
-    final saved = storage.loadGame();
-    if (saved == null) return;
-    if (saved.isOver) {
-      await storage.clearGame();
-      return;
+    final offers = <_ResumeOffer>[];
+
+    if (ref.read(bankProvider) == null) {
+      final storage = ref.read(bankStorageProvider);
+      final saved = storage.loadGame();
+      if (saved != null && saved.isOver) {
+        await storage.clearGame();
+      } else if (saved != null) {
+        offers.add(
+          _ResumeOffer(
+            helper: 'Pocket Banker',
+            detail: '${saved.activePlayers.length} คน',
+            clear: storage.clearGame,
+            open: () {
+              ref.read(bankProvider.notifier).restore(saved);
+              context.push('/bank/play');
+            },
+          ),
+        );
+      }
     }
-    if (!mounted) return;
-    final resume = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        key: const ValueKey('resume-dialog'),
-        title: const Text('เล่นเกมต่อไหม?'),
-        content: Text(
-          'มีเกมที่เล่นค้างอยู่ ${saved.activePlayers.length} คน '
-          'ยังเล่นต่อได้จากยอดเดิม',
+
+    if (ref.read(scoreProvider) == null) {
+      final storage = ref.read(scoreStorageProvider);
+      final saved = storage.loadGame();
+      if (saved != null && saved.isOver) {
+        await storage.clearGame();
+      } else if (saved != null) {
+        offers.add(
+          _ResumeOffer(
+            helper: 'Score Snitch',
+            detail: 'รอบ ${saved.roundNumber}/${saved.roundCount}',
+            clear: storage.clearGame,
+            open: () {
+              ref.read(scoreProvider.notifier).restore(saved);
+              context.push('/score/play');
+            },
+          ),
+        );
+      }
+    }
+
+    for (final offer in offers) {
+      if (!mounted) return;
+      final resume = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          key: const ValueKey('resume-dialog'),
+          title: const Text('เล่นเกมต่อไหม?'),
+          content: Text(
+            '${offer.helper}: มีเกมที่เล่นค้างอยู่ (${offer.detail}) '
+            'ยังเล่นต่อได้จากจุดเดิม',
+          ),
+          actions: [
+            TextButton.icon(
+              key: const ValueKey('resume-discard'),
+              onPressed: () => Navigator.pop(context, false),
+              icon: const Icon(LucideIcons.trash2),
+              label: const Text('ทิ้งเกมนี้'),
+            ),
+            FilledButton.icon(
+              key: const ValueKey('resume-continue'),
+              onPressed: () => Navigator.pop(context, true),
+              icon: const Icon(LucideIcons.play),
+              label: const Text('เล่นต่อ'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton.icon(
-            key: const ValueKey('resume-discard'),
-            onPressed: () => Navigator.pop(context, false),
-            icon: const Icon(LucideIcons.trash2),
-            label: const Text('ทิ้งเกมนี้'),
-          ),
-          FilledButton.icon(
-            key: const ValueKey('resume-continue'),
-            onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(LucideIcons.play),
-            label: const Text('เล่นต่อ'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted) return;
-    if (resume == true) {
-      ref.read(bankProvider.notifier).restore(saved);
-      context.push('/bank/play');
-    } else {
-      await storage.clearGame();
+      );
+      if (!mounted) return;
+      if (resume == true) {
+        offer.open();
+        return;
+      }
+      await offer.clear();
     }
   }
 
@@ -136,4 +175,18 @@ class _HelperCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ResumeOffer {
+  const _ResumeOffer({
+    required this.helper,
+    required this.detail,
+    required this.clear,
+    required this.open,
+  });
+
+  final String helper;
+  final String detail;
+  final Future<void> Function() clear;
+  final VoidCallback open;
 }

@@ -54,6 +54,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('helper-score')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('score-placeholder')), findsOneWidget);
+    expect(find.text('ตั้งค่าเกม'), findsOneWidget);
+    expect(find.byKey(const ValueKey('rounds')), findsOneWidget);
   });
 }
