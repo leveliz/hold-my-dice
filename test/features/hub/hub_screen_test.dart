@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/app.dart';
+import 'package:hold_my_dice/core/router.dart';
+import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
 
 void main() {
@@ -34,5 +36,24 @@ void main() {
 
     expect(find.text('ตั้งค่าเกม'), findsOneWidget);
     expect(find.byKey(const ValueKey('helper-bank')), findsNothing);
+  });
+
+  testWidgets('Score Snitch has a card that opens its page', (tester) async {
+    // A router of its own: the shared one keeps the page an earlier test left.
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp.router(
+          theme: buildTheme(Brightness.light),
+          routerConfig: createRouter(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Score Snitch'), findsOneWidget);
+    expect(find.text('นับคะแนนรายรอบ'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('helper-score')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('score-placeholder')), findsOneWidget);
   });
 }

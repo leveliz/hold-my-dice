@@ -29,4 +29,12 @@ const helpers = [
     color: Palette.green,
     route: '/bank',
   ),
+  Helper(
+    id: 'score',
+    name: 'Score Snitch',
+    subtitle: 'นับคะแนนรายรอบ',
+    icon: LucideIcons.clipboardList,
+    color: Palette.cobalt,
+    route: '/score',
+  ),
 ];

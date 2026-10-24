@@ -5,6 +5,7 @@ import 'package:hold_my_dice/features/bank/presentation/setup_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/shortfall_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/summary_screen.dart';
 import 'package:hold_my_dice/features/hub/hub_screen.dart';
+import 'package:hold_my_dice/features/score/presentation/score_screen.dart';
 
 GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
   initialLocation: initialLocation,
@@ -28,6 +29,7 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
       path: '/bank/summary',
       builder: (context, state) => const SummaryScreen(),
     ),
+    GoRoute(path: '/score', builder: (context, state) => const ScoreScreen()),
   ],
 );
 

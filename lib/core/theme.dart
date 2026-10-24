@@ -56,3 +56,11 @@ ThemeData buildTheme(Brightness brightness) {
     ),
   );
 }
+
+/// Fill for rows and fields that sit directly on the page background.
+Color surfaceTileColor(ThemeData theme) => theme.brightness == Brightness.dark
+    ? Color.alphaBlend(
+        Colors.white.withValues(alpha: 0.07),
+        theme.colorScheme.surface,
+      )
+    : Colors.white;
