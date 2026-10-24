@@ -16,6 +16,10 @@ ThemeData buildTheme(Brightness brightness) {
         surface: background,
         onSurface: onBackground,
       );
+  // Sheets and dialogs sit one step above the page, in the page's own hue.
+  final raised = dark
+      ? Color.alphaBlend(Colors.white.withValues(alpha: 0.06), background)
+      : Colors.white;
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
@@ -35,6 +39,20 @@ ThemeData buildTheme(Brightness brightness) {
         color: onBackground,
         fontSize: 36,
       ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        // Cobalt is too dim for text on the dark navy page.
+        foregroundColor: dark ? Palette.cobaltLight : Palette.cobalt,
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: raised,
+      surfaceTintColor: Colors.transparent,
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: raised,
+      surfaceTintColor: Colors.transparent,
     ),
   );
 }

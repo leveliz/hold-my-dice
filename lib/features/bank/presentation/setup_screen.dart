@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/thousands_formatter.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
+import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/bank/domain/player.dart';
 import 'package:hold_my_dice/features/bank/presentation/player_colors.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -35,8 +38,18 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   @override
   void initState() {
     super.initState();
-    for (var i = 0; i < _minPlayers; i++) {
-      _addPlayer();
+    final last = ref.read(bankStorageProvider).loadSettings();
+    if (last != null && last.players.length >= _minPlayers) {
+      // Names, colours and money come from the last game; all still editable.
+      for (final p in last.players) {
+        _drafts.add(_Draft('p${_nextId++}', p.name, Color(p.color)));
+      }
+      _startCash.text = formatMoney(last.startingCash);
+      _goCash.text = formatMoney(last.goAmount);
+    } else {
+      for (var i = 0; i < _minPlayers; i++) {
+        _addPlayer();
+      }
     }
   }
 
@@ -125,6 +138,20 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           color: d.color.toARGB32(),
         ),
     ];
+    unawaited(
+      ref
+          .read(bankStorageProvider)
+          .saveSettings(
+            GameSettings(
+              players: [
+                for (final p in players)
+                  PlayerSetting(name: p.name, color: p.color),
+              ],
+              startingCash: _startValue,
+              goAmount: _goValue,
+            ),
+          ),
+    );
     ref
         .read(bankProvider.notifier)
         .start(players: players, startingCash: _startValue, goAmount: _goValue);

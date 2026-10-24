@@ -48,12 +48,42 @@ class GameState {
     );
   }
 
+  /// Restores a game saved with [toJson]. Throws if the data is not a game
+  /// this version understands, so callers can discard a corrupt backup.
+  factory GameState.fromJson(Map<String, dynamic> json) {
+    if (json['v'] != _jsonVersion) {
+      throw FormatException('Unsupported game version: ${json['v']}');
+    }
+    final base = GameState.start(
+      players: [
+        for (final p in json['players'] as List)
+          Player.fromJson(p as Map<String, dynamic>),
+      ],
+      startingCash: json['startingCash'] as int,
+      goAmount: json['goAmount'] as int,
+    );
+    return GameState._(base.players, base.startingCash, base.goAmount, [
+      for (final e in json['history'] as List)
+        Entry.fromJson(e as Map<String, dynamic>),
+    ]);
+  }
+
+  static const _jsonVersion = 1;
+
   final List<Player> players;
   final int startingCash;
   final int goAmount;
   final List<Entry> history;
 
   bool get canUndo => history.isNotEmpty;
+
+  Map<String, dynamic> toJson() => {
+    'v': _jsonVersion,
+    'players': [for (final p in players) p.toJson()],
+    'startingCash': startingCash,
+    'goAmount': goAmount,
+    'history': [for (final e in history) e.toJson()],
+  };
 
   Iterable<Transaction> get _transactions =>
       history.expand((e) => e.transactions);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hold_my_dice/core/platform_services.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
 import 'package:hold_my_dice/features/bank/presentation/drag_tile.dart';
@@ -31,9 +32,17 @@ class GameScreen extends ConsumerStatefulWidget {
 class _GameScreenState extends ConsumerState<GameScreen> {
   /// Id of the tile being dragged right now ('bank' or a player id).
   final _dragging = ValueNotifier<String?>(null);
+  late final ScreenAwake _awake;
+
+  @override
+  void initState() {
+    super.initState();
+    _awake = ref.read(screenAwakeProvider)..enable();
+  }
 
   @override
   void dispose() {
+    _awake.disable();
     _dragging.dispose();
     super.dispose();
   }

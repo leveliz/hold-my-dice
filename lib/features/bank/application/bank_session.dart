@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hold_my_dice/core/platform_services.dart';
 import 'package:hold_my_dice/features/bank/application/entry_labels.dart';
+import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
 
 class BankSession {
@@ -40,6 +44,12 @@ class BankNotifier extends Notifier<BankSession?> {
         goAmount: goAmount,
       ),
     );
+    _backUp();
+  }
+
+  /// Continues a game restored from the backup.
+  void restore(GameState game) {
+    state = BankSession(game: game);
   }
 
   void passGo(String id) => _commit(_game.passGo(id));
@@ -77,12 +87,17 @@ class BankNotifier extends Notifier<BankSession?> {
     _commit(_game.declareBankrupt(id, owed: owed, creditorId: creditorId));
   }
 
-  void end() => state = null;
+  /// The game is over (or abandoned): drop it and its backup.
+  void end() {
+    state = null;
+    unawaited(ref.read(bankStorageProvider).clearGame());
+  }
 
   void undo() {
     final s = state;
     if (s == null || !s.undoAvailable) return;
     state = BankSession(game: s.game.undo(), recentAmounts: s.recentAmounts);
+    _backUp();
   }
 
   PayResult _commitPay(PayResult result, int amount) {
@@ -103,6 +118,13 @@ class BankNotifier extends Notifier<BankSession?> {
       lastLabel: describeEntry(game, game.history.last).title,
       recentAmounts: recent,
     );
+    _backUp();
+    ref.read(hapticsProvider).transaction();
+  }
+
+  /// Saved after every change so a closed app can be resumed.
+  void _backUp() {
+    unawaited(ref.read(bankStorageProvider).saveGame(state!.game));
   }
 }
 

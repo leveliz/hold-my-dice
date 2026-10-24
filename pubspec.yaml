@@ -39,6 +39,8 @@ dependencies:
   intl: ^0.20.3
   google_fonts: ^8.2.1
   lucide_icons_flutter: ^4.0.1
+  shared_preferences: ^2.5.5
+  wakelock_plus: ^1.6.1
 
 dev_dependencies:
   flutter_test:
@@ -50,6 +52,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -61,6 +64,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Itim is bundled so Thai text looks right with no network.
+  assets:
+    - google_fonts/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -92,3 +99,11 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/icon.png
+  adaptive_icon_background: assets/icon/icon_background.png
+  adaptive_icon_foreground: assets/icon/icon_foreground.png
+  remove_alpha_ios: true

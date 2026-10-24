@@ -15,6 +15,13 @@ class Transaction {
     required this.type,
   });
 
+  factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
+    from: json['from'] as String,
+    to: json['to'] as String,
+    amount: json['amount'] as int,
+    type: TransactionType.values.byName(json['type'] as String),
+  );
+
   /// Party id used for the bank on either side of a transaction.
   static const bank = 'bank';
 
@@ -22,6 +29,13 @@ class Transaction {
   final String to;
   final int amount;
   final TransactionType type;
+
+  Map<String, dynamic> toJson() => {
+    'from': from,
+    'to': to,
+    'amount': amount,
+    'type': type.name,
+  };
 }
 
 /// One undoable step. Usually a single transaction; a "mortgage + pay" or a
@@ -29,6 +43,16 @@ class Transaction {
 class Entry {
   const Entry(this.transactions, {this.bankruptPlayerId});
 
+  factory Entry.fromJson(Map<String, dynamic> json) => Entry([
+    for (final t in json['transactions'] as List)
+      Transaction.fromJson(t as Map<String, dynamic>),
+  ], bankruptPlayerId: json['bankruptPlayerId'] as String?);
+
   final List<Transaction> transactions;
   final String? bankruptPlayerId;
+
+  Map<String, dynamic> toJson() => {
+    'transactions': [for (final t in transactions) t.toJson()],
+    if (bankruptPlayerId != null) 'bankruptPlayerId': bankruptPlayerId,
+  };
 }
