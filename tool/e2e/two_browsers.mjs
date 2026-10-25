@@ -37,6 +37,8 @@ async function open(p, path) {
 
 const text = (p, t, opts = {}) => p.page.getByText(t, opts).first();
 const button = (p, name) => p.page.getByRole('button', { name }).first();
+/** The second 'take over' button: the guest's seat (p2), under the owner's. */
+const takeOverGuestSeat = (p) => p.page.getByRole('button', { name: 'เข้าแทน' }).nth(1);
 async function seen(p, t, timeout = 15000) {
   try {
     await text(p, t).waitFor({ state: 'attached', timeout });
@@ -46,7 +48,10 @@ async function seen(p, t, timeout = 15000) {
   }
 }
 async function typeName(p, value) {
-  await p.page.getByRole('textbox').first().fill(value);
+  // Typing key by key: Flutter ignores a value that is filled in at once.
+  const box = p.page.getByRole('textbox').first();
+  await box.click();
+  await box.pressSequentially(value, { delay: 40 });
 }
 
 try {
@@ -74,7 +79,7 @@ try {
     await sleep(Math.max(0, 150_000 - (Date.now() - joinedAt)));
     const thief = await person('thief');
     await open(thief, `/room/${code}`);
-    await button(thief, 'เข้าแทน').nth(1).click();
+    await takeOverGuestSeat(thief).click();
     check(
       await seen(thief, 'ยังมีคนใช้อยู่', 8000),
       'a seat whose person is still there cannot be taken over after 2 minutes',
@@ -84,7 +89,7 @@ try {
     await guest.ctx.close();
     await sleep(150_000);
     await open(thief, `/room/${code}`);
-    await button(thief, 'เข้าแทน').nth(1).click();
+    await takeOverGuestSeat(thief).click();
     check(await seen(thief, 'ห้องรอ', 15000), 'a seat left alone for 2 minutes is taken over');
     check(await seen(owner, 'Guest'), 'the owner still sees the seat by its name');
     await thief.ctx.close();
