@@ -24,4 +24,26 @@ void main() {
       expect(cutName(''), '');
     });
   });
+
+  group('cutText and cutReason', () {
+    test('cutText cuts to the given length in UTF-16 units', () {
+      expect(cutText('abcdef', 4), 'abcd');
+      expect(cutText('abc', 4), 'abc');
+      expect(cutText('😀😀😀', 4), '😀😀');
+      expect(cutText('😀😀😀', 5), '😀😀');
+      expect(cutText('x😀', 2), 'x');
+    });
+
+    test('a reason holds up to 60 units and is never cut inside an emoji', () {
+      expect(maxReasonLength, 60);
+      expect(cutReason('ก' * 70), 'ก' * 60);
+      expect(cutReason('${'x' * 59}😀'), 'x' * 59);
+      expect(cutReason('${'x' * 58}😀'), '${'x' * 58}😀');
+      expect(cutReason('😀' * 40), '😀' * 30);
+    });
+
+    test('cutName still cuts at 20', () {
+      expect(cutName('x' * 25), 'x' * 20);
+    });
+  });
 }

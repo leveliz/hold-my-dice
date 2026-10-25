@@ -2,6 +2,9 @@
 /// rules that check an entry can be a fixed formula per kind.
 enum EntryKind { receive, mortgage, passGo, payBank, transfer, bankrupt }
 
+/// The reason a pass over GO is stored with.
+const goReason = 'ผ่านจุดเริ่ม';
+
 /// A seat going out of the game because it cannot pay [owed].
 class BankruptInfo {
   const BankruptInfo({
@@ -27,6 +30,9 @@ class RoomEntry {
     required this.seq,
     required this.kind,
     required this.seat,
+    this.by,
+    this.at,
+    this.cid,
     this.from,
     this.to,
     this.amount,
@@ -36,11 +42,60 @@ class RoomEntry {
     this.voided = false,
   });
 
+  /// Reads an entry as it is stored; [data] has the keys [toMap] writes. A
+  /// value that is missing or of the wrong kind is a [FormatException] naming
+  /// the field, so one bad document cannot crash a whole screen. `at` may be
+  /// null: a write still on its way has no server time yet.
+  factory RoomEntry.fromMap(Map<String, Object?> data) {
+    T? optional<T>(String key) {
+      final value = data[key];
+      if (value == null) return null;
+      if (value is! T) {
+        throw FormatException('entry field "$key" is a ${value.runtimeType}');
+      }
+      return value as T;
+    }
+
+    T required<T>(String key) =>
+        optional<T>(key) ?? (throw FormatException('entry has no "$key"'));
+
+    final seq = required<int>('seq');
+    if (seq < 0) throw const FormatException('entry field "seq" is negative');
+    final kindName = required<String>('kind');
+    final kind = EntryKind.values.where((k) => k.name == kindName).firstOrNull;
+    if (kind == null) {
+      throw FormatException('entry field "kind" is unknown: $kindName');
+    }
+    return RoomEntry(
+      seq: seq,
+      kind: kind,
+      seat: required<String>('seat'),
+      by: optional<String>('by'),
+      at: optional<DateTime>('at'),
+      cid: optional<String>('cid'),
+      from: optional<String>('from'),
+      to: optional<String>('to'),
+      amount: optional<int>('amount'),
+      reason: optional<String>('reason'),
+      voided: optional<bool>('voided') ?? false,
+    );
+  }
+
   final int seq;
   final EntryKind kind;
 
   /// The seat of the person who pressed the button.
   final String seat;
+
+  /// The uid of that person.
+  final String? by;
+
+  /// When the server took the entry; null while it is still on its way.
+  final DateTime? at;
+
+  /// A random code made for one press, so a press that is sent twice or whose
+  /// answer was lost can be told from a new one.
+  final String? cid;
 
   /// Who pays and who receives (a seat id or `bank`); empty for [bankrupt].
   final String? from;
@@ -54,4 +109,31 @@ class RoomEntry {
 
   /// Undone: still shown in the history but it moves no money.
   final bool voided;
+
+  /// The entry as stored, with [at] being what the database turns into the
+  /// server time (a placeholder from the data layer). The layout is the same
+  /// for every kind; the first slice stores no groups and no bankruptcies.
+  Map<String, Object?> toMap(Object at) {
+    if (group != null || bankrupt != null) {
+      throw StateError('only single entries without a bankruptcy are stored');
+    }
+    final by = this.by, cid = this.cid;
+    if (by == null || cid == null) {
+      throw StateError('an entry to store needs by and cid');
+    }
+    return {
+      'v': 1,
+      'seq': seq,
+      'by': by,
+      'seat': seat,
+      'at': at,
+      'kind': kind.name,
+      'from': from,
+      'to': to,
+      'amount': amount,
+      'reason': reason,
+      'cid': cid,
+      'voided': voided,
+    };
+  }
 }

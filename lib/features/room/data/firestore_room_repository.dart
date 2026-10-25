@@ -60,6 +60,10 @@ class FirestoreRoomRepository implements RoomRepository {
   Stream<T> _guardStream<T>(Stream<T> source, RoomError onDenied) =>
       source.handleError((Object e) {
         if (e is FirebaseException) throw _translate(e, onDenied);
+        // A document in a shape this app does not know is not the app's crash.
+        if (e is FormatException) {
+          throw RoomException(RoomError.unknown, e.message);
+        }
         throw e;
       });
 
@@ -98,14 +102,7 @@ class FirestoreRoomRepository implements RoomRepository {
     seat: d['seat'] as String?,
   );
 
-  static RoomState _stateOf(Map<String, dynamic> d) => RoomState(
-    seq: d['seq'] as int,
-    seats: List<String>.from(d['seats'] as List),
-    balances: Map<String, int>.from(d['balances'] as Map),
-    bankrupt: List<String>.from(d['bankrupt'] as List),
-    bankerSeat: d['bankerSeat'] as String?,
-    status: RoomStatus.values.byName(d['status'] as String),
-  );
+  static RoomState _stateOf(Map<String, dynamic> d) => RoomState.fromMap(d);
 
   /// The room as it is now; throws [RoomError.roomNotFound] when there is none
   /// or it has ended.
