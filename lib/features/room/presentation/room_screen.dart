@@ -448,6 +448,7 @@ class _JoinFormState extends ConsumerState<_JoinForm> {
               label: 'ชื่อของคุณ',
               controller: _name,
               hint: 'ใส่ชื่อ',
+              inputFormatters: const [NameLimitFormatter()],
               onChanged: refresh,
             ),
             const SizedBox(height: 12),

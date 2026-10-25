@@ -4,6 +4,7 @@ import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/players/player_colors.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/widgets/dashed_line.dart';
+import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 /// The six colours offered when choosing yours (the palette keeps the rest for
@@ -387,4 +388,24 @@ class TicketPainter extends CustomPainter {
       edge != old.edge ||
       notchRadius != old.notchRadius ||
       sheets.length != old.sheets.length;
+}
+
+/// Stops a name at the length the Firestore rules accept (see [cutName]), so
+/// what a person sees typed is what is stored.
+class NameLimitFormatter extends TextInputFormatter {
+  const NameLimitFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final cut = cutName(newValue.text);
+    if (cut == newValue.text) return newValue;
+    final caret = newValue.selection.baseOffset.clamp(0, cut.length);
+    return TextEditingValue(
+      text: cut,
+      selection: TextSelection.collapsed(offset: caret),
+    );
+  }
 }
