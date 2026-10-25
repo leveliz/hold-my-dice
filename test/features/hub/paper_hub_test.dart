@@ -8,7 +8,7 @@ import 'package:hold_my_dice/core/widgets/dashed_border.dart';
 import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/core/widgets/stamp.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
-import 'package:hold_my_dice/features/hub/settings_tab.dart';
+import 'package:hold_my_dice/features/hub/settings_screen.dart';
 
 import '../bank/presentation/bank_flow_test.dart' as f;
 import 'hub_shell_test.dart' as hub;
@@ -85,8 +85,8 @@ void main() {
       expect(title(), 'Hold My Dice');
       await tapKey(tester, 'nav-saved');
       expect(title(), 'เกมค้าง');
-      await tapKey(tester, 'nav-settings');
-      expect(title(), 'ตั้งค่า');
+      await tapKey(tester, 'nav-about');
+      expect(title(), 'เกี่ยวกับ');
     });
 
     testWidgets('Aurora has the same layout: lettering, a glowing stamp, a '
@@ -397,7 +397,7 @@ void main() {
       tester,
     ) async {
       await openHub(tester);
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       await tapKey(tester, 'theme-light');
       final tick = tester.widget<Container>(byKey('theme-tick'));
       expect((tick.decoration! as BoxDecoration).color, PaperStyle.stamp);
@@ -407,14 +407,14 @@ void main() {
 
     testWidgets('in Aurora the tick is indigo', (tester) async {
       await openHub(tester, brightness: Brightness.dark);
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       final tick = tester.widget<Container>(byKey('theme-tick'));
       expect((tick.decoration! as BoxDecoration).color, Palette.auroraIndigo);
     });
 
     testWidgets('each option shows a picture of its look', (tester) async {
       await openHub(tester);
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       for (final k in ['theme-system', 'theme-light', 'theme-dark']) {
         expect(
           find.descendant(of: byKey(k), matching: find.byType(ClipRRect)),
@@ -426,7 +426,7 @@ void main() {
 
     testWidgets('the Aurora picture is dark even on paper', (tester) async {
       await openHub(tester);
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       final box = tester.widget<DecoratedBox>(
         find
             .descendant(
@@ -446,7 +446,7 @@ void main() {
       tester,
     ) async {
       await openHub(tester);
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       expect(styleOf(tester, find.text('ธีม')).fontFamily, 'NotoSerifThai');
     });
   });

@@ -7,10 +7,10 @@ import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
 import 'package:hold_my_dice/core/widgets/stamp.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
+import 'package:hold_my_dice/features/hub/about_tab.dart';
 import 'package:hold_my_dice/features/hub/hub_nav_bar.dart';
 import 'package:hold_my_dice/features/hub/saved_games.dart';
 import 'package:hold_my_dice/features/hub/saved_games_tab.dart';
-import 'package:hold_my_dice/features/hub/settings_tab.dart';
 import 'package:hold_my_dice/features/hub/start_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -102,7 +102,7 @@ class _HubScreenState extends ConsumerState<HubScreen> {
   (String, String) get _titles => switch (_tab) {
     HubTab.home => ('Hold My Dice', 'เลือกตัวช่วยสำหรับวงเกมวันนี้'),
     HubTab.saved => ('เกมค้าง', 'เล่นต่อจากจุดเดิมได้เลย'),
-    HubTab.settings => ('ตั้งค่า', 'ปรับแอพให้เข้ากับคุณ'),
+    HubTab.about => ('เกี่ยวกับ', 'แอพนี้ และคนทำ'),
   };
 
   @override
@@ -114,7 +114,7 @@ class _HubScreenState extends ConsumerState<HubScreen> {
     final body = switch (_tab) {
       HubTab.home => _HomeTab(bottomSpace: navSpace),
       HubTab.saved => SavedGamesTab(bottomSpace: navSpace),
-      HubTab.settings => SettingsTab(bottomSpace: navSpace),
+      HubTab.about => AboutTab(bottomSpace: navSpace),
     };
 
     final nav = Positioned(
@@ -159,7 +159,8 @@ class _HubScreenState extends ConsumerState<HubScreen> {
   }
 }
 
-/// The hub header: the title and a stamp over a line, on the page itself.
+/// The hub header: the title and a settings stamp over a line, on the page
+/// itself.
 /// Papery: serif ink, a red stamp, a dashed line. Aurora: white lettering, a
 /// stamp that glows, a line that fades from indigo to magenta.
 class _HubHeader extends StatelessWidget {
@@ -187,7 +188,7 @@ class _HubHeader extends StatelessWidget {
             key: ValueKey('hub-stamp'),
             color: PaperStyle.stamp,
             size: 46,
-            child: Icon(LucideIcons.dices),
+            child: Icon(LucideIcons.settings),
           )
         : DecoratedBox(
             key: const ValueKey('hub-glow'),
@@ -204,9 +205,23 @@ class _HubHeader extends StatelessWidget {
               key: ValueKey('hub-stamp'),
               color: _auroraStamp,
               size: 46,
-              child: Icon(LucideIcons.dices),
+              child: Icon(LucideIcons.settings),
             ),
           );
+    // The corner button: a stamp that opens the settings page.
+    final settings = Semantics(
+      button: true,
+      label: 'ตั้งค่า',
+      child: Tooltip(
+        message: 'ตั้งค่า',
+        child: GestureDetector(
+          key: const ValueKey('hub-settings'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.push('/settings'),
+          child: stamp,
+        ),
+      ),
+    );
     return Container(
       key: const ValueKey('hub-header'),
       padding: EdgeInsets.fromLTRB(22, topInset + 14, 22, 0),
@@ -239,7 +254,7 @@ class _HubHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              stamp,
+              settings,
             ],
           ),
           const SizedBox(height: 12),

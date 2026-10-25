@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 /// Keeps the screen on while a game is being played.
@@ -90,6 +91,32 @@ class SystemScreenMode implements ScreenMode {
   }
 }
 
+/// Opens a web link in the browser. True if something took it.
+abstract class LinkOpener {
+  Future<bool> open(Uri url);
+}
+
+class NoLinkOpener implements LinkOpener {
+  const NoLinkOpener();
+
+  @override
+  Future<bool> open(Uri url) async => false;
+}
+
+class BrowserLinkOpener implements LinkOpener {
+  const BrowserLinkOpener();
+
+  @override
+  Future<bool> open(Uri url) async {
+    try {
+      return await launchUrl(url, mode: LaunchMode.externalApplication);
+    } on Object {
+      // A phone with no browser should not break the app.
+      return false;
+    }
+  }
+}
+
 /// All default to doing nothing so tests never touch platform channels;
 /// `main()` swaps in the real ones (see `productionOverrides`).
 final screenAwakeProvider = Provider<ScreenAwake>(
@@ -97,3 +124,4 @@ final screenAwakeProvider = Provider<ScreenAwake>(
 );
 final hapticsProvider = Provider<Haptics>((ref) => const NoHaptics());
 final screenModeProvider = Provider<ScreenMode>((ref) => const NoScreenMode());
+final linkOpenerProvider = Provider<LinkOpener>((ref) => const NoLinkOpener());

@@ -44,7 +44,7 @@ ThemeData buildTheme(Brightness brightness) {
   return base.copyWith(
     textTheme: textTheme,
     appBarTheme: AppBarTheme(
-      backgroundColor: dark ? background : Colors.transparent,
+      backgroundColor: Colors.transparent,
       foregroundColor: onBackground,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
@@ -164,5 +164,15 @@ BoxDecoration tileDecoration(BuildContext context, {double radius = 18}) {
   return BoxDecoration(
     color: surfaceTileColor(Theme.of(context)),
     borderRadius: BorderRadius.circular(radius),
+  );
+}
+
+/// A bigger block that holds a few related things (a settings group, an about
+/// card): on paper a card with two sheets under it, in Aurora a faint panel.
+BoxDecoration panelDecoration(BuildContext context) {
+  if (PaperStyle.maybeOf(context) != null) return PaperStyle.cardDecoration();
+  return BoxDecoration(
+    color: surfaceTileColor(Theme.of(context)),
+    borderRadius: BorderRadius.circular(22),
   );
 }

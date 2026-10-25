@@ -4,79 +4,73 @@ import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/settings/app_settings.dart';
 import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 
-/// App-wide settings. For now just the look: follow the phone, Papery, or
-/// Aurora.
-class SettingsTab extends ConsumerWidget {
-  const SettingsTab({super.key, required this.bottomSpace});
-
-  final double bottomSpace;
+/// App-wide settings, opened from the button in the corner of the hub. For
+/// now just the look: follow the phone, Papery, or Aurora.
+class SettingsScreen extends ConsumerWidget {
+  const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final text = theme.textTheme;
-    final paper = PaperStyle.maybeOf(context) != null;
+    final text = Theme.of(context).textTheme;
     final mode = ref.watch(themeModeProvider);
     void pick(ThemeMode m) => ref.read(themeModeProvider.notifier).set(m);
 
-    return ListView(
-      padding: EdgeInsets.fromLTRB(20, 22, paper ? 26 : 20, bottomSpace),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: paper
-              ? PaperStyle.cardDecoration()
-              : BoxDecoration(
-                  color: surfaceTileColor(theme),
-                  borderRadius: BorderRadius.circular(22),
-                ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'ธีม',
-                style: paper ? serifStyle(text.titleMedium) : text.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              Row(
-                key: const ValueKey('theme-mode'),
+    return Scaffold(
+      appBar: const HelperAppBar(title: Text('ตั้งค่า')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 22, 26, 24),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: panelDecoration(context),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: ThemeOption(
-                      key: const ValueKey('theme-system'),
-                      label: 'ตามเครื่อง',
-                      selected: mode == ThemeMode.system,
-                      onTap: () => pick(ThemeMode.system),
-                      preview: const _SystemPreview(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ThemeOption(
-                      key: const ValueKey('theme-light'),
-                      label: 'Papery',
-                      selected: mode == ThemeMode.light,
-                      onTap: () => pick(ThemeMode.light),
-                      preview: const _PaperPreview(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ThemeOption(
-                      key: const ValueKey('theme-dark'),
-                      label: 'Aurora',
-                      selected: mode == ThemeMode.dark,
-                      onTap: () => pick(ThemeMode.dark),
-                      preview: const _AuroraPreview(),
-                    ),
+                  Text('ธีม', style: headingStyle(context, text.titleMedium)),
+                  const SizedBox(height: 12),
+                  Row(
+                    key: const ValueKey('theme-mode'),
+                    children: [
+                      Expanded(
+                        child: ThemeOption(
+                          key: const ValueKey('theme-system'),
+                          label: 'ตามเครื่อง',
+                          selected: mode == ThemeMode.system,
+                          onTap: () => pick(ThemeMode.system),
+                          preview: const _SystemPreview(),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ThemeOption(
+                          key: const ValueKey('theme-light'),
+                          label: 'Papery',
+                          selected: mode == ThemeMode.light,
+                          onTap: () => pick(ThemeMode.light),
+                          preview: const _PaperPreview(),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ThemeOption(
+                          key: const ValueKey('theme-dark'),
+                          label: 'Aurora',
+                          selected: mode == ThemeMode.dark,
+                          onTap: () => pick(ThemeMode.dark),
+                          preview: const _AuroraPreview(),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

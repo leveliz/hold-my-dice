@@ -9,6 +9,7 @@ import 'package:hold_my_dice/features/bank/presentation/shortfall_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/summary_screen.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
 import 'package:hold_my_dice/features/hub/hub_screen.dart';
+import 'package:hold_my_dice/features/hub/settings_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_board_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_setup_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_summary_screen.dart';
@@ -42,6 +43,7 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
   initialLocation: initialLocation,
   routes: [
     _route('/', (_) => const HubScreen()),
+    _route('/settings', (_) => const SettingsScreen()),
     _route('/bank', (_) => const SetupScreen(), helper: 'bank'),
     _route('/bank/play', (_) => const GameScreen(), helper: 'bank'),
     _route(

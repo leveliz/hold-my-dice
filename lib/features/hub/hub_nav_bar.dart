@@ -3,7 +3,7 @@ import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-enum HubTab { home, saved, settings }
+enum HubTab { home, saved, about }
 
 const hubNavBarHeight = 64.0;
 const hubNavOverhang = 24.0;
@@ -144,12 +144,12 @@ class HubNavBar extends StatelessWidget {
                     onTap: onRules,
                   ),
                   item(
-                    key: const ValueKey('nav-settings'),
-                    icon: LucideIcons.settings,
-                    label: 'ตั้งค่า',
-                    color: selected == HubTab.settings ? on : off,
-                    showDot: selected == HubTab.settings,
-                    onTap: () => onSelect(HubTab.settings),
+                    key: const ValueKey('nav-about'),
+                    icon: LucideIcons.info,
+                    label: 'เกี่ยวกับ',
+                    color: selected == HubTab.about ? on : off,
+                    showDot: selected == HubTab.about,
+                    onTap: () => onSelect(HubTab.about),
                   ),
                 ],
               ),

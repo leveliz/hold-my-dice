@@ -7,7 +7,7 @@ import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart' as bank;
 import 'package:hold_my_dice/features/hub/helpers.dart';
-import 'package:hold_my_dice/features/hub/settings_tab.dart';
+import 'package:hold_my_dice/features/hub/settings_screen.dart';
 import 'package:hold_my_dice/features/point/data/point_storage.dart';
 import 'package:hold_my_dice/features/point/domain/point_game.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
@@ -73,7 +73,7 @@ void main() {
         'nav-home',
         'nav-saved',
         'nav-rules',
-        'nav-settings',
+        'nav-about',
         'nav-start',
       ]) {
         expect(byKey(k), findsOneWidget, reason: k);
@@ -86,7 +86,7 @@ void main() {
       await f.pumpAt(tester, '/', container: containerWith());
       final start = tester.getCenter(byKey('nav-start'));
       final home = tester.getCenter(byKey('nav-home'));
-      final settings = tester.getCenter(byKey('nav-settings'));
+      final settings = tester.getCenter(byKey('nav-about'));
       expect(start.dx, closeTo(200, 1));
       expect(start.dy, lessThan(home.dy));
       expect(home.dx, lessThan(start.dx));
@@ -110,14 +110,14 @@ void main() {
       );
       expect(dotsUnder('nav-home'), findsOneWidget);
       expect(dotsUnder('nav-saved'), findsNothing);
-      expect(dotsUnder('nav-settings'), findsNothing);
+      expect(dotsUnder('nav-about'), findsNothing);
       await tapKey(tester, 'nav-saved');
       expect(dotsUnder('nav-home'), findsNothing);
       expect(dotsUnder('nav-saved'), findsOneWidget);
-      expect(dotsUnder('nav-settings'), findsNothing);
-      await tapKey(tester, 'nav-settings');
+      expect(dotsUnder('nav-about'), findsNothing);
+      await tapKey(tester, 'nav-about');
       expect(dotsUnder('nav-saved'), findsNothing);
-      expect(dotsUnder('nav-settings'), findsOneWidget);
+      expect(dotsUnder('nav-about'), findsOneWidget);
     });
 
     testWidgets('the rules library says it is coming and stays on the page', (
@@ -133,7 +133,13 @@ void main() {
 
     testWidgets('every tab has a label for screen readers', (tester) async {
       await f.pumpAt(tester, '/', container: containerWith());
-      for (final label in ['หน้าแรก', 'เกมค้าง', 'เริ่มเกม', 'ตั้งค่า']) {
+      for (final label in [
+        'หน้าแรก',
+        'เกมค้าง',
+        'เริ่มเกม',
+        'เกี่ยวกับ',
+        'ตั้งค่า',
+      ]) {
         expect(find.bySemanticsLabel(label), findsWidgets, reason: label);
       }
     });
@@ -145,8 +151,8 @@ void main() {
       expect(title(tester), 'Hold My Dice');
       await tapKey(tester, 'nav-saved');
       expect(title(tester), 'เกมค้าง');
-      await tapKey(tester, 'nav-settings');
-      expect(title(tester), 'ตั้งค่า');
+      await tapKey(tester, 'nav-about');
+      expect(title(tester), 'เกี่ยวกับ');
       await tapKey(tester, 'nav-home');
       expect(title(tester), 'Hold My Dice');
     });
@@ -327,7 +333,7 @@ void main() {
     });
   });
 
-  group('settings tab', () {
+  group('settings page', () {
     Set<String> chosen(WidgetTester tester) => {
       for (final k in ['theme-system', 'theme-light', 'theme-dark'])
         if (tester.widget<ThemeOption>(byKey(k)).selected) k,
@@ -335,13 +341,13 @@ void main() {
 
     testWidgets('follows the phone until you choose', (tester) async {
       await f.pumpAt(tester, '/', container: containerWith());
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       expect(chosen(tester), {'theme-system'});
     });
 
     testWidgets('offers the phone setting, Papery and Aurora', (tester) async {
       await f.pumpAt(tester, '/', container: containerWith());
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       expect(find.text('ตามเครื่อง'), findsOneWidget);
       expect(find.text('Papery'), findsOneWidget);
       expect(find.text('Aurora'), findsOneWidget);
@@ -351,7 +357,7 @@ void main() {
       final settings = MemoryAppSettingsStorage();
       final c = containerWith(settings: settings);
       await f.pumpAt(tester, '/', container: c);
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       await tapKey(tester, 'theme-dark');
       expect(c.read(themeModeProvider), ThemeMode.dark);
       expect(settings.loadThemeMode(), ThemeMode.dark);
@@ -365,13 +371,13 @@ void main() {
       final settings = MemoryAppSettingsStorage();
       await settings.saveThemeMode(ThemeMode.light);
       await f.pumpAt(tester, '/', container: containerWith(settings: settings));
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       expect(chosen(tester), {'theme-light'});
     });
 
     testWidgets('only the chosen look shows a tick', (tester) async {
       await f.pumpAt(tester, '/', container: containerWith());
-      await tapKey(tester, 'nav-settings');
+      await tapKey(tester, 'hub-settings');
       expect(byKey('theme-tick'), findsOneWidget);
       await tapKey(tester, 'theme-dark');
       expect(byKey('theme-tick'), findsOneWidget);
@@ -391,7 +397,7 @@ void main() {
         size: const Size(320, 568),
       );
       expect(tester.takeException(), isNull);
-      for (final tab in ['nav-saved', 'nav-settings', 'nav-home']) {
+      for (final tab in ['nav-saved', 'nav-about', 'nav-home']) {
         await tapKey(tester, tab);
         expect(tester.takeException(), isNull, reason: tab);
       }

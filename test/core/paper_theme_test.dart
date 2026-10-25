@@ -91,6 +91,11 @@ void main() {
       expect(light.appBarTheme.elevation, 0);
     });
 
+    test('the page bar has no fill in Aurora either', () {
+      expect(dark.appBarTheme.backgroundColor, Colors.transparent);
+      expect(dark.appBarTheme.elevation, 0);
+    });
+
     test('sheets are paper and dialogs a card with a thin edge', () {
       expect(light.bottomSheetTheme.backgroundColor, PaperStyle.paper);
       final shape = light.dialogTheme.shape! as RoundedRectangleBorder;
