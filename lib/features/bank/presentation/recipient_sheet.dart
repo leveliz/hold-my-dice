@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
+import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/features/bank/domain/player.dart';
 
 class RecipientOption {
   const RecipientOption(this.player, this.balance);
 
   final Player player;
-  final int balance;
+
+  /// Null when balances are hidden.
+  final int? balance;
 }
 
 /// Lets the payer pick who to transfer to. Returns the chosen player, or
@@ -70,13 +73,10 @@ class _RecipientSheet extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
                           children: [
-                            Container(
-                              width: 14,
-                              height: 14,
-                              decoration: BoxDecoration(
-                                color: accent,
-                                shape: BoxShape.circle,
-                              ),
+                            PlayerAvatar(
+                              name: o.player.name,
+                              color: accent,
+                              size: 36,
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -88,7 +88,9 @@ class _RecipientSheet extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              formatMoney(o.balance),
+                              o.balance == null
+                                  ? '••••'
+                                  : formatMoney(o.balance!),
                               style: text.titleMedium,
                             ),
                           ],

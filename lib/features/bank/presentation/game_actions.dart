@@ -12,10 +12,13 @@ import 'package:hold_my_dice/features/bank/presentation/shortfall_screen.dart';
 /// amount, applies it to the session and then shows what happened. A payment
 /// the payer cannot cover goes to the "not enough money" page instead.
 class GameActions {
-  GameActions(this.context, this.ref);
+  GameActions(this.context, this.ref, {this.hideBalances = false});
 
   final BuildContext context;
   final WidgetRef ref;
+
+  /// Balances stay out of the recipient list while the table is hidden.
+  final bool hideBalances;
 
   BankNotifier get _notifier => ref.read(bankProvider.notifier);
   BankSession get _session => ref.read(bankProvider)!;
@@ -83,7 +86,8 @@ class GameActions {
     final game = _session.game;
     final options = [
       for (final p in game.activePlayers)
-        if (p.id != from.id) RecipientOption(p, game.balanceOf(p.id)),
+        if (p.id != from.id)
+          RecipientOption(p, hideBalances ? null : game.balanceOf(p.id)),
     ];
     if (options.isEmpty) return;
     final to = await showRecipientSheet(context, from: from, options: options);

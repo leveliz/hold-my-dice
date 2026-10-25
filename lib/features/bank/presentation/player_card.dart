@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
+import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/core/widgets/tint_button.dart';
 import 'package:hold_my_dice/features/bank/domain/player.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -18,6 +19,7 @@ class PlayerCard extends StatelessWidget {
     required this.onGo,
     required this.onTap,
     this.bankrupt = false,
+    this.hideBalance = false,
   });
 
   static double radiusFor({required bool compact}) => compact ? 20 : 28;
@@ -35,16 +37,17 @@ class PlayerCard extends StatelessWidget {
   /// A bankrupt player is out of the game: shown dimmed, no actions.
   final bool bankrupt;
 
+  /// Shows dots instead of the balance, for a phone left in the middle of
+  /// the table.
+  final bool hideBalance;
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final accent = Color(player.color);
 
-    Widget dot() => Container(
-      width: 14,
-      height: 14,
-      decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-    );
+    Widget avatar(double size) =>
+        PlayerAvatar(name: player.name, color: accent, size: size);
 
     Widget name() => Text(
       player.name,
@@ -54,7 +57,7 @@ class PlayerCard extends StatelessWidget {
     );
 
     Widget money(TextStyle? style) => Text(
-      formatMoney(balance),
+      hideBalance ? '••••' : formatMoney(balance),
       key: ValueKey('balance-${player.id}'),
       style: style?.copyWith(
         fontFeatures: const [FontFeature.tabularFigures()],
@@ -128,7 +131,7 @@ class PlayerCard extends StatelessWidget {
         child: compact
             ? Row(
                 children: [
-                  dot(),
+                  avatar(32),
                   const SizedBox(width: 8),
                   Expanded(child: name()),
                   const SizedBox(width: 8),
@@ -146,7 +149,7 @@ class PlayerCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      dot(),
+                      avatar(36),
                       const SizedBox(width: 8),
                       Expanded(child: name()),
                       money(text.headlineMedium),

@@ -33,6 +33,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   /// Id of the tile being dragged right now ('bank' or a player id).
   final _dragging = ValueNotifier<String?>(null);
   late final ScreenAwake _awake;
+  bool _hideBalances = false;
 
   @override
   void initState() {
@@ -114,7 +115,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final game = session.game;
     final players = game.players;
     final notifier = ref.read(bankProvider.notifier);
-    final actions = GameActions(context, ref);
+    final actions = GameActions(context, ref, hideBalances: _hideBalances);
 
     return PopScope(
       canPop: false,
@@ -130,6 +131,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             child: Text('Pocket Banker'),
           ),
           actions: [
+            IconButton(
+              key: const ValueKey('hide-balances-button'),
+              tooltip: _hideBalances ? 'แสดงยอดเงิน' : 'ซ่อนยอดเงิน',
+              icon: Icon(_hideBalances ? LucideIcons.eyeOff : LucideIcons.eye),
+              onPressed: () => setState(() => _hideBalances = !_hideBalances),
+            ),
             IconButton(
               key: const ValueKey('history-button'),
               tooltip: 'ประวัติ',
@@ -182,6 +189,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             balance: game.balanceOf(p.id),
                             compact: !tall,
                             bankrupt: out,
+                            hideBalance: _hideBalances,
                             onReceive: () => actions.receive(p),
                             onPay: () => actions.payBank(p),
                             onGo: () => notifier.passGo(p.id),
