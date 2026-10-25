@@ -1,3 +1,20 @@
+/// The longest name the Firestore rules accept, measured the way their
+/// `size()` does: in UTF-16 units, so an emoji counts as two.
+const maxNameLength = 20;
+
+/// [name] cut to [maxNameLength] UTF-16 units without splitting a character.
+String cutName(String name) {
+  final out = StringBuffer();
+  var units = 0;
+  for (final rune in name.runes) {
+    final width = rune > 0xFFFF ? 2 : 1;
+    if (units + width > maxNameLength) break;
+    out.writeCharCode(rune);
+    units += width;
+  }
+  return out.toString();
+}
+
 enum RoomStatus { lobby, playing, ended }
 
 enum MemberRole { player, spectator }

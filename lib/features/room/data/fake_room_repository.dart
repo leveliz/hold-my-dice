@@ -5,7 +5,6 @@ import 'package:hold_my_dice/features/room/application/room_code.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 
-const _maxNameLength = 20;
 const _seatIsStaleAfter = Duration(minutes: 2);
 
 /// Always the same person; what tests use instead of Firebase Auth.
@@ -102,9 +101,6 @@ class FakeRoomRepository implements RoomRepository {
     return room;
   }
 
-  static String _cut(String name) =>
-      String.fromCharCodes(name.runes.take(_maxNameLength));
-
   void _checkPassword(_Room room, String? password) {
     final hash = room.passwordHash;
     if (hash == null) return;
@@ -140,7 +136,7 @@ class FakeRoomRepository implements RoomRepository {
       hasPassword ? hashRoomPassword(password, code) : null,
     );
     _store._rooms[code] = room;
-    final clean = _cut(name);
+    final clean = cutName(name);
     _sit(
       room,
       Seat(id: 'p1', uid: uid, name: clean, color: color),
@@ -196,7 +192,7 @@ class FakeRoomRepository implements RoomRepository {
         if (!room.seats.containsKey('p$i')) 'p$i',
     ];
     if (free.isEmpty) throw const RoomException(RoomError.roomFull);
-    final clean = _cut(name);
+    final clean = cutName(name);
     final seat = Seat(id: free.first, uid: uid, name: clean, color: color);
     _sit(
       room,
@@ -228,7 +224,7 @@ class FakeRoomRepository implements RoomRepository {
     }
     room.memberByUid[uid] = Member(
       uid: uid,
-      name: _cut(name),
+      name: cutName(name),
       color: color,
       role: MemberRole.spectator,
     );
