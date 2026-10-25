@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/router.dart';
 import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/page_background.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
@@ -80,56 +82,137 @@ void main() {
   });
 
   group('pages', () {
-    testWidgets('every page sits on the sky gradient', (tester) async {
+    testWidgets('every page sits on the page background', (tester) async {
       for (final path in ['/bank', '/score', '/point']) {
         await pumpRoute(tester, path);
         expect(find.byType(PageBackground), findsOneWidget, reason: path);
       }
     });
 
-    testWidgets('the hub has the gradient behind it and on its sheet', (
-      tester,
-    ) async {
-      await pumpRoute(tester, '/');
-      expect(find.byType(PageBackground), findsNWidgets(2));
+    testWidgets('the hub has one page background in both looks, and no '
+        'rolled-up sheet', (tester) async {
+      for (final b in Brightness.values) {
+        await pumpRoute(tester, '/', brightness: b);
+        expect(find.byType(PageBackground), findsOneWidget, reason: '$b');
+        expect(find.byKey(const ValueKey('hub-sheet')), findsNothing);
+      }
     });
 
-    testWidgets('each helper colours its own header', (tester) async {
+    testWidgets('the bar is flat, with no rounded corners', (tester) async {
+      for (final b in Brightness.values) {
+        await pumpRoute(tester, '/score', brightness: b);
+        final appBar = tester.widget<AppBar>(find.byType(AppBar));
+        expect(appBar.shape, isNull, reason: '$b');
+        final theme = Theme.of(tester.element(find.byType(AppBar)));
+        expect(theme.appBarTheme.elevation, 0, reason: '$b');
+      }
+    });
+
+    testWidgets('the bar is as tall on paper as in Aurora', (tester) async {
+      await pumpRoute(tester, '/bank');
+      final light = tester.getSize(find.byType(AppBar)).height;
+      await pumpRoute(tester, '/bank', brightness: Brightness.dark);
+      expect(tester.getSize(find.byType(AppBar)).height, light);
+    });
+  });
+
+  group('on paper (light)', () {
+    testWidgets('the header has no fill, so the paper shows through', (
+      tester,
+    ) async {
       for (final h in helpers) {
         await pumpRoute(tester, h.route);
+        expect(appBarColor(tester), Colors.transparent, reason: h.id);
+      }
+    });
+
+    testWidgets('a dashed line in the helper colour runs under the title', (
+      tester,
+    ) async {
+      for (final h in helpers) {
+        await pumpRoute(tester, h.route);
+        expect(find.byKey(const ValueKey('header-line')), findsOneWidget);
+        final line = tester.widget<DashedLine>(find.byType(DashedLine));
+        expect(line.color, h.paperColor, reason: h.id);
+      }
+    });
+
+    testWidgets('each helper has its own colour on the line', (tester) async {
+      final seen = <Color>{};
+      for (final h in helpers) {
+        await pumpRoute(tester, h.route);
+        seen.add(tester.widget<DashedLine>(find.byType(DashedLine)).color);
+      }
+      expect(seen.length, helpers.length);
+    });
+
+    testWidgets('the line sits at the foot of the bar and is inset', (
+      tester,
+    ) async {
+      await pumpRoute(tester, '/bank');
+      final bar = tester.getRect(find.byType(AppBar));
+      final line = tester.getRect(find.byType(DashedLine));
+      expect(line.bottom, closeTo(bar.bottom, 1));
+      expect(line.left, 16);
+      expect(line.right, bar.right - 16);
+    });
+
+    testWidgets('the title is ink in the serif face', (tester) async {
+      await pumpRoute(tester, '/bank');
+      final style = DefaultTextStyle.of(
+        tester.element(find.text('ตั้งค่าเกม')),
+      ).style;
+      expect(style.fontFamily, 'NotoSerifThai');
+      expect(style.color, PaperStyle.ink);
+    });
+
+    testWidgets('the back arrow is ink too', (tester) async {
+      await pumpRoute(tester, '/bank');
+      final theme = Theme.of(tester.element(find.byType(AppBar)));
+      expect(theme.appBarTheme.foregroundColor, PaperStyle.ink);
+    });
+
+    testWidgets('the line is drawn in the helper colour of paper, not Aurora', (
+      tester,
+    ) async {
+      await pumpRoute(tester, '/point');
+      final line = tester.widget<DashedLine>(find.byType(DashedLine));
+      expect(line.color, isNot(helperById('point').color));
+      expect(line.color, helperById('point').paperColor);
+    });
+  });
+
+  group('in Aurora (dark)', () {
+    testWidgets('each helper colours its own header band', (tester) async {
+      for (final h in helpers) {
+        await pumpRoute(tester, h.route, brightness: Brightness.dark);
         expect(
           appBarColor(tester),
-          headerColorFor(h.color, Brightness.light),
+          headerColorFor(h.color, Brightness.dark),
           reason: h.id,
         );
       }
     });
 
-    testWidgets('header titles and icons are white on the coloured bar', (
-      tester,
-    ) async {
-      await pumpRoute(tester, '/bank');
-      final title = tester.widget<Text>(find.text('ตั้งค่าเกม'));
+    testWidgets('there is no dashed line under the band', (tester) async {
+      await pumpRoute(tester, '/bank', brightness: Brightness.dark);
+      expect(find.byKey(const ValueKey('header-line')), findsNothing);
+      expect(find.byType(DashedLine), findsNothing);
+    });
+
+    testWidgets('titles are white on the band', (tester) async {
+      await pumpRoute(tester, '/bank', brightness: Brightness.dark);
       final style = DefaultTextStyle.of(
         tester.element(find.text('ตั้งค่าเกม')),
-      );
-      expect(title.style?.color ?? style.style.color, Colors.white);
+      ).style;
+      expect(style.color, Colors.white);
+      expect(style.fontFamily, isNot('NotoSerifThai'));
     });
 
-    testWidgets('the bar is flat, with no rounded corners', (tester) async {
-      await pumpRoute(tester, '/score');
-      final appBar = tester.widget<AppBar>(find.byType(AppBar));
-      expect(appBar.shape, isNull);
-      final theme = Theme.of(tester.element(find.byType(AppBar)));
-      expect(theme.appBarTheme.elevation, 0);
-    });
-
-    testWidgets('the coloured header does not leak into other helpers', (
-      tester,
-    ) async {
-      await pumpRoute(tester, '/bank');
+    testWidgets('one helper colour does not leak into another', (tester) async {
+      await pumpRoute(tester, '/bank', brightness: Brightness.dark);
       final bank = appBarColor(tester);
-      await pumpRoute(tester, '/point');
+      await pumpRoute(tester, '/point', brightness: Brightness.dark);
       expect(appBarColor(tester), isNot(bank));
     });
   });

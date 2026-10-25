@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/widgets/balance_chip.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
 import 'package:hold_my_dice/features/score/domain/score_game.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -45,7 +46,7 @@ class ScoreSummaryScreen extends ConsumerWidget {
         if (!didPop) _leave(context, ref, '/');
       },
       child: Scaffold(
-        appBar: AppBar(
+        appBar: HelperAppBar(
           toolbarHeight: 72,
           automaticallyImplyLeading: false,
           title: const Text('สรุปผลเกม'),
@@ -130,9 +131,6 @@ class ScoreSummaryScreen extends ConsumerWidget {
                       label: const Text('ดูตารางทุกรอบ'),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
                         textStyle: text.titleMedium,
                       ),
                     ),
@@ -144,9 +142,6 @@ class ScoreSummaryScreen extends ConsumerWidget {
                       label: const Text('เล่นอีกครั้ง'),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(56),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
                         textStyle: text.titleLarge,
                       ),
                     ),

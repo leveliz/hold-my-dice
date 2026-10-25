@@ -16,11 +16,8 @@ class Palette {
   static const skyTop = Color(0xFFFFFFFF);
   static const skyBottom = Color(0xFFD9E0FF);
 
-  /// Aurora Glow: the three blooms of the dark page, and the two ends of the
-  /// dark header gradient.
+  /// Aurora Glow: the three blooms of the dark page.
   static const auroraIndigo = Color(0xFF6366F1);
   static const auroraMagenta = Color(0xFFD946EF);
   static const auroraEmerald = Color(0xFF10B981);
-  static const auroraHeaderStart = Color(0xFF4F46E5);
-  static const auroraHeaderEnd = Color(0xFFA21CAF);
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/widgets/dashed_border.dart';
 import 'package:hold_my_dice/features/score/domain/score_game.dart';
 
@@ -80,10 +81,12 @@ class _ScoreTableState extends State<ScoreTable> {
     final game = widget.game;
     final theme = Theme.of(context);
     final text = theme.textTheme;
-    final dark = theme.brightness == Brightness.dark;
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.55);
     final surface = theme.colorScheme.surface;
-    final navy = dark ? const Color(0xFF2B3181) : const Color(0xFF232A7C);
+    final paper = PaperStyle.maybeOf(context) != null;
+    // The totals bar: ink on paper, deep indigo in Aurora.
+    final navy = paper ? PaperStyle.ink : const Color(0xFF2B3181);
+    final barCorner = paper ? PaperStyle.radius : 18.0;
     final leaders = {for (final p in game.leaders) p.id};
 
     Color tint(Color accent, double alpha) =>
@@ -107,10 +110,19 @@ class _ScoreTableState extends State<ScoreTable> {
               key: ValueKey('score-header-${p.id}'),
               margin: const EdgeInsets.fromLTRB(3, 0, 3, _rowGap),
               padding: const EdgeInsets.symmetric(horizontal: 6),
-              decoration: BoxDecoration(
-                color: tint(accent, dark ? 0.45 : 0.4),
-                borderRadius: BorderRadius.circular(14),
-              ),
+              decoration: paper
+                  ? BoxDecoration(
+                      color: Color.alphaBlend(
+                        accent.withValues(alpha: 0.12),
+                        PaperStyle.card,
+                      ),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: accent, width: 1.5),
+                    )
+                  : BoxDecoration(
+                      color: tint(accent, 0.45),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
               alignment: Alignment.center,
               child: Text(
                 p.name,
@@ -131,8 +143,8 @@ class _ScoreTableState extends State<ScoreTable> {
           final Widget body;
           if (score == null) {
             body = DashedBorder(
-              color: muted,
-              radius: 12,
+              color: paper ? PaperStyle.dash : muted,
+              radius: paper ? 6 : 12,
               strokeWidth: 1.5,
               child: Center(
                 child: Text(
@@ -145,23 +157,19 @@ class _ScoreTableState extends State<ScoreTable> {
           } else {
             body = Container(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    tint(accent, dark ? 0.2 : 0.1),
-                    tint(accent, dark ? 0.42 : 0.34),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(12),
+                // A paper cell is plain ivory; an Aurora cell glows its colour.
+                color: paper ? PaperStyle.card : null,
+                gradient: paper
+                    ? null
+                    : LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [tint(accent, 0.2), tint(accent, 0.42)],
+                      ),
+                borderRadius: BorderRadius.circular(paper ? 6 : 12),
                 border: isCurrent
-                    ? Border.all(
-                        color: dark
-                            ? accent
-                            : Color.lerp(accent, Colors.black, 0.35)!,
-                        width: 2,
-                      )
-                    : null,
+                    ? Border.all(color: accent, width: 2)
+                    : (paper ? Border.all(color: PaperStyle.edge) : null),
               ),
               alignment: Alignment.center,
               child: Text(
@@ -276,15 +284,17 @@ class _ScoreTableState extends State<ScoreTable> {
                     margin: const EdgeInsets.only(top: 4),
                     decoration: BoxDecoration(
                       color: navy,
-                      borderRadius: const BorderRadius.horizontal(
-                        left: Radius.circular(18),
+                      borderRadius: BorderRadius.horizontal(
+                        left: Radius.circular(barCorner),
                       ),
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       'รวม',
                       style: text.bodyMedium?.copyWith(
-                        color: const Color(0xFFC9CFFC),
+                        color: paper
+                            ? PaperStyle.onInk.withValues(alpha: 0.8)
+                            : const Color(0xFFC9CFFC),
                       ),
                     ),
                   ),
@@ -325,8 +335,8 @@ class _ScoreTableState extends State<ScoreTable> {
                         margin: const EdgeInsets.only(top: 4),
                         decoration: BoxDecoration(
                           color: navy,
-                          borderRadius: const BorderRadius.horizontal(
-                            right: Radius.circular(18),
+                          borderRadius: BorderRadius.horizontal(
+                            right: Radius.circular(barCorner),
                           ),
                         ),
                         child: Row(

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/format.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 
 Color _darken(Color c, double amount) {
   final hsl = HSLColor.fromColor(c);
   return hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0)).toColor();
 }
 
-/// An amount of money on a light tint of [accent], outlined in a deeper shade
-/// of the same colour.
+/// An amount of money outlined in [accent]: on paper a stamp-like box, in
+/// Aurora a tinted one.
 class BalanceChip extends StatelessWidget {
   const BalanceChip({
     super.key,
@@ -24,14 +25,17 @@ class BalanceChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
+    final paper = PaperStyle.maybeOf(context) != null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: Color.alphaBlend(
-          accent.withValues(alpha: dark ? 0.3 : 0.16),
-          theme.colorScheme.surface,
-        ),
-        borderRadius: BorderRadius.circular(14),
+        color: paper
+            ? PaperStyle.card
+            : Color.alphaBlend(
+                accent.withValues(alpha: 0.3),
+                theme.colorScheme.surface,
+              ),
+        borderRadius: BorderRadius.circular(paper ? 6 : 14),
         border: Border.all(
           color: dark ? accent : _darken(accent, 0.22),
           width: 1.5,

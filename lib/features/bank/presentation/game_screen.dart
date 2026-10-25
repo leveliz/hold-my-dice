@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/widgets/gradient_card.dart';
+import 'package:hold_my_dice/core/widgets/dashed_line.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
 import 'package:hold_my_dice/features/bank/presentation/drag_tile.dart';
@@ -108,7 +112,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final session = ref.watch(bankProvider);
     if (session == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Pocket Banker')),
+        appBar: HelperAppBar(title: const Text('Pocket Banker')),
         body: const Center(child: Text('ยังไม่ได้เริ่มเกม')),
       );
     }
@@ -123,7 +127,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         if (!didPop) _confirmLeave();
       },
       child: Scaffold(
-        appBar: AppBar(
+        appBar: HelperAppBar(
           toolbarHeight: 72,
           title: const FittedBox(
             fit: BoxFit.scaleDown,
@@ -228,6 +232,76 @@ class _Dock extends StatelessWidget {
   final ValueNotifier<String?> dragging;
   final void Function(String sourceId) onDrop;
 
+  /// The bank at the foot of the screen. Papery: an ink ticket with a dashed
+  /// line inside and a kraft edge. Aurora: the blue gradient bar.
+  Widget _bankCard(BuildContext context, TextTheme text, ThemeData theme) {
+    final paper = PaperStyle.maybeOf(context) != null;
+    final radius = GradientCard.radiusFor(context, _bankRadius);
+    final row = Row(
+      children: [
+        Icon(
+          LucideIcons.landmark,
+          color: paper ? PaperStyle.onInk : Colors.white,
+          size: 30,
+        ),
+        const SizedBox(width: 14),
+        Text(
+          'ธนาคาร',
+          style: text.titleLarge?.copyWith(
+            color: paper ? PaperStyle.onInk : Colors.white,
+          ),
+        ),
+      ],
+    );
+    if (paper) {
+      return Container(
+        key: const ValueKey('bank-card'),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: PaperStyle.ink,
+          borderRadius: BorderRadius.circular(radius),
+          boxShadow: const [
+            BoxShadow(color: PaperStyle.kraft, offset: Offset(3, 3)),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              top: -7,
+              child: DashedLine(
+                color: PaperStyle.onInk.withValues(alpha: 0.35),
+                thickness: 1,
+              ),
+            ),
+            row,
+          ],
+        ),
+      );
+    }
+    return Container(
+      key: const ValueKey('bank-card'),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF4A5BE0), Color(0xFF2B3181)],
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x4D16163F),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: row,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -293,44 +367,7 @@ class _Dock extends StatelessWidget {
               feedbackLabel: 'ธนาคาร',
               dragging: dragging,
               onDrop: onDrop,
-              child: Container(
-                key: const ValueKey('bank-card'),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(_bankRadius),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: theme.brightness == Brightness.dark
-                        ? const [Color(0xFF4A5BE0), Color(0xFF2B3181)]
-                        : const [Color(0xFF3A4CC0), Color(0xFF16163F)],
-                  ),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x4D16163F),
-                      blurRadius: 18,
-                      offset: Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      LucideIcons.landmark,
-                      color: Colors.white,
-                      size: 30,
-                    ),
-                    const SizedBox(width: 14),
-                    Text(
-                      'ธนาคาร',
-                      style: text.titleLarge?.copyWith(color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
+              child: _bankCard(context, text, theme),
             ),
           ],
         ),

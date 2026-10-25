@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/point/application/point_session.dart';
 import 'package:hold_my_dice/features/point/domain/point_game.dart';
 import 'package:hold_my_dice/features/point/presentation/point_setup_screen.dart';
@@ -52,7 +53,7 @@ class PointSummaryScreen extends ConsumerWidget {
         if (!didPop) _leave(context, ref, '/');
       },
       child: Scaffold(
-        appBar: AppBar(
+        appBar: HelperAppBar(
           toolbarHeight: 72,
           automaticallyImplyLeading: false,
           title: const Text('สรุปผลเกม'),
@@ -137,9 +138,6 @@ class PointSummaryScreen extends ConsumerWidget {
                       label: const Text('เล่นอีกครั้ง'),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(56),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
                         textStyle: text.titleLarge,
                       ),
                     ),

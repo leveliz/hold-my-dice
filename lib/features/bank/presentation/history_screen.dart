@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/application/entry_labels.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
@@ -14,17 +16,10 @@ class HistoryScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.65);
-    final dark = theme.brightness == Brightness.dark;
-    final tile = dark
-        ? Color.alphaBlend(
-            Colors.white.withValues(alpha: 0.07),
-            theme.colorScheme.surface,
-          )
-        : Colors.white;
     final entries = game == null ? <Entry>[] : game.history.reversed.toList();
 
     return Scaffold(
-      appBar: AppBar(toolbarHeight: 72, title: const Text('ประวัติ')),
+      appBar: HelperAppBar(toolbarHeight: 72, title: const Text('ประวัติ')),
       body: entries.isEmpty
           ? Center(
               key: const ValueKey('history-empty'),
@@ -61,10 +56,7 @@ class HistoryScreen extends ConsumerWidget {
                 return Container(
                   key: ValueKey('history-row-$i'),
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: tile,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
+                  decoration: tileDecoration(context),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

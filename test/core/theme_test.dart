@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/theme.dart';
 
@@ -22,18 +23,19 @@ void main() {
     expect(theme.dialogTheme.backgroundColor, sheet);
   });
 
-  test('light sheets and dialogs are plain white without a tint', () {
+  test('light sheets are paper and dialogs are a card, without a tint', () {
     final theme = buildTheme(Brightness.light);
-    expect(theme.bottomSheetTheme.backgroundColor, Colors.white);
-    expect(theme.dialogTheme.backgroundColor, Colors.white);
+    expect(theme.bottomSheetTheme.backgroundColor, PaperStyle.paper);
+    expect(theme.dialogTheme.backgroundColor, PaperStyle.card);
     expect(theme.bottomSheetTheme.surfaceTintColor, Colors.transparent);
+    expect(theme.dialogTheme.surfaceTintColor, Colors.transparent);
   });
 
   test('text buttons are lighter than the filled cobalt in the dark theme', () {
     final dark = buildTheme(Brightness.dark).textButtonTheme.style!;
     final light = buildTheme(Brightness.light).textButtonTheme.style!;
     Color colorOf(ButtonStyle style) => style.foregroundColor!.resolve({})!;
-    expect(colorOf(light), Palette.cobalt);
+    expect(colorOf(light), PaperStyle.ink);
     expect(colorOf(dark), Palette.cobaltLight);
     expect(
       HSLColor.fromColor(colorOf(dark)).lightness,

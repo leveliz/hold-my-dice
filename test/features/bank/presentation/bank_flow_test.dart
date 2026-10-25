@@ -29,12 +29,13 @@ Future<void> pumpAt(
   String location, {
   ProviderContainer? container,
   Size size = const Size(400, 800),
+  Brightness brightness = Brightness.light,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final app = MaterialApp.router(
-    theme: buildTheme(Brightness.light),
+    theme: buildTheme(brightness),
     routerConfig: createRouter(initialLocation: location),
   );
   await tester.pumpWidget(

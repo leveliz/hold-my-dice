@@ -1,10 +1,14 @@
+import 'dart:ui' show PointMode;
+
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/widgets/dither.dart';
 
-/// The page ground. Light: white fading into pale blue. Dark: midnight lit by
-/// three soft blooms (Aurora Glow), drawn as radial gradients so nothing needs
-/// a blur. Every page paints its own so pages stay opaque while they slide.
+/// The page ground. Light (Papery): warm paper with a faint dotted grain.
+/// Dark (Aurora Glow): midnight lit by three soft blooms, drawn as radial
+/// gradients so nothing needs a blur. Every page paints its own so pages stay
+/// opaque while they slide.
 class PageBackground extends StatelessWidget {
   const PageBackground({super.key, required this.child});
 
@@ -14,15 +18,15 @@ class PageBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     if (!dark) {
-      return DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Palette.skyTop, Palette.skyBottom],
-          ),
+      return ColoredBox(
+        color: PaperStyle.paper,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const RepaintBoundary(child: _PaperGrain()),
+            child,
+          ],
         ),
-        child: child,
       );
     }
     return ColoredBox(
@@ -71,4 +75,43 @@ class _AuroraBlooms extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Faint dots on a 14-pixel grid, like the grain of craft paper.
+class _PaperGrain extends StatelessWidget {
+  const _PaperGrain();
+
+  @override
+  Widget build(BuildContext context) {
+    return const CustomPaint(
+      key: ValueKey('paper-grain'),
+      painter: _GrainPainter(),
+      size: Size.infinite,
+    );
+  }
+}
+
+class _GrainPainter extends CustomPainter {
+  const _GrainPainter();
+
+  static const spacing = 14.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final points = <Offset>[
+      for (var y = spacing / 2; y < size.height; y += spacing)
+        for (var x = spacing / 2; x < size.width; x += spacing) Offset(x, y),
+    ];
+    canvas.drawPoints(
+      PointMode.points,
+      points,
+      Paint()
+        ..color = PaperStyle.grain
+        ..strokeWidth = 1.3
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GrainPainter old) => false;
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hold_my_dice/core/widgets/balance_chip.dart';
+import 'package:hold_my_dice/core/widgets/key_tile.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
 import 'package:hold_my_dice/features/score/domain/score_expression.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -96,15 +97,10 @@ class _ScoreEntrySheetState extends ConsumerState<ScoreEntrySheet> {
     }
 
     Widget key(String label, {String? id, VoidCallback? onTap, Widget? child}) {
-      return Material(
-        color: scheme.onSurface.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          key: ValueKey('score-key-${id ?? label}'),
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap ?? () => _type(label),
-          child: Center(child: child ?? Text(label, style: text.headlineSmall)),
-        ),
+      return KeyTile(
+        inkKey: ValueKey('score-key-${id ?? label}'),
+        onTap: onTap ?? () => _type(label),
+        child: child ?? Text(label, style: text.headlineSmall),
       );
     }
 
@@ -257,9 +253,6 @@ class _ScoreEntrySheetState extends ConsumerState<ScoreEntrySheet> {
               ),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
                 textStyle: text.titleLarge,
               ),
             ),

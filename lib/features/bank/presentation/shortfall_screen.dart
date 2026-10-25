@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/format.dart';
+import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/thousands_formatter.dart';
 import 'package:hold_my_dice/core/widgets/balance_chip.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -135,10 +137,6 @@ class _ShortfallScreenState extends ConsumerState<ShortfallScreen> {
     final remaining = shortfall - mortgageTotal;
     final enough = remaining <= 0;
     final accent = Color(payer.color);
-    final dark = theme.brightness == Brightness.dark;
-    final tile = dark
-        ? Color.alphaBlend(Colors.white.withValues(alpha: 0.07), scheme.surface)
-        : Colors.white;
 
     Widget labelled(String label, Widget chip) => Expanded(
       child: Column(
@@ -152,7 +150,7 @@ class _ShortfallScreenState extends ConsumerState<ShortfallScreen> {
     );
 
     return Scaffold(
-      appBar: AppBar(toolbarHeight: 72, title: const Text('เงินไม่พอ')),
+      appBar: HelperAppBar(toolbarHeight: 72, title: const Text('เงินไม่พอ')),
       body: SafeArea(
         child: Column(
           children: [
@@ -232,10 +230,7 @@ class _ShortfallScreenState extends ConsumerState<ShortfallScreen> {
                     Container(
                       key: ValueKey('mortgage-row-$i'),
                       padding: const EdgeInsets.only(left: 16, right: 4),
-                      decoration: BoxDecoration(
-                        color: tile,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
+                      decoration: tileDecoration(context),
                       child: Row(
                         children: [
                           Expanded(
@@ -266,10 +261,7 @@ class _ShortfallScreenState extends ConsumerState<ShortfallScreen> {
                       Expanded(
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: tile,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
+                          decoration: tileDecoration(context),
                           child: TextField(
                             key: const ValueKey('mortgage-input'),
                             controller: _input,
@@ -349,9 +341,6 @@ class _ShortfallScreenState extends ConsumerState<ShortfallScreen> {
                     onPressed: enough ? _payWithMortgage : null,
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(56),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
                       textStyle: text.titleLarge,
                     ),
                     icon: const Icon(LucideIcons.handCoins),
@@ -365,9 +354,6 @@ class _ShortfallScreenState extends ConsumerState<ShortfallScreen> {
                       minimumSize: const Size.fromHeight(52),
                       foregroundColor: scheme.error,
                       side: BorderSide(color: scheme.error),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
                       textStyle: text.titleMedium,
                     ),
                     icon: const Icon(LucideIcons.logOut),

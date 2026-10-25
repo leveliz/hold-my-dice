@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/format.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/widgets/balance_chip.dart';
+import 'package:hold_my_dice/core/widgets/key_tile.dart';
 import 'package:hold_my_dice/features/bank/domain/player.dart';
 import 'package:hold_my_dice/features/bank/presentation/transfer_pair.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -89,15 +91,10 @@ class _MoneySheetState extends State<MoneySheet> {
     final accent = Color(widget.player.color);
 
     Widget key(String label, {Key? k, VoidCallback? onTap, Widget? child}) {
-      return Material(
-        color: scheme.onSurface.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          key: k,
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap ?? () => _type(label),
-          child: Center(child: child ?? Text(label, style: text.headlineSmall)),
-        ),
+      return KeyTile(
+        inkKey: k,
+        onTap: onTap ?? () => _type(label),
+        child: child ?? Text(label, style: text.headlineSmall),
       );
     }
 
@@ -114,7 +111,7 @@ class _MoneySheetState extends State<MoneySheet> {
                   Text(
                     'โอนเงิน',
                     key: const ValueKey('sheet-transfer-title'),
-                    style: text.titleMedium,
+                    style: headingStyle(context, text.titleMedium),
                   ),
                   const SizedBox(height: 8),
                   TransferPair(
@@ -131,7 +128,7 @@ class _MoneySheetState extends State<MoneySheet> {
                   Text(
                     widget.isPay ? 'จ่ายธนาคาร' : 'รับเงิน',
                     key: const ValueKey('sheet-kind-label'),
-                    style: text.titleMedium,
+                    style: headingStyle(context, text.titleMedium),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -250,9 +247,6 @@ class _MoneySheetState extends State<MoneySheet> {
                   : null,
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
                 textStyle: text.titleLarge,
               ),
               icon: const Icon(LucideIcons.check),

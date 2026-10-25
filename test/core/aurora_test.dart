@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/router.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
-import 'package:hold_my_dice/core/widgets/page_background.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
 
 Future<void> pumpRoute(
@@ -44,11 +44,6 @@ List<RadialGradient> blooms(WidgetTester tester) => [
   ))
     (box.decoration as BoxDecoration).gradient! as RadialGradient,
 ];
-
-LinearGradient? headerGradient(WidgetTester tester) =>
-    (tester.widget<Container>(byKey('hub-header')).decoration! as BoxDecoration)
-            .gradient
-        as LinearGradient?;
 
 double contrastWithWhite(Color c) => 1.05 / (c.computeLuminance() + 0.05);
 
@@ -133,48 +128,19 @@ void main() {
     });
   });
 
-  group('the light page is unchanged', () {
-    testWidgets('white fading to pale blue, with no blooms', (tester) async {
-      await pumpRoute(tester, '/bank', brightness: Brightness.light);
-      expect(byKey('aurora-blooms'), findsNothing);
-      final box = tester.widget<DecoratedBox>(
-        find
-            .descendant(
-              of: find.byType(PageBackground),
-              matching: find.byType(DecoratedBox),
-            )
-            .first,
-      );
-      final gradient =
-          (box.decoration as BoxDecoration).gradient! as LinearGradient;
-      expect(gradient.colors, [Palette.skyTop, Palette.skyBottom]);
-    });
-  });
-
   group('colours', () {
-    test('the dark theme uses indigo, the light theme keeps cobalt', () {
+    test('the dark theme uses indigo, the light theme uses ink', () {
       expect(
         buildTheme(Brightness.dark).colorScheme.primary,
         Palette.auroraIndigo,
       );
-      expect(buildTheme(Brightness.light).colorScheme.primary, Palette.cobalt);
+      expect(buildTheme(Brightness.light).colorScheme.primary, PaperStyle.ink);
     });
 
     test('pages are see-through so the background shows', () {
       for (final b in Brightness.values) {
         expect(buildTheme(b).scaffoldBackgroundColor, Colors.transparent);
       }
-    });
-
-    test('white title text reads on both ends of the dark header', () {
-      expect(
-        contrastWithWhite(Palette.auroraHeaderStart),
-        greaterThanOrEqualTo(4.5),
-      );
-      expect(
-        contrastWithWhite(Palette.auroraHeaderEnd),
-        greaterThanOrEqualTo(4.5),
-      );
     });
 
     test('text on the midnight page reads at 7:1 or better', () {
@@ -186,22 +152,6 @@ void main() {
   });
 
   group('the hub in Aurora', () {
-    testWidgets('the header runs from indigo to magenta', (tester) async {
-      await pumpRoute(tester, '/');
-      expect(headerGradient(tester)!.colors, [
-        Palette.auroraHeaderStart,
-        Palette.auroraHeaderEnd,
-      ]);
-    });
-
-    testWidgets('the light header keeps its blue gradient', (tester) async {
-      await pumpRoute(tester, '/', brightness: Brightness.light);
-      expect(headerGradient(tester)!.colors, [
-        const Color(0xFF6B86FF),
-        const Color(0xFF3340D6),
-      ]);
-    });
-
     testWidgets('the start button glows indigo to magenta in the dark', (
       tester,
     ) async {
@@ -220,24 +170,6 @@ void main() {
         Palette.auroraMagenta,
       ]);
       expect(decoration.boxShadow!.single.color.a, greaterThan(0.4));
-    });
-
-    testWidgets('the start button is cobalt in the light theme', (
-      tester,
-    ) async {
-      await pumpRoute(tester, '/', brightness: Brightness.light);
-      final fab = tester.widget<Container>(
-        find
-            .descendant(
-              of: byKey('nav-start'),
-              matching: find.byType(Container),
-            )
-            .first,
-      );
-      final colors =
-          ((fab.decoration! as BoxDecoration).gradient! as LinearGradient)
-              .colors;
-      expect(colors.last, Palette.cobalt);
     });
 
     testWidgets('the selected tab glows in the dark theme only', (
@@ -282,11 +214,6 @@ void main() {
       final border = (box.decoration as BoxDecoration).border! as Border;
       expect(border.top.width, 1);
       expect(border.top.color.a, greaterThan(0.1));
-    });
-
-    testWidgets('have no edge in the light theme', (tester) async {
-      final box = await cardBox(tester, Brightness.light);
-      expect((box.decoration as BoxDecoration).border, isNull);
     });
 
     testWidgets('glow in their own colour', (tester) async {

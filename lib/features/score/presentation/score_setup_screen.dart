@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/thousands_formatter.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_setup.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
@@ -81,16 +82,12 @@ class _ScoreSetupScreenState extends ConsumerState<ScoreSetupScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
-    final tile = surfaceTileColor(theme);
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.65);
 
     Widget numberField(String key, String label, TextEditingController c) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: tile,
-          borderRadius: BorderRadius.circular(18),
-        ),
+        decoration: tileDecoration(context),
         child: Row(
           children: [
             Expanded(child: Text(label, style: text.titleMedium)),
@@ -119,7 +116,7 @@ class _ScoreSetupScreenState extends ConsumerState<ScoreSetupScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(toolbarHeight: 72, title: const Text('ตั้งค่าเกม')),
+      appBar: HelperAppBar(toolbarHeight: 72, title: const Text('ตั้งค่าเกม')),
       body: SafeArea(
         child: Column(
           children: [
@@ -170,9 +167,6 @@ class _ScoreSetupScreenState extends ConsumerState<ScoreSetupScreen> {
                 onPressed: _canStart ? _start : null,
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
                   textStyle: text.titleLarge,
                 ),
                 icon: const Icon(LucideIcons.play),

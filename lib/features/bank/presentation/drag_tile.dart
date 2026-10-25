@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
+import 'package:hold_my_dice/core/widgets/gradient_card.dart';
 
 /// Makes [child] both draggable (after a long press) and a drop target for
 /// every other tile. While any drag is in progress, tiles that can receive
@@ -55,7 +57,9 @@ class DragTile extends StatelessWidget {
                 key: ValueKey('drop-zone-$id'),
                 position: DecorationPosition.foreground,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(radius),
+                  borderRadius: BorderRadius.circular(
+                    GradientCard.radiusFor(context, radius),
+                  ),
                   border: droppable
                       ? Border.all(color: accent, width: hovering ? 4 : 2.5)
                       : null,
@@ -96,9 +100,11 @@ class _Feedback extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(color: Palette.ink),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: PaperStyle.maybeOf(context) != null
+                ? PaperStyle.ink
+                : Palette.ink,
+          ),
         ),
       ),
     );

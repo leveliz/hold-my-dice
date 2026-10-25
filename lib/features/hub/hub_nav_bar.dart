@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -15,7 +16,9 @@ const _fabSize = 58.0;
 const _auroraOn = Color(0xFFC4B5FD);
 
 /// A floating bar with a smooth notch in the middle and a raised round button
-/// in it. Four tabs sit either side; the selected one shows a dot.
+/// in it. Four tabs sit either side; the selected one shows a dot. On paper
+/// (light) it is an ivory sheet with a kraft button; in Aurora (dark) a glassy
+/// bar with a glowing one.
 class HubNavBar extends StatelessWidget {
   const HubNavBar({
     super.key,
@@ -37,10 +40,13 @@ class HubNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final barColor = dark ? const Color(0xFF15162E) : Colors.white;
-    final on = dark ? _auroraOn : Palette.cobalt;
-    final off = theme.colorScheme.onSurface.withValues(alpha: 0.38);
+    final paper = PaperStyle.maybeOf(context) != null;
+    final barColor = paper ? PaperStyle.card : const Color(0xFF15162E);
+    final on = paper ? PaperStyle.ink : _auroraOn;
+    final dot = paper ? PaperStyle.stamp : _auroraOn;
+    final off = paper
+        ? PaperStyle.faint
+        : theme.colorScheme.onSurface.withValues(alpha: 0.38);
 
     Widget item({
       required Key key,
@@ -69,7 +75,7 @@ class HubNavBar extends StatelessWidget {
                     icon,
                     size: 26,
                     color: color,
-                    shadows: dark && showDot
+                    shadows: !paper && showDot
                         ? [
                             Shadow(
                               color: on.withValues(alpha: 0.9),
@@ -84,7 +90,7 @@ class HubNavBar extends StatelessWidget {
                     height: 6,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: showDot ? on : Colors.transparent,
+                      color: showDot ? dot : Colors.transparent,
                     ),
                   ),
                 ],
@@ -107,7 +113,8 @@ class HubNavBar extends StatelessWidget {
             child: CustomPaint(
               painter: _BarPainter(
                 barColor,
-                edge: dark ? Colors.white.withValues(alpha: 0.16) : null,
+                paper: paper,
+                edge: paper ? null : Colors.white.withValues(alpha: 0.16),
               ),
               child: Row(
                 children: [
@@ -132,7 +139,7 @@ class HubNavBar extends StatelessWidget {
                     key: const ValueKey('nav-rules'),
                     icon: LucideIcons.bookOpen,
                     label: 'คลังกฎ (เร็ว ๆ นี้)',
-                    color: off.withValues(alpha: 0.2),
+                    color: off.withValues(alpha: paper ? 0.55 : 0.2),
                     showDot: false,
                     onTap: onRules,
                   ),
@@ -164,31 +171,48 @@ class HubNavBar extends StatelessWidget {
                     child: Container(
                       width: _fabSize,
                       height: _fabSize,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: dark
-                              ? const [
+                      decoration: paper
+                          ? const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: PaperStyle.kraft,
+                              // An ivory ring, a kraft outline, a kraft edge.
+                              border: Border.fromBorderSide(
+                                BorderSide(color: PaperStyle.card, width: 3),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: PaperStyle.kraft,
+                                  spreadRadius: 1.5,
+                                ),
+                                BoxShadow(
+                                  color: PaperStyle.kraftDark,
+                                  offset: Offset(0, 4),
+                                ),
+                              ],
+                            )
+                          : BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
                                   Palette.auroraIndigo,
                                   Palette.auroraMagenta,
-                                ]
-                              : const [Color(0xFF6B86FF), Palette.cobalt],
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color:
-                                (dark ? Palette.auroraMagenta : Palette.cobalt)
-                                    .withValues(alpha: dark ? 0.55 : 0.4),
-                            blurRadius: 14,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Palette.auroraMagenta.withValues(
+                                    alpha: 0.55,
+                                  ),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                      child: Icon(
                         LucideIcons.dices,
-                        color: Colors.white,
+                        color: paper ? PaperStyle.paper : Colors.white,
                         size: 28,
                       ),
                     ),
@@ -204,9 +228,10 @@ class HubNavBar extends StatelessWidget {
 }
 
 class _BarPainter extends CustomPainter {
-  _BarPainter(this.color, {this.edge});
+  _BarPainter(this.color, {required this.paper, this.edge});
 
   final Color color;
+  final bool paper;
 
   /// A thin light outline, only in the dark theme.
   final Color? edge;
@@ -254,6 +279,23 @@ class _BarPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final path = _path(size);
+    if (paper) {
+      // A sheet of paper on a second sheet: a hard edge below, no soft shadow.
+      canvas.drawPath(
+        path.shift(const Offset(0, 3)),
+        Paint()..color = PaperStyle.sheetFar,
+      );
+      canvas.drawPath(path, Paint()..color = color);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = PaperStyle.edge
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+      _dashedTopLine(canvas, size);
+      return;
+    }
     canvas.drawShadow(path, const Color(0x55141446), 6, false);
     canvas.drawPath(path, Paint()..color = color);
     final line = edge;
@@ -268,6 +310,27 @@ class _BarPainter extends CustomPainter {
     }
   }
 
+  /// The ticket perforation just inside the top edge, either side of the notch.
+  void _dashedTopLine(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = PaperStyle.dash
+      ..strokeWidth = 1;
+    final cx = size.width / 2;
+    void run(double from, double to) {
+      for (var x = from; x < to; x += 8) {
+        canvas.drawLine(
+          Offset(x, 5),
+          Offset(x + 5 > to ? to : x + 5, 5),
+          paint,
+        );
+      }
+    }
+
+    run(_radius / 2, cx - _notchHalfWidth - 14);
+    run(cx + _notchHalfWidth + 14, size.width - _radius / 2);
+  }
+
   @override
-  bool shouldRepaint(_BarPainter old) => old.color != color || old.edge != edge;
+  bool shouldRepaint(_BarPainter old) =>
+      old.color != color || old.edge != edge || old.paper != paper;
 }

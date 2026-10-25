@@ -28,7 +28,8 @@ GoRoute _route(
   pageBuilder: (context, state) {
     Widget page = build(state);
     if (helper != null) {
-      page = HelperScope(color: helperById(helper).color, child: page);
+      final h = helperById(helper);
+      page = HelperScope(color: h.color, paperColor: h.paperColor, child: page);
     }
     return MaterialPage<void>(
       key: state.pageKey,

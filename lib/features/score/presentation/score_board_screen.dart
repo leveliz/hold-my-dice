@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/format.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
 import 'package:hold_my_dice/features/score/domain/score_game.dart';
 import 'package:hold_my_dice/features/score/presentation/score_entry_sheet.dart';
@@ -103,7 +105,7 @@ class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen> {
     final game = ref.watch(scoreProvider);
     if (game == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Score Snitch')),
+        appBar: HelperAppBar(title: const Text('Score Snitch')),
         body: const Center(child: Text('ยังไม่ได้เริ่มเกม')),
       );
     }
@@ -114,7 +116,7 @@ class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen> {
         if (!didPop) _confirmLeave();
       },
       child: Scaffold(
-        appBar: AppBar(
+        appBar: HelperAppBar(
           toolbarHeight: 72,
           title: const FittedBox(
             fit: BoxFit.scaleDown,
@@ -157,9 +159,6 @@ class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen> {
                   label: Text(game.targetReached ? 'จบรอบและจบเกม' : 'จบรอบ'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(56),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
                     textStyle: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
@@ -203,7 +202,12 @@ class _InfoRow extends StatelessWidget {
             key: const ValueKey('score-round-pill'),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
             decoration: BoxDecoration(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.09),
+              color: PaperStyle.maybeOf(context) != null
+                  ? null
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.09),
+              border: PaperStyle.maybeOf(context) != null
+                  ? Border.all(color: PaperStyle.ink, width: 1.5)
+                  : null,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/players/player.dart';
 import 'package:hold_my_dice/core/players/player_colors.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/widgets/dashed_border.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
@@ -154,7 +155,6 @@ class PlayerSetupList extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
-    final tile = surfaceTileColor(theme);
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) => Column(
@@ -165,10 +165,7 @@ class PlayerSetupList extends StatelessWidget {
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                color: tile,
-                borderRadius: BorderRadius.circular(18),
-              ),
+              decoration: tileDecoration(context),
               child: Row(
                 children: [
                   GestureDetector(
@@ -226,10 +223,13 @@ class _AddPlayerButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
+    final paper = PaperStyle.maybeOf(context) != null;
+    final radius = paper ? PaperStyle.radius : 18.0;
     return DashedBorder(
-      color: onSurface.withValues(alpha: 0.3),
+      color: paper ? PaperStyle.kraft : onSurface.withValues(alpha: 0.3),
+      radius: radius,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(radius),
         onTap: onTap,
         child: SizedBox(
           height: 52,

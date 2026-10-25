@@ -65,9 +65,17 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Itim is bundled so Thai text looks right with no network.
+  # Itim is bundled so Thai text looks right with no network. So is Noto Serif
+  # Thai, the heading face of the Papery theme (a variable font: one file
+  # holds every weight).
   assets:
     - google_fonts/
+    - assets/fonts/OFL-NotoSerifThai.txt
+
+  fonts:
+    - family: NotoSerifThai
+      fonts:
+        - asset: assets/fonts/NotoSerifThai.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -7,6 +7,7 @@ import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart' as bank;
 import 'package:hold_my_dice/features/hub/helpers.dart';
+import 'package:hold_my_dice/features/hub/settings_tab.dart';
 import 'package:hold_my_dice/features/point/data/point_storage.dart';
 import 'package:hold_my_dice/features/point/domain/point_game.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
@@ -148,21 +149,6 @@ void main() {
       expect(title(tester), 'ตั้งค่า');
       await tapKey(tester, 'nav-home');
       expect(title(tester), 'Hold My Dice');
-    });
-
-    testWidgets('the sheet rolls up over the header with rounded corners', (
-      tester,
-    ) async {
-      await f.pumpAt(tester, '/', container: containerWith());
-      final header = tester.getRect(byKey('hub-header'));
-      final sheet = tester.getRect(byKey('hub-sheet'));
-      expect(sheet.top, lessThan(header.bottom));
-      final radius =
-          tester.widget<ClipRRect>(byKey('hub-sheet')).borderRadius
-              as BorderRadius;
-      expect(radius.topLeft.x, greaterThan(0));
-      expect(radius.topRight.x, greaterThan(0));
-      expect(radius.bottomLeft, Radius.zero);
     });
 
     testWidgets('the feature pages are not curved', (tester) async {
@@ -342,38 +328,57 @@ void main() {
   });
 
   group('settings tab', () {
-    SegmentedButton<ThemeMode> control(WidgetTester tester) =>
-        tester.widget<SegmentedButton<ThemeMode>>(byKey('theme-mode'));
+    Set<String> chosen(WidgetTester tester) => {
+      for (final k in ['theme-system', 'theme-light', 'theme-dark'])
+        if (tester.widget<ThemeOption>(byKey(k)).selected) k,
+    };
 
     testWidgets('follows the phone until you choose', (tester) async {
       await f.pumpAt(tester, '/', container: containerWith());
       await tapKey(tester, 'nav-settings');
-      expect(control(tester).selected, {ThemeMode.system});
+      expect(chosen(tester), {'theme-system'});
     });
 
-    testWidgets('choosing a mode changes it and keeps it', (tester) async {
+    testWidgets('offers the phone setting, Papery and Aurora', (tester) async {
+      await f.pumpAt(tester, '/', container: containerWith());
+      await tapKey(tester, 'nav-settings');
+      expect(find.text('ตามเครื่อง'), findsOneWidget);
+      expect(find.text('Papery'), findsOneWidget);
+      expect(find.text('Aurora'), findsOneWidget);
+    });
+
+    testWidgets('choosing a look changes it and keeps it', (tester) async {
       final settings = MemoryAppSettingsStorage();
       final c = containerWith(settings: settings);
       await f.pumpAt(tester, '/', container: c);
       await tapKey(tester, 'nav-settings');
-      await tester.tap(find.text('มืด'));
-      await tester.pumpAndSettle();
+      await tapKey(tester, 'theme-dark');
       expect(c.read(themeModeProvider), ThemeMode.dark);
       expect(settings.loadThemeMode(), ThemeMode.dark);
-      await tester.tap(find.text('สว่าง'));
-      await tester.pumpAndSettle();
+      expect(chosen(tester), {'theme-dark'});
+      await tapKey(tester, 'theme-light');
       expect(c.read(themeModeProvider), ThemeMode.light);
-      expect(control(tester).selected, {ThemeMode.light});
+      expect(chosen(tester), {'theme-light'});
     });
 
-    testWidgets('the saved mode is selected when the page opens', (
-      tester,
-    ) async {
+    testWidgets('the saved look is chosen when the page opens', (tester) async {
       final settings = MemoryAppSettingsStorage();
       await settings.saveThemeMode(ThemeMode.light);
       await f.pumpAt(tester, '/', container: containerWith(settings: settings));
       await tapKey(tester, 'nav-settings');
-      expect(control(tester).selected, {ThemeMode.light});
+      expect(chosen(tester), {'theme-light'});
+    });
+
+    testWidgets('only the chosen look shows a tick', (tester) async {
+      await f.pumpAt(tester, '/', container: containerWith());
+      await tapKey(tester, 'nav-settings');
+      expect(byKey('theme-tick'), findsOneWidget);
+      await tapKey(tester, 'theme-dark');
+      expect(byKey('theme-tick'), findsOneWidget);
+      expect(
+        find.descendant(of: byKey('theme-dark'), matching: byKey('theme-tick')),
+        findsOneWidget,
+      );
     });
   });
 

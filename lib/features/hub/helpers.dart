@@ -9,6 +9,7 @@ class Helper {
     required this.subtitle,
     required this.icon,
     required this.color,
+    required this.paperColor,
     required this.route,
   });
 
@@ -17,6 +18,9 @@ class Helper {
   final String subtitle;
   final IconData icon;
   final Color color;
+
+  /// The earthier shade the helper wears on paper (Papery).
+  final Color paperColor;
   final String route;
 }
 
@@ -27,6 +31,7 @@ const helpers = [
     subtitle: 'ธนาคารเกมเศรษฐี',
     icon: LucideIcons.landmark,
     color: Palette.green,
+    paperColor: Color(0xFF3F7A52),
     route: '/bank',
   ),
   Helper(
@@ -35,6 +40,7 @@ const helpers = [
     subtitle: 'นับคะแนนรายรอบ',
     icon: LucideIcons.clipboardList,
     color: Palette.cobalt,
+    paperColor: Color(0xFF3F51A3),
     route: '/score',
   ),
   Helper(
@@ -43,6 +49,7 @@ const helpers = [
     subtitle: 'นับแต้มกีฬา 2 ฝั่ง',
     icon: LucideIcons.crosshair,
     color: Palette.rose,
+    paperColor: Color(0xFFB5432B),
     route: '/point',
   ),
 ];

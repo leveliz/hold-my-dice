@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/widgets/balance_chip.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -31,7 +32,7 @@ class SummaryScreen extends ConsumerWidget {
         if (!didPop) _leave(context, ref, '/');
       },
       child: Scaffold(
-        appBar: AppBar(
+        appBar: HelperAppBar(
           toolbarHeight: 72,
           automaticallyImplyLeading: false,
           title: const Text('สรุปผลเกม'),
@@ -122,9 +123,6 @@ class SummaryScreen extends ConsumerWidget {
                       onPressed: () => _leave(context, ref, '/bank'),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(56),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
                         textStyle: text.titleLarge,
                       ),
                       icon: const Icon(LucideIcons.rotateCcw),

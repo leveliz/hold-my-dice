@@ -7,6 +7,7 @@ import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/thousands_formatter.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:hold_my_dice/features/point/application/point_session.dart';
 import 'package:hold_my_dice/features/point/data/point_storage.dart';
@@ -91,15 +92,11 @@ class _PointSetupScreenState extends ConsumerState<PointSetupScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
-    final tile = surfaceTileColor(theme);
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.65);
 
     Widget row({required Widget label, required Widget field}) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(
-        color: tile,
-        borderRadius: BorderRadius.circular(18),
-      ),
+      decoration: tileDecoration(context),
       child: Row(
         children: [
           Expanded(child: label),
@@ -167,7 +164,7 @@ class _PointSetupScreenState extends ConsumerState<PointSetupScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(toolbarHeight: 72, title: const Text('ตั้งค่าเกม')),
+      appBar: HelperAppBar(toolbarHeight: 72, title: const Text('ตั้งค่าเกม')),
       body: SafeArea(
         child: Column(
           children: [
@@ -193,10 +190,7 @@ class _PointSetupScreenState extends ConsumerState<PointSetupScreen> {
                   if (_targetValue != null) ...[
                     const SizedBox(height: 8),
                     Container(
-                      decoration: BoxDecoration(
-                        color: tile,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
+                      decoration: tileDecoration(context),
                       child: SwitchListTile(
                         key: const ValueKey('deuce'),
                         value: _deuce,
@@ -231,9 +225,6 @@ class _PointSetupScreenState extends ConsumerState<PointSetupScreen> {
                 onPressed: _capTooLow ? null : _start,
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
                   textStyle: text.titleLarge,
                 ),
                 icon: const Icon(LucideIcons.play),

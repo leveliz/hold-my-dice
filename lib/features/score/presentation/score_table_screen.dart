@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
 import 'package:hold_my_dice/features/score/presentation/score_table.dart';
 
@@ -11,7 +12,7 @@ class ScoreTableScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final game = ref.watch(scoreProvider);
     return Scaffold(
-      appBar: AppBar(toolbarHeight: 72, title: const Text('ตารางคะแนน')),
+      appBar: HelperAppBar(toolbarHeight: 72, title: const Text('ตารางคะแนน')),
       body: game == null
           ? const SizedBox.shrink()
           : SafeArea(

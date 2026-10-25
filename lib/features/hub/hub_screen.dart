@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
+import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
-import 'package:hold_my_dice/core/widgets/page_background.dart';
+import 'package:hold_my_dice/core/widgets/stamp.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
 import 'package:hold_my_dice/features/hub/hub_nav_bar.dart';
 import 'package:hold_my_dice/features/hub/saved_games.dart';
@@ -12,8 +14,12 @@ import 'package:hold_my_dice/features/hub/settings_tab.dart';
 import 'package:hold_my_dice/features/hub/start_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-const _headerBody = 112.0;
-const _sheetRadius = 32.0;
+/// How far down the page starts under the header (below the status bar).
+const _headerBody = 92.0;
+
+/// The Aurora header's stamp and subtitle: pale violet on the dark page.
+const _auroraStamp = Color(0xFFC4B5FD);
+const _auroraMuted = Color(0xFFC7C7E8);
 
 class HubScreen extends ConsumerStatefulWidget {
   const HubScreen({super.key});
@@ -111,6 +117,20 @@ class _HubScreenState extends ConsumerState<HubScreen> {
       HubTab.settings => SettingsTab(bottomSpace: navSpace),
     };
 
+    final nav = Positioned(
+      left: 16,
+      right: 16,
+      bottom: 8 + inset.bottom,
+      child: HubNavBar(
+        selected: _tab,
+        onSelect: (tab) => setState(() => _tab = tab),
+        onStart: () => showStartSheet(context),
+        onRules: _showRulesSoon,
+      ),
+    );
+
+    // Both looks share one layout: the title sits on the page itself over a
+    // line, and the tab's page starts underneath.
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
@@ -122,7 +142,6 @@ class _HubScreenState extends ConsumerState<HubScreen> {
             child: _HubHeader(
               title: title,
               subtitle: subtitle,
-              height: inset.top + _headerBody + _sheetRadius,
               topInset: inset.top,
             ),
           ),
@@ -131,104 +150,118 @@ class _HubScreenState extends ConsumerState<HubScreen> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: ClipRRect(
-              key: const ValueKey('hub-sheet'),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(_sheetRadius),
-              ),
-              child: PageBackground(child: body),
-            ),
+            child: body,
           ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 8 + inset.bottom,
-            child: HubNavBar(
-              selected: _tab,
-              onSelect: (tab) => setState(() => _tab = tab),
-              onStart: () => showStartSheet(context),
-              onRules: _showRulesSoon,
-            ),
-          ),
+          nav,
         ],
       ),
     );
   }
 }
 
-/// The curved header of the hub: the app name over a cobalt gradient, with the
-/// page sheet rolling up over its lower edge.
+/// The hub header: the title and a stamp over a line, on the page itself.
+/// Papery: serif ink, a red stamp, a dashed line. Aurora: white lettering, a
+/// stamp that glows, a line that fades from indigo to magenta.
 class _HubHeader extends StatelessWidget {
   const _HubHeader({
     required this.title,
     required this.subtitle,
-    required this.height,
     required this.topInset,
   });
 
   final String title;
   final String subtitle;
-  final double height;
   final double topInset;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final text = theme.textTheme;
-    return Container(
-      key: const ValueKey('hub-header'),
-      height: height,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: dark
-              ? const [Palette.auroraHeaderStart, Palette.auroraHeaderEnd]
-              : const [Color(0xFF6B86FF), Color(0xFF3340D6)],
-        ),
-      ),
-      padding: EdgeInsets.fromLTRB(24, topInset + 18, 24, 0),
-      alignment: Alignment.topLeft,
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    title,
-                    key: const ValueKey('hub-title'),
-                    style: text.headlineMedium?.copyWith(
-                      color: Colors.white,
-                      fontSize: 34,
-                    ),
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.85),
-                  ),
+    final text = Theme.of(context).textTheme;
+    final paper = PaperStyle.maybeOf(context) != null;
+    final titleStyle = paper
+        ? serifStyle(
+            text.headlineMedium?.copyWith(color: PaperStyle.ink, fontSize: 28),
+          )
+        : text.headlineMedium?.copyWith(color: Colors.white, fontSize: 30);
+    final stamp = paper
+        ? const Stamp(
+            key: ValueKey('hub-stamp'),
+            color: PaperStyle.stamp,
+            size: 46,
+            child: Icon(LucideIcons.dices),
+          )
+        : DecoratedBox(
+            key: const ValueKey('hub-glow'),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Palette.auroraMagenta.withValues(alpha: 0.45),
+                  blurRadius: 16,
                 ),
               ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            width: 48,
-            height: 48,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
+            child: const Stamp(
+              key: ValueKey('hub-stamp'),
+              color: _auroraStamp,
+              size: 46,
+              child: Icon(LucideIcons.dices),
             ),
-            child: const Icon(LucideIcons.dices, color: Palette.cobalt),
+          );
+    return Container(
+      key: const ValueKey('hub-header'),
+      padding: EdgeInsets.fromLTRB(22, topInset + 14, 22, 0),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        title,
+                        key: const ValueKey('hub-title'),
+                        style: titleStyle,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyMedium?.copyWith(
+                        color: paper ? PaperStyle.kraft : _auroraMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              stamp,
+            ],
           ),
+          const SizedBox(height: 12),
+          if (paper)
+            const DashedLine(color: PaperStyle.dash)
+          else
+            Container(
+              key: const ValueKey('hub-glow-line'),
+              height: 2,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(1),
+                gradient: const LinearGradient(
+                  colors: [Palette.auroraIndigo, Palette.auroraMagenta],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Palette.auroraMagenta.withValues(alpha: 0.5),
+                    blurRadius: 6,
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -242,11 +275,14 @@ class _HomeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final paper = PaperStyle.maybeOf(context) != null;
     return GridView.count(
-      padding: EdgeInsets.fromLTRB(20, 22, 20, bottomSpace),
+      // Paper cards stack their sheets to the right and below, so the gaps are
+      // a little wider there.
+      padding: EdgeInsets.fromLTRB(20, 22, paper ? 26 : 20, bottomSpace),
       crossAxisCount: 2,
-      mainAxisSpacing: 18,
-      crossAxisSpacing: 18,
+      mainAxisSpacing: paper ? 24 : 18,
+      crossAxisSpacing: paper ? 24 : 18,
       children: [for (final h in helpers) _HelperCard(helper: h)],
     );
   }
@@ -261,6 +297,10 @@ class _HelperCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final paper = PaperStyle.maybeOf(context) != null;
+    final muted = paper
+        ? PaperStyle.kraft
+        : scheme.onSurface.withValues(alpha: 0.65);
     return GradientCard(
       key: ValueKey('helper-${helper.id}'),
       accent: helper.color,
@@ -270,15 +310,24 @@ class _HelperCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: helper.color.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(18),
+            if (paper)
+              Stamp(
+                key: ValueKey('helper-stamp-${helper.id}'),
+                color: helper.paperColor,
+                size: 54,
+                tilt: -8,
+                child: Icon(helper.icon),
+              )
+            else
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: helper.color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(helper.icon, size: 28, color: helper.color),
               ),
-              child: Icon(helper.icon, size: 28, color: helper.color),
-            ),
             Expanded(
               child: Align(
                 alignment: Alignment.bottomLeft,
@@ -289,12 +338,16 @@ class _HelperCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(helper.name, style: text.titleLarge),
+                      Text(
+                        helper.name,
+                        key: ValueKey('helper-name-${helper.id}'),
+                        style: paper
+                            ? serifStyle(text.titleLarge)
+                            : text.titleLarge,
+                      ),
                       Text(
                         helper.subtitle,
-                        style: text.bodyMedium?.copyWith(
-                          color: scheme.onSurface.withValues(alpha: 0.65),
-                        ),
+                        style: text.bodyMedium?.copyWith(color: muted),
                       ),
                     ],
                   ),
