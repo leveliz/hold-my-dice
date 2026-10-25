@@ -1,0 +1,13 @@
+{
+  "name": "hold-my-dice-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser checks of the multi-device mode; run by hand against the dev project.",
+  "scripts": {
+    "test": "node two_browsers.mjs",
+    "quick": "E2E_QUICK=1 node two_browsers.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}

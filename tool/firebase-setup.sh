@@ -214,23 +214,28 @@ ask_project_id() {
   done
 }
 
-# Looks for the Firestore region in the CLI's list of databases of a project.
+# The location of the default Firestore database of a project, or nothing.
 firestore_region() {
-  firebase firestore:databases:list --project "$1" 2>/dev/null | grep -o "$REGION" | head -n1 || true
+  firebase firestore:databases:get "(default)" --project "$1" 2>/dev/null |
+    sed 's/\[[0-9;]*m//g' | awk -F'│' '/Location/ { gsub(/ /, "", $3); print $3; exit }' || true
 }
 
-# Checks the database of a project is where it should be; offers to retry.
+# Checks the database of a project is in Singapore or Bangkok; offers to retry.
 check_firestore() {
-  local project="$1"
+  local project="$1" found
   while true; do
-    if [[ -n "$(firestore_region "$project")" ]]; then
-      printf ' %s✓ found a Firestore database in %s%s\n' "$GREEN" "$REGION" "$RESET"
-      return
-    fi
-    warn "no Firestore database in $REGION found for $project yet."
-    note "(the region cannot be changed afterwards: if it was created somewhere else, delete it in the console and create it again)"
+    found="$(firestore_region "$project")"
+    case "$found" in
+      asia-southeast1|asia-southeast3)
+        printf ' %s✓ Firestore database found in %s%s
+' "$GREEN" "$found" "$RESET"
+        return ;;
+      "") warn "no Firestore database found for $project yet." ;;
+      *) warn "the database of $project is in $found, not Singapore or Bangkok." ;;
+    esac
+    note "(the location cannot be changed afterwards: delete the database in the console and create it again if it is wrong)"
     if confirm "Check again?"; then continue; fi
-    SKIPPED+=("Firestore database in $REGION for $project was not confirmed")
+    SKIPPED+=("Firestore location of $project was not confirmed (found: ${found:-none})")
     return
   done
 }
@@ -271,7 +276,7 @@ stage "Dev project — Firestore database" 3
 say "This is the database the app writes rooms to."
 open_url "$CONSOLE/project/$DEV_PROJECT_ID/firestore"
 step "Click 'Create database'."
-step "Location: pick $REGION (Singapore). This cannot be changed later."
+step "Location: pick $REGION (Singapore) or asia-southeast3 (Bangkok). This cannot be changed later."
 step "Security rules: choose 'Start in production mode' (closed; Claude deploys the real rules)."
 step "Click 'Create' and wait until the empty database page appears."
 pause "Created? Press Enter and the wizard will check it."
@@ -305,7 +310,7 @@ write_env PROD_PROJECT_ID "$PROD_PROJECT_ID"
 stage "Prod project — Firestore database" 3
 open_url "$CONSOLE/project/$PROD_PROJECT_ID/firestore"
 step "Click 'Create database'."
-step "Location: $REGION (Singapore) — the same as dev, and it cannot be changed later."
+step "Location: the same as dev ($REGION or asia-southeast3). It cannot be changed later."
 step "Security rules: 'Start in production mode'."
 step "Click 'Create' and wait for the empty database page."
 pause "Created? Press Enter and the wizard will check it."

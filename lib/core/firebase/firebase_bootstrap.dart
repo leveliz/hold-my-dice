@@ -1,8 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:hold_my_dice/core/firebase/firebase_options_dev.dart';
-import 'package:hold_my_dice/core/firebase/firebase_options_prod.dart';
+import 'package:hold_my_dice/core/firebase/firebase_options_dev.dart' as dev;
+import 'package:hold_my_dice/core/firebase/firebase_options_emulator.dart';
+import 'package:hold_my_dice/core/firebase/firebase_options_prod.dart' as prod;
 
 /// Which Firebase project the app talks to. [name] is `dev` or `prod`;
 /// [emulatorHost] (for example `localhost`, or `10.0.2.2` from the Android
@@ -33,10 +34,12 @@ const _firestoreEmulatorPort = 8080;
 const _authEmulatorPort = 9099;
 
 Future<void> initializeFirebase(FirebaseEnv env) async {
+  final host = env.emulatorHost;
   await Firebase.initializeApp(
-    options: switch (env.name) {
-      'dev' => devFirebaseOptions,
-      'prod' => prodFirebaseOptions,
+    options: switch ((host, env.name)) {
+      (String(), _) => emulatorFirebaseOptions,
+      (_, 'dev') => dev.DefaultFirebaseOptions.currentPlatform,
+      (_, 'prod') => prod.DefaultFirebaseOptions.currentPlatform,
       _ => throw ArgumentError.value(
         env.name,
         'FIREBASE_ENV',
@@ -44,7 +47,6 @@ Future<void> initializeFirebase(FirebaseEnv env) async {
       ),
     },
   );
-  final host = env.emulatorHost;
   if (host != null) {
     await FirebaseAuth.instance.useAuthEmulator(host, _authEmulatorPort);
     FirebaseFirestore.instance.useFirestoreEmulator(

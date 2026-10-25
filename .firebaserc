@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "demo-hold-my-dice"
+    "default": "demo-hold-my-dice",
+    "dev": "hold-my-dice-dev",
+    "prod": "hold-my-dice"
   }
 }

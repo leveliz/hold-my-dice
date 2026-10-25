@@ -56,3 +56,4 @@ firebase_tests/node_modules/
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+tool/e2e/node_modules
