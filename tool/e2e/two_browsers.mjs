@@ -74,6 +74,26 @@ try {
   check(await seen(owner, 'Guest'), 'the owner sees the guest appear without reloading');
   const joinedAt = Date.now();
 
+  // 2b. The longest name the rules accept (20 UTF-16 units: Thai letters and
+  // emoji) is stored whole and shown to the owner as typed.
+  const longName = 'สวัสดีชาวโลก😀😀😀😀';
+  const thai = await person('thai');
+  await open(thai, `/room/${code}`);
+  await typeName(thai, longName);
+  await button(thai, 'นั่งโต๊ะ').click();
+  check(await seen(thai, 'ห้องรอ'), 'a 20-unit Thai and emoji name can join');
+  check(await seen(owner, longName), 'the owner sees that name whole');
+
+  // 2c. Without a connection a join says so (and does not claim the room ended).
+  const late = await person('late');
+  await open(late, `/room/${code}`);
+  await typeName(late, 'Late');
+  await late.ctx.setOffline(true);
+  await button(late, 'นั่งโต๊ะ').click();
+  check(await seen(late, 'ออฟไลน์อยู่', 30000), 'a join without signal says it is offline');
+  check(!(await seen(late, 'ห้องนี้จบแล้ว', 1000)), 'and does not say the room has ended');
+  await late.ctx.close();
+
   if (!quick) {
     // 3. The guest stays open: their beats keep the seat from being taken over.
     await sleep(Math.max(0, 150_000 - (Date.now() - joinedAt)));
@@ -92,12 +112,22 @@ try {
     await takeOverGuestSeat(thief).click();
     check(await seen(thief, 'ห้องรอ', 15000), 'a seat left alone for 2 minutes is taken over');
     check(await seen(owner, 'Guest'), 'the owner still sees the seat by its name');
-    await thief.ctx.close();
-  }
 
-  // 5. The owner starts the game.
-  await button(owner, 'เริ่มเกม').click();
-  check(await seen(owner, 'เกมเริ่มแล้ว'), 'the owner starts the game');
+    // 5. The owner disappears; after 2 minutes a member takes the room over
+    // and starts the game.
+    await owner.ctx.close();
+    await sleep(150_000);
+    await open(thief, `/room/${code}`);
+    check(await seen(thief, 'ห้องรอ'), 'the member is back in the waiting room');
+    await button(thief, 'รับเป็นเจ้าของแทน').click();
+    check(await seen(thief, 'เริ่มเกม'), 'a member takes the room over from a gone owner');
+    await button(thief, 'เริ่มเกม').click();
+    check(await seen(thief, 'เกมเริ่มแล้ว'), 'the new owner starts the game');
+  } else {
+    // 5. The owner starts the game.
+    await button(owner, 'เริ่มเกม').click();
+    check(await seen(owner, 'เกมเริ่มแล้ว'), 'the owner starts the game');
+  }
 } finally {
   await browser.close();
 }
