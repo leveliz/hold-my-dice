@@ -7,6 +7,7 @@ import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
+import 'package:hold_my_dice/features/room/application/presence_beater.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
@@ -45,14 +46,49 @@ class RoomScreen extends ConsumerWidget {
                   error: (_, _) => const _Message(_gone, home: true),
                   data: (me) {
                     if (me == null) return _JoinForm(meta: meta);
-                    return meta.status == RoomStatus.lobby
-                        ? _Lobby(meta: meta, me: me)
-                        : const _Playing();
+                    return _Present(
+                      code: code,
+                      child: meta.status == RoomStatus.lobby
+                          ? _Lobby(meta: meta, me: me)
+                          : const _Playing(),
+                    );
                   },
                 );
           },
         );
   }
+}
+
+/// Keeps telling the room that this person is here for as long as they are
+/// on one of its pages (the waiting room and the game).
+class _Present extends ConsumerStatefulWidget {
+  const _Present({required this.code, required this.child});
+
+  final String code;
+  final Widget child;
+
+  @override
+  ConsumerState<_Present> createState() => _PresentState();
+}
+
+class _PresentState extends ConsumerState<_Present> {
+  late final PresenceBeater _beater;
+
+  @override
+  void initState() {
+    super.initState();
+    _beater = PresenceBeater(ref.read(roomRepositoryProvider), widget.code)
+      ..start();
+  }
+
+  @override
+  void dispose() {
+    _beater.stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// A page with one line of text (or a spinner when [text] is null).
