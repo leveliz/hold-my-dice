@@ -13,6 +13,8 @@ import 'package:hold_my_dice/features/hub/settings_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_board_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_setup_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_summary_screen.dart';
+import 'package:hold_my_dice/features/room/application/room_code.dart';
+import 'package:hold_my_dice/features/room/presentation/join_room_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_board_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_setup_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_summary_screen.dart';
@@ -63,6 +65,12 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
       helper: 'score',
     ),
     _route('/score/table', (_) => const ScoreTableScreen(), helper: 'score'),
+    _route(
+      '/room/:code',
+      (state) => JoinRoomScreen(
+        code: normalizeRoomCode(state.pathParameters['code']!),
+      ),
+    ),
     _route('/point', (_) => const PointSetupScreen(), helper: 'point'),
     _route('/point/play', (_) => const PointBoardScreen(), helper: 'point'),
     _route(
