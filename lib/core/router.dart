@@ -17,6 +17,7 @@ import 'package:hold_my_dice/features/score/presentation/score_board_screen.dart
 import 'package:hold_my_dice/features/score/presentation/score_setup_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_summary_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_table_screen.dart';
+import 'package:hold_my_dice/features/splash/splash_screen.dart';
 
 /// A route whose page paints the sky gradient itself; [helper] gives its
 /// header that helper's colour.
@@ -42,6 +43,7 @@ GoRoute _route(
 GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
   initialLocation: initialLocation,
   routes: [
+    _route('/splash', (_) => const SplashScreen()),
     _route('/', (_) => const HubScreen()),
     _route('/settings', (_) => const SettingsScreen()),
     _route('/bank', (_) => const SetupScreen(), helper: 'bank'),
@@ -71,4 +73,5 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
   ],
 );
 
-final router = createRouter();
+/// The app opens on the splash, which hands over to the hub.
+final router = createRouter(initialLocation: '/splash');

@@ -46,3 +46,6 @@ app.*.map.json
 
 # graphify knowledge graph output
 graphify-out/
+
+# Brainstorm mockups (superpowers visual companion)
+.superpowers/
