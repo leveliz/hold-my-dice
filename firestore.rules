@@ -73,6 +73,34 @@ service cloud.firestore {
       return !room.hasPassword || d.get('pwHash', null) == room.passwordHash;
     }
 
+    // The starting position of a game: the seats that play, each holding the
+    // starting cash, plus a bank balance exactly when the room has a bank.
+    function validStart(d, settings) {
+      return d.keys().hasOnly(['v', 'seq', 'seats', 'balances', 'bankrupt',
+                               'bankerSeat', 'status'])
+        && d.keys().hasAll(['v', 'seq', 'seats', 'balances', 'bankrupt',
+                            'bankerSeat', 'status'])
+        && d.v == 1
+        && d.seq == 0
+        && d.status == 'playing'
+        && d.bankrupt == []
+        && d.bankerSeat == null
+        && d.seats is list
+        && d.seats.size() >= 2
+        && d.seats.size() <= settings.maxPlayers
+        && d.seats.toSet().size() == d.seats.size()
+        && d.seats.hasOnly(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'])
+        && d.balances is map
+        && d.balances.keys().hasAll(d.seats)
+        && (settings.bankLimit == null
+            ? d.balances.size() == d.seats.size()
+              && d.balances.values().hasOnly([settings.startingCash])
+            : d.balances.size() == d.seats.size() + 1
+              && d.balances.bank == settings.bankLimit
+              && d.balances.values().hasOnly([settings.startingCash,
+                                              settings.bankLimit]));
+    }
+
     // ---- rooms/{code} --------------------------------------------------
 
     match /rooms/{code} {
@@ -108,6 +136,16 @@ service cloud.firestore {
               && validPassword(request.resource.data)
             : request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly(['status']));
+
+      // A member takes over a lobby whose owner has not been seen for 2
+      // minutes: only ownerUid changes, and it becomes the member's own uid.
+      allow update: if isMember(code)
+        && resource.data.status == 'lobby'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['ownerUid'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && get(presenceDoc(code, resource.data.ownerUid)).data.lastSeen
+             < request.time - duration.value(2, 'm');
 
       allow delete: if false;
 
@@ -191,7 +229,48 @@ service cloud.firestore {
           && validName(request.resource.data.name)
           && request.resource.data.color is int;
 
+        // The member document of an identity that lost its seat can be removed
+        // by whoever holds that seat now, in the same batch as the takeover.
+        allow delete: if signedIn()
+          && resource.data.role == 'player'
+          && resource.data.seat is string
+          && getAfter(seatDoc(code, resource.data.seat)).data.uid != memberId
+          && getAfter(seatDoc(code, resource.data.seat)).data.uid
+               == request.auth.uid;
+      }
+
+      // ---- presence ----------------------------------------------------
+      // Everyone writes only their own, every minute; read one at a time when
+      // a seat or the room has to be taken over.
+      match /presence/{uid} {
+        allow get: if isMember(code);
+        allow list: if false;
+
+        allow create, update: if signedIn()
+          && uid == request.auth.uid
+          && (isMember(code) || existsAfter(memberDoc(code, uid)))
+          && request.resource.data.keys().hasOnly(['lastSeen'])
+          && request.resource.data.keys().hasAll(['lastSeen'])
+          && request.resource.data.lastSeen == request.time;
+
         allow delete: if false;
+      }
+
+      // ---- state -------------------------------------------------------
+      // The balances at a glance, written when the game starts (here) and kept
+      // up to date by the entries (later slice).
+      match /state/{docId} {
+        allow read: if isMember(code);
+
+        allow create: if signedIn()
+          && docId == 'current'
+          && getAfter(roomDoc(code)).data.ownerUid == request.auth.uid
+          && get(roomDoc(code)).data.status == 'lobby'
+          && getAfter(roomDoc(code)).data.status == 'playing'
+          && validStart(request.resource.data,
+                        getAfter(roomDoc(code)).data.settings);
+
+        allow update, delete: if false;
       }
     }
   }

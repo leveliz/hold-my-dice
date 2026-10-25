@@ -77,6 +77,19 @@ const memberData = (name = 'ต้น', over = {}) => ({
   ...over,
 });
 
+const stateDoc = (db, code = CODE) => doc(db, 'rooms', code, 'state', 'current');
+
+const stateData = (over = {}) => ({
+  v: 1,
+  seq: 0,
+  seats: ['p1', 'p2'],
+  balances: { p1: 1500, p2: 1500 },
+  bankrupt: [],
+  bankerSeat: null,
+  status: 'playing',
+  ...over,
+});
+
 const room = (db, code = CODE) => doc(db, 'rooms', code);
 const seat = (db, id, code = CODE) => doc(db, 'rooms', code, 'seats', id);
 const member = (db, uid, code = CODE) => doc(db, 'rooms', code, 'members', uid);
@@ -557,5 +570,270 @@ describe('members', () => {
     await assertFails(
       setDoc(member(as('s1'), 's1'), memberData('x'.repeat(21), { role: 'spectator', seat: null })),
     );
+  });
+});
+
+/** The owner presses start: status and state in one batch. */
+function startBatch(db, stateOver = {}, { stateId = 'current' } = {}) {
+  const batch = writeBatch(db);
+  batch.update(room(db), { status: 'playing' });
+  batch.set(doc(db, 'rooms', CODE, 'state', stateId), stateData(stateOver));
+  return batch.commit();
+}
+
+const twoPlayers = { seats: ['owner', 'u2'] };
+
+describe('state', () => {
+  it('the owner starts the game: status playing and state created in one batch', async () => {
+    await seedRoom(twoPlayers);
+    await assertSucceeds(startBatch(as('owner')));
+  });
+
+  it('a player who is not the owner cannot start', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(startBatch(as('u2')));
+  });
+
+  it('state cannot be created while the room is still in the lobby', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(setDoc(stateDoc(as('owner')), stateData()));
+  });
+
+  it('state cannot be created in a room that already plays', async () => {
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await assertFails(setDoc(stateDoc(as('owner')), stateData()));
+  });
+
+  it('only the document named current exists', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(startBatch(as('owner'), {}, { stateId: 'other' }));
+  });
+
+  it('every balance must be the starting cash', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p2: 99999 } }));
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p2: 1500, p3: 1500 } }));
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500 } }));
+  });
+
+  it('a bank balance equal to bankLimit is needed when the room has one', async () => {
+    await seedRoom({ ...twoPlayers, metaOver: { settings: settings({ bankLimit: 5000 }) } });
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p2: 1500, bank: 4000 } }));
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p2: 1500 } }));
+    await assertSucceeds(startBatch(as('owner'), { balances: { p1: 1500, p2: 1500, bank: 5000 } }));
+  });
+
+  it('in a room with a bank, the seats and the bank are all there is', async () => {
+    await seedRoom({ ...twoPlayers, metaOver: { settings: settings({ bankLimit: 5000 }) } });
+    await assertFails(
+      startBatch(as('owner'), { balances: { p1: 1500, p2: 1500, p3: 1500, bank: 5000 } }),
+    );
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p2: 777, bank: 5000 } }));
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p2: 1500, bank: 1500 } }));
+  });
+
+  it('a bank balance is refused when the room has no bank limit', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p2: 1500, bank: 1500 } }));
+  });
+
+  it('seats must be 2 up to maxPlayers distinct seat ids', async () => {
+    await seedRoom({ ...twoPlayers, metaOver: { settings: settings({ maxPlayers: 3 }) } });
+    const bal = (ids) => Object.fromEntries(ids.map((i) => [i, 1500]));
+    await assertFails(startBatch(as('owner'), { seats: ['p1'], balances: bal(['p1']) }));
+    await assertFails(
+      startBatch(as('owner'), { seats: ['p1', 'p2', 'p3', 'p4'], balances: bal(['p1', 'p2', 'p3', 'p4']) }),
+    );
+    await assertFails(startBatch(as('owner'), { seats: ['p1', 'p1'], balances: bal(['p1']) }));
+    await assertFails(startBatch(as('owner'), { seats: ['p1', 'q2'], balances: bal(['p1', 'q2']) }));
+    await assertSucceeds(startBatch(as('owner'), { seats: ['p1', 'p3'], balances: bal(['p1', 'p3']) }));
+  });
+
+  it('balances must be keyed by exactly the seats', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(startBatch(as('owner'), { balances: { p1: 1500, p3: 1500 } }));
+  });
+
+  it('a new game starts at seq 0, v 1, nobody bankrupt, no banker, status playing', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(startBatch(as('owner'), { v: 2 }));
+    await assertFails(startBatch(as('owner'), { seq: 1 }));
+    await assertFails(startBatch(as('owner'), { bankrupt: ['p2'] }));
+    await assertFails(startBatch(as('owner'), { bankerSeat: 'p2' }));
+    await assertFails(startBatch(as('owner'), { status: 'ended' }));
+  });
+
+  it('state has exactly the known fields', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(startBatch(as('owner'), { surprise: 1 }));
+  });
+
+  it('state cannot be changed or deleted directly, not even by the owner', async () => {
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await admin((db) => setDoc(stateDoc(db), stateData()));
+    await assertFails(updateDoc(stateDoc(as('owner')), { seq: 1 }));
+    await assertFails(deleteDoc(stateDoc(as('owner'))));
+  });
+
+  it('a member can read the state, a non-member cannot', async () => {
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await admin((db) => setDoc(stateDoc(db), stateData()));
+    await assertSucceeds(getDoc(stateDoc(as('u2'))));
+    await assertFails(getDoc(stateDoc(as('stranger'))));
+    await assertFails(getDoc(stateDoc(anonymous())));
+  });
+});
+
+describe('presence', () => {
+  const beatNow = (db, uid = 'u2') => setDoc(presence(db, uid), { lastSeen: serverTimestamp() });
+
+  it('a member writes their own presence with the server time', async () => {
+    await seedRoom(twoPlayers);
+    await assertSucceeds(beatNow(as('u2')));
+    await assertSucceeds(beatNow(as('u2')));
+  });
+
+  it('lastSeen must be the server time, not a made-up one', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(setDoc(presence(as('u2'), 'u2'), { lastSeen: Timestamp.fromMillis(1) }));
+    await assertFails(setDoc(presence(as('u2'), 'u2'), { lastSeen: Timestamp.now() }));
+  });
+
+  it('presence holds nothing but lastSeen', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(setDoc(presence(as('u2'), 'u2'), { lastSeen: serverTimestamp(), x: 1 }));
+    await assertFails(setDoc(presence(as('u2'), 'u2'), {}));
+  });
+
+  it('another member cannot write my presence', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(beatNow(as('owner'), 'u2'));
+  });
+
+  it('a person who is not in the room cannot write presence', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(beatNow(as('stranger'), 'stranger'));
+    await assertFails(beatNow(anonymous(), 'stranger'));
+  });
+
+  it('presence can be created in the same batch as joining', async () => {
+    await seedRoom();
+    const db = as('u2');
+    const batch = writeBatch(db);
+    batch.set(seat(db, 'p2'), seatData('u2'));
+    batch.set(member(db, 'u2'), memberData('เพื่อน', { seat: 'p2' }));
+    batch.set(presence(db, 'u2'), { lastSeen: serverTimestamp() });
+    await assertSucceeds(batch.commit());
+  });
+
+  it('a spectator joins together with their presence', async () => {
+    await seedRoom();
+    const db = as('s1');
+    const batch = writeBatch(db);
+    batch.set(member(db, 's1'), memberData('ผู้ชม', { role: 'spectator', seat: null }));
+    batch.set(presence(db, 's1'), { lastSeen: serverTimestamp() });
+    await assertSucceeds(batch.commit());
+  });
+
+  it('a member reads one presence, a stranger cannot, and it cannot be listed or deleted', async () => {
+    await seedRoom(twoPlayers);
+    await beatNow(as('u2'));
+    await assertSucceeds(getDoc(presence(as('owner'), 'u2')));
+    await assertFails(getDoc(presence(as('stranger'), 'u2')));
+    await assertFails(getDocs(collection(as('owner'), 'rooms', CODE, 'presence')));
+    await assertFails(deleteDoc(presence(as('u2'), 'u2')));
+  });
+});
+
+const staleBeat = (uid, msAgo = 3 * 60 * 1000) =>
+  admin((db) => setDoc(presence(db, uid), { lastSeen: Timestamp.fromMillis(Date.now() - msAgo) }));
+
+describe('a room whose owner is gone', () => {
+  const claim = (db, uid, extra = {}) => updateDoc(room(db), { ownerUid: uid, ...extra });
+
+  it('a member takes over a lobby when the owner was last seen over 2 minutes ago', async () => {
+    await seedRoom(twoPlayers);
+    await staleBeat('owner');
+    await assertSucceeds(claim(as('u2'), 'u2'));
+  });
+
+  it('fails while the owner was seen within 2 minutes or never', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(claim(as('u2'), 'u2'));
+    await staleBeat('owner', 30 * 1000);
+    await assertFails(claim(as('u2'), 'u2'));
+  });
+
+  it('fails once the game has started', async () => {
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await staleBeat('owner');
+    await assertFails(claim(as('u2'), 'u2'));
+  });
+
+  it('a person who is not in the room cannot take it over', async () => {
+    await seedRoom(twoPlayers);
+    await staleBeat('owner');
+    await assertFails(claim(as('stranger'), 'stranger'));
+  });
+
+  it('a member cannot hand the room to someone else or change other fields', async () => {
+    await seedRoom(twoPlayers);
+    await staleBeat('owner');
+    await assertFails(claim(as('u2'), 'u3'));
+    await assertFails(claim(as('u2'), 'u2', { status: 'playing' }));
+    await assertFails(claim(as('u2'), 'u2', { settings: settings({ goAmount: 1 }) }));
+  });
+});
+
+describe('a person who lost their identity leaves an old member document', () => {
+  const takeoverAndRemove = (db, newUid, oldUid, seatId) => {
+    const batch = writeBatch(db);
+    batch.update(seat(db, seatId), { uid: newUid });
+    batch.set(member(db, newUid), memberData('เพื่อน', { seat: seatId }));
+    batch.delete(member(db, oldUid));
+    return batch.commit();
+  };
+
+  it('is removed in the same batch as the takeover', async () => {
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await staleBeat('u2');
+    await assertSucceeds(takeoverAndRemove(as('u9'), 'u9', 'u2', 'p2'));
+  });
+
+  it('cannot be removed while its seat still belongs to it', async () => {
+    await seedRoom(twoPlayers);
+    await assertFails(deleteDoc(member(as('owner'), 'u2')));
+    await assertFails(deleteDoc(member(as('u2'), 'u2')));
+  });
+
+  it('cannot be removed by a person who does not hold the seat now', async () => {
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await staleBeat('u2');
+    const db = as('stranger');
+    const batch = writeBatch(db);
+    batch.update(seat(db, 'p2'), { uid: 'stranger' });
+    batch.delete(member(db, 'u2'));
+    await assertFails(batch.commit());
+  });
+
+  it('a leftover one is removed by the seat holder later, not by a third person', async () => {
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await staleBeat('u2');
+    const db = as('u9');
+    const batch = writeBatch(db);
+    batch.update(seat(db, 'p2'), { uid: 'u9' });
+    batch.set(member(db, 'u9'), memberData('เพื่อน', { seat: 'p2' }));
+    await batch.commit();
+    await assertFails(deleteDoc(member(as('owner'), 'u2')));
+    await assertSucceeds(deleteDoc(member(as('u9'), 'u2')));
+  });
+
+  it('a spectator document is not removable', async () => {
+    await seedRoom();
+    await admin((db) =>
+      setDoc(member(db, 's1'), memberData('ผู้ชม', { role: 'spectator', seat: null })),
+    );
+    await assertFails(deleteDoc(member(as('s1'), 's1')));
+    await assertFails(deleteDoc(member(as('owner'), 's1')));
   });
 });
