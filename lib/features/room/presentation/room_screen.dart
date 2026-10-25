@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/theme.dart';
-import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
@@ -162,74 +161,63 @@ class _LobbyState extends ConsumerState<_Lobby> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
                 children: [
-                  Container(
+                  TicketCard(
                     key: const ValueKey('ticket'),
-                    decoration: panelDecoration(context),
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'ห้องของ ${owner?.name ?? ''}',
-                                style: text.bodyMedium?.copyWith(
-                                  color: text.bodyMedium?.color?.withValues(
-                                    alpha: 0.7,
-                                  ),
-                                ),
+                    line: line,
+                    top: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ห้องของ ${owner?.name ?? ''}',
+                            style: text.bodyMedium?.copyWith(
+                              color: text.bodyMedium?.color?.withValues(
+                                alpha: 0.7,
                               ),
-                              const SizedBox(height: 8),
-                              RoomCodeTiles(
-                                code: meta.code,
-                                onCopied: () => _say(context, 'คัดลอกรหัสแล้ว'),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: DashedLine(color: line, thickness: 1.5),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Row(
-                            children: [
-                              RoomQr(
-                                key: const ValueKey('room-qr'),
-                                data: link,
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'สแกน หรือส่งลิงก์ให้เพื่อน',
-                                      style: text.bodyMedium,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    OutlinedButton.icon(
-                                      key: const ValueKey('copy-link'),
-                                      onPressed: () async {
-                                        await Clipboard.setData(
-                                          ClipboardData(text: link),
-                                        );
-                                        if (context.mounted) {
-                                          _say(context, 'คัดลอกลิงก์แล้ว');
-                                        }
-                                      },
-                                      icon: const Icon(LucideIcons.copy),
-                                      label: const Text('คัดลอกลิงก์'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                          const SizedBox(height: 8),
+                          RoomCodeTiles(
+                            code: meta.code,
+                            onCopied: () => _say(context, 'คัดลอกรหัสแล้ว'),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                    ),
+                    bottom: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          RoomQr(key: const ValueKey('room-qr'), data: link),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'สแกน หรือส่งลิงก์ให้เพื่อน',
+                                  style: text.bodyMedium,
+                                ),
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  key: const ValueKey('copy-link'),
+                                  onPressed: () async {
+                                    await Clipboard.setData(
+                                      ClipboardData(text: link),
+                                    );
+                                    if (context.mounted) {
+                                      _say(context, 'คัดลอกลิงก์แล้ว');
+                                    }
+                                  },
+                                  icon: const Icon(LucideIcons.copy),
+                                  label: const Text('คัดลอกลิงก์'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 14),

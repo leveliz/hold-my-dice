@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/players/player_colors.dart';
 import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 /// The six colours offered when choosing yours (the palette keeps the rest for
@@ -261,4 +262,129 @@ class RoomQr extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A ticket: [top], a dashed perforation with a notch cut into each side, then
+/// [bottom]. On paper the card has two sheets peeking out underneath.
+class TicketCard extends StatefulWidget {
+  const TicketCard({
+    super.key,
+    required this.top,
+    required this.bottom,
+    required this.line,
+  });
+
+  final Widget top;
+  final Widget bottom;
+
+  /// Colour of the perforation.
+  final Color line;
+
+  @override
+  State<TicketCard> createState() => _TicketCardState();
+}
+
+class _TicketCardState extends State<TicketCard> {
+  static const _lineThickness = 1.5;
+  final _topKey = GlobalKey();
+  double? _notchY;
+
+  void _measure() {
+    final box = _topKey.currentContext?.findRenderObject() as RenderBox?;
+    if (!mounted || box == null || !box.hasSize) return;
+    final y = box.size.height + _lineThickness / 2;
+    if (y != _notchY) setState(() => _notchY = y);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // The perforation sits right under [top], whose height is only known once
+    // it has been laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
+    final theme = Theme.of(context);
+    final paper = PaperStyle.maybeOf(context) != null;
+    return CustomPaint(
+      painter: TicketPainter(
+        notchY: _notchY,
+        radius: paper ? PaperStyle.radius : 22,
+        fill: surfaceTileColor(theme),
+        edge: paper ? PaperStyle.edge : Colors.white.withValues(alpha: 0.14),
+        sheets: paper
+            ? const [PaperStyle.sheetFar, PaperStyle.sheetNear]
+            : const [],
+      ),
+      child: Column(
+        children: [
+          KeyedSubtree(key: _topKey, child: widget.top),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: DashedLine(color: widget.line, thickness: _lineThickness),
+          ),
+          widget.bottom,
+        ],
+      ),
+    );
+  }
+}
+
+/// Paints a ticket: a rounded card with a half circle cut out of each side at
+/// [notchY], an edge line, and [sheets] (farthest first) under it.
+class TicketPainter extends CustomPainter {
+  const TicketPainter({
+    required this.notchY,
+    required this.radius,
+    required this.fill,
+    required this.edge,
+    required this.sheets,
+    this.notchRadius = 9,
+  });
+
+  final double? notchY;
+  final double radius;
+  final Color fill;
+  final Color edge;
+  final List<Color> sheets;
+  final double notchRadius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final card = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    for (final (i, color) in sheets.indexed) {
+      final shift = (sheets.length - i) * 3.0;
+      canvas.drawRRect(
+        card.shift(Offset(shift, shift)),
+        Paint()..color = color,
+      );
+    }
+    var path = Path()..addRRect(card);
+    final y = notchY;
+    if (y != null) {
+      final notches = Path()
+        ..addOval(Rect.fromCircle(center: Offset(0, y), radius: notchRadius))
+        ..addOval(
+          Rect.fromCircle(center: Offset(size.width, y), radius: notchRadius),
+        );
+      path = Path.combine(PathOperation.difference, path, notches);
+    }
+    canvas.drawPath(path, Paint()..color = fill);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = edge
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  @override
+  bool shouldRepaint(TicketPainter old) =>
+      notchY != old.notchY ||
+      radius != old.radius ||
+      fill != old.fill ||
+      edge != old.edge ||
+      notchRadius != old.notchRadius ||
+      sheets.length != old.sheets.length;
 }

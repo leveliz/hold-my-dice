@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -73,6 +74,36 @@ void main() {
     }
     expect(find.byKey(const ValueKey('seat-p5')), findsNothing);
     expect(find.text('สด'), findsOneWidget);
+  });
+
+  testWidgets('the ticket is notched on both sides at the perforation', (
+    tester,
+  ) async {
+    final store = FakeRoomStore();
+    final code = await makeRoom(store);
+    await openApp(tester, store, '/room/$code', uid: 'owner');
+    final painter =
+        tester
+                .widget<CustomPaint>(
+                  find.descendant(
+                    of: find.byKey(const ValueKey('ticket')),
+                    matching: find.byWidgetPredicate(
+                      (w) => w is CustomPaint && w.painter is TicketPainter,
+                    ),
+                  ),
+                )
+                .painter!
+            as TicketPainter;
+    final line = tester.getTopLeft(
+      find.descendant(
+        of: find.byKey(const ValueKey('ticket')),
+        matching: find.byType(DashedLine),
+      ),
+    );
+    final top = tester.getTopLeft(find.byKey(const ValueKey('ticket')));
+    // The notches are centred on the dashed line (1.5 thick).
+    expect(painter.notchY, closeTo(line.dy - top.dy + 0.75, 0.5));
+    expect(painter.notchRadius, greaterThan(0));
   });
 
   testWidgets('only the owner wears the owner chip', (tester) async {
