@@ -1,0 +1,198 @@
+rules_version = '2';
+
+// Security rules of the multi-device mode. See the phase 7 spec: a room is
+// rooms/{code} (meta), with seats, members, presence, state, entries and
+// requests under it. Tested by firebase_tests/rules.test.mjs.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers -------------------------------------------------------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function roomDoc(code) {
+      return /databases/$(database)/documents/rooms/$(code);
+    }
+
+    function seatDoc(code, id) {
+      return /databases/$(database)/documents/rooms/$(code)/seats/$(id);
+    }
+
+    function memberDoc(code, id) {
+      return /databases/$(database)/documents/rooms/$(code)/members/$(id);
+    }
+
+    function presenceDoc(code, id) {
+      return /databases/$(database)/documents/rooms/$(code)/presence/$(id);
+    }
+
+    function isMember(code) {
+      return signedIn() && exists(memberDoc(code, request.auth.uid));
+    }
+
+    function validName(n) {
+      return n is string && n.size() >= 1 && n.size() <= 20;
+    }
+
+    function validMoney(n) {
+      return n is int && n >= 1 && n <= 999999999;
+    }
+
+    function validSettings(s) {
+      return s is map
+        && s.keys().hasOnly(['startingCash', 'goAmount', 'hideOthers',
+                             'allowSpectators', 'bankLimit', 'maxPlayers'])
+        && s.keys().hasAll(['startingCash', 'goAmount', 'hideOthers',
+                            'allowSpectators', 'bankLimit', 'maxPlayers'])
+        && validMoney(s.startingCash)
+        && validMoney(s.goAmount)
+        && s.hideOthers is bool
+        && s.allowSpectators is bool
+        && (s.bankLimit == null || validMoney(s.bankLimit))
+        && s.maxPlayers is int && s.maxPlayers >= 2 && s.maxPlayers <= 8;
+    }
+
+    // A password is a 64-character SHA-256 hash; no password means no hash.
+    function validPassword(d) {
+      return d.hasPassword is bool
+        && (d.hasPassword
+            ? (d.passwordHash is string && d.passwordHash.size() == 64)
+            : d.passwordHash == null);
+    }
+
+    function statusMoves(from, to) {
+      return (from == 'lobby' && (to == 'lobby' || to == 'playing'))
+        || (from == 'playing' && (to == 'playing' || to == 'ended'))
+        || (from == 'ended' && to == 'ended');
+    }
+
+    // The password hash the joiner sends must match the room's.
+    function passwordOk(room, d) {
+      return !room.hasPassword || d.get('pwHash', null) == room.passwordHash;
+    }
+
+    // ---- rooms/{code} --------------------------------------------------
+
+    match /rooms/{code} {
+      // Anyone signed in who knows the code may look at one room, but rooms
+      // cannot be listed.
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(
+             ['v', 'ownerUid', 'status', 'createdAt', 'settings',
+              'hasPassword', 'passwordHash'])
+        && request.resource.data.keys().hasAll(
+             ['v', 'ownerUid', 'status', 'createdAt', 'settings',
+              'hasPassword', 'passwordHash'])
+        && request.resource.data.v == 1
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.status == 'lobby'
+        && request.resource.data.createdAt == request.time
+        && validSettings(request.resource.data.settings)
+        && validPassword(request.resource.data);
+
+      // The owner moves the status forward; settings and password can change
+      // only while in the lobby.
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.v == 1
+        && statusMoves(resource.data.status, request.resource.data.status)
+        && (resource.data.status == 'lobby'
+            ? request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['status', 'settings', 'hasPassword', 'passwordHash'])
+              && validSettings(request.resource.data.settings)
+              && validPassword(request.resource.data)
+            : request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['status']));
+
+      allow delete: if false;
+
+      // ---- seats -------------------------------------------------------
+      // The seat says who sits where and is the authority for "who is p3".
+      // Readable one at a time by anyone signed in (so a person who lost their
+      // identity can see which seats exist); never listed.
+      match /seats/{seatId} {
+        allow get: if signedIn();
+        allow list: if false;
+
+        // Sitting down: only in the lobby, a free seat number up to
+        // maxPlayers, together with your own member document.
+        allow create: if signedIn()
+          && seatId.matches('p[1-8]')
+          && int(seatId.replace('p', ''))
+               <= getAfter(roomDoc(code)).data.settings.maxPlayers
+          && getAfter(roomDoc(code)).data.status == 'lobby'
+          && request.resource.data.keys().hasOnly(
+               ['uid', 'name', 'color', 'joinedAt'])
+          && request.resource.data.keys().hasAll(
+               ['uid', 'name', 'color', 'joinedAt'])
+          && request.resource.data.uid == request.auth.uid
+          && validName(request.resource.data.name)
+          && request.resource.data.color is int
+          && request.resource.data.joinedAt == request.time
+          && existsAfter(memberDoc(code, request.auth.uid))
+          && getAfter(memberDoc(code, request.auth.uid)).data.role == 'player'
+          && getAfter(memberDoc(code, request.auth.uid)).data.seat == seatId;
+
+        // Taking over a seat after losing your identity: only if the person
+        // sitting there has not been seen for 2 minutes, and only the uid
+        // changes.
+        allow update: if signedIn()
+          && getAfter(roomDoc(code)).data.status != 'ended'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['uid'])
+          && request.resource.data.uid == request.auth.uid
+          && existsAfter(memberDoc(code, request.auth.uid))
+          && getAfter(memberDoc(code, request.auth.uid)).data.role == 'player'
+          && getAfter(memberDoc(code, request.auth.uid)).data.seat == seatId
+          && get(presenceDoc(code, resource.data.uid)).data.lastSeen
+               < request.time - duration.value(2, 'm');
+
+        allow delete: if false;
+      }
+
+      // ---- members -----------------------------------------------------
+      match /members/{memberId} {
+        allow read: if isMember(code);
+
+        allow create: if signedIn()
+          && memberId == request.auth.uid
+          && request.resource.data.keys().hasOnly(
+               ['name', 'color', 'role', 'seat', 'pwHash'])
+          && request.resource.data.keys().hasAll(
+               ['name', 'color', 'role', 'seat'])
+          && validName(request.resource.data.name)
+          && request.resource.data.color is int
+          && getAfter(roomDoc(code)).data.status != 'ended'
+          && passwordOk(getAfter(roomDoc(code)).data, request.resource.data)
+          && (request.resource.data.role == 'spectator'
+              // A spectator has no seat and the room must allow spectators.
+              ? request.resource.data.seat == null
+                && getAfter(roomDoc(code)).data.settings.allowSpectators == true
+              // A player holds a seat that is theirs after this write; once
+              // the game has started that seat must already exist (taken over).
+              : request.resource.data.role == 'player'
+                && request.resource.data.seat is string
+                && request.resource.data.seat.matches('p[1-8]')
+                && getAfter(seatDoc(code, request.resource.data.seat)).data.uid
+                     == request.auth.uid
+                && (getAfter(roomDoc(code)).data.status == 'lobby'
+                    || exists(seatDoc(code, request.resource.data.seat))));
+
+        // A member may change their own name and colour, nothing else.
+        allow update: if signedIn()
+          && memberId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['name', 'color'])
+          && validName(request.resource.data.name)
+          && request.resource.data.color is int;
+
+        allow delete: if false;
+      }
+    }
+  }
+}

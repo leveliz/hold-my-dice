@@ -49,3 +49,10 @@ graphify-out/
 
 # Brainstorm mockups (superpowers visual companion)
 .superpowers/
+
+# Firebase
+firebase_tests/node_modules/
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
