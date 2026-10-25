@@ -1,0 +1,411 @@
+import 'dart:async';
+import 'dart:math';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:hold_my_dice/features/room/application/room_code.dart';
+import 'package:hold_my_dice/features/room/data/room_repository.dart';
+import 'package:hold_my_dice/features/room/domain/room_models.dart';
+
+const _codeTries = 5;
+
+/// Rooms in Cloud Firestore, laid out as firestore.rules expects:
+/// `rooms/{code}` with `seats`, `members`, `presence` and `state` under it.
+class FirestoreRoomRepository implements RoomRepository {
+  FirestoreRoomRepository(this._db, this._auth, {Random? random})
+    : _random = random ?? Random.secure();
+
+  final FirebaseFirestore _db;
+  final AuthService _auth;
+  final Random _random;
+
+  DocumentReference<Map<String, dynamic>> _room(String code) =>
+      _db.collection('rooms').doc(code);
+  DocumentReference<Map<String, dynamic>> _seat(String code, String id) =>
+      _room(code).collection('seats').doc(id);
+  DocumentReference<Map<String, dynamic>> _member(String code, String uid) =>
+      _room(code).collection('members').doc(uid);
+  DocumentReference<Map<String, dynamic>> _presence(String code, String uid) =>
+      _room(code).collection('presence').doc(uid);
+  DocumentReference<Map<String, dynamic>> _state(String code) =>
+      _room(code).collection('state').doc('current');
+
+  /// Runs [action], turning what Firestore throws into a [RoomException];
+  /// a refusal by the rules becomes [onDenied].
+  Future<T> _guard<T>(Future<T> Function() action, RoomError onDenied) async {
+    try {
+      return await action();
+    } on FirebaseException catch (e) {
+      throw _translate(e, onDenied);
+    }
+  }
+
+  RoomException _translate(FirebaseException e, RoomError onDenied) =>
+      switch (e.code) {
+        'permission-denied' => RoomException(onDenied),
+        'unavailable' ||
+        'network-request-failed' => const RoomException(RoomError.offline),
+        _ => RoomException(RoomError.unknown, '${e.code}: ${e.message}'),
+      };
+
+  Stream<T> _guardStream<T>(Stream<T> source, RoomError onDenied) =>
+      source.handleError((Object e) {
+        if (e is FirebaseException) throw _translate(e, onDenied);
+        throw e;
+      });
+
+  // ---- reading documents ------------------------------------------------
+
+  static RoomMeta _meta(String code, Map<String, dynamic> d) {
+    final s = d['settings'] as Map<String, dynamic>;
+    return RoomMeta(
+      code: code,
+      ownerUid: d['ownerUid'] as String,
+      status: RoomStatus.values.byName(d['status'] as String),
+      hasPassword: d['hasPassword'] as bool,
+      settings: RoomSettings(
+        startingCash: s['startingCash'] as int,
+        goAmount: s['goAmount'] as int,
+        maxPlayers: s['maxPlayers'] as int,
+        hideOthers: s['hideOthers'] as bool,
+        allowSpectators: s['allowSpectators'] as bool,
+        bankLimit: s['bankLimit'] as int?,
+      ),
+    );
+  }
+
+  static Seat _seatOf(String id, Map<String, dynamic> d) => Seat(
+    id: id,
+    uid: d['uid'] as String,
+    name: d['name'] as String,
+    color: d['color'] as int,
+  );
+
+  static Member _memberOf(String uid, Map<String, dynamic> d) => Member(
+    uid: uid,
+    name: d['name'] as String,
+    color: d['color'] as int,
+    role: MemberRole.values.byName(d['role'] as String),
+    seat: d['seat'] as String?,
+  );
+
+  static RoomState _stateOf(Map<String, dynamic> d) => RoomState(
+    seq: d['seq'] as int,
+    seats: List<String>.from(d['seats'] as List),
+    balances: Map<String, int>.from(d['balances'] as Map),
+    bankrupt: List<String>.from(d['bankrupt'] as List),
+    bankerSeat: d['bankerSeat'] as String?,
+    status: RoomStatus.values.byName(d['status'] as String),
+  );
+
+  /// The room as it is now; throws [RoomError.roomNotFound] when there is none
+  /// or it has ended.
+  Future<RoomMeta> _readMeta(String code) async {
+    final snap = await _guard(() => _room(code).get(), RoomError.roomNotFound);
+    final data = snap.data();
+    if (data == null) throw const RoomException(RoomError.roomNotFound);
+    final meta = _meta(code, data);
+    if (meta.status == RoomStatus.ended) {
+      throw const RoomException(RoomError.roomNotFound);
+    }
+    return meta;
+  }
+
+  Future<String?> _passwordHashOf(String code) async {
+    final snap = await _room(code).get();
+    return snap.data()?['passwordHash'] as String?;
+  }
+
+  /// What a member document carries to prove the password, or nothing when the
+  /// room has none. Throws [RoomError.wrongPassword] if it cannot match.
+  Future<Map<String, dynamic>> _passwordProof(
+    RoomMeta meta,
+    String? password,
+  ) async {
+    if (!meta.hasPassword) return const {};
+    final hash = password == null
+        ? null
+        : hashRoomPassword(password, meta.code);
+    if (hash == null || hash != await _passwordHashOf(meta.code)) {
+      throw const RoomException(RoomError.wrongPassword);
+    }
+    return {'pwHash': hash};
+  }
+
+  // ---- RoomRepository ---------------------------------------------------
+
+  @override
+  Future<RoomMeta> createRoom({
+    required RoomSettings settings,
+    String? password,
+    required String name,
+    required int color,
+  }) async {
+    final uid = await _auth.ensureSignedIn();
+    final clean = cutName(name);
+    final hasPassword = password != null && password.isNotEmpty;
+    for (var attempt = 0; attempt < _codeTries; attempt++) {
+      final code = generateRoomCode(_random);
+      final batch = _db.batch()
+        ..set(_room(code), {
+          'v': 1,
+          'ownerUid': uid,
+          'status': 'lobby',
+          'createdAt': FieldValue.serverTimestamp(),
+          'settings': {
+            'startingCash': settings.startingCash,
+            'goAmount': settings.goAmount,
+            'hideOthers': settings.hideOthers,
+            'allowSpectators': settings.allowSpectators,
+            'bankLimit': settings.bankLimit,
+            'maxPlayers': settings.maxPlayers,
+          },
+          'hasPassword': hasPassword,
+          'passwordHash': hasPassword ? hashRoomPassword(password, code) : null,
+        })
+        ..set(_seat(code, 'p1'), {
+          'uid': uid,
+          'name': clean,
+          'color': color,
+          'joinedAt': FieldValue.serverTimestamp(),
+        })
+        ..set(_member(code, uid), {
+          'name': clean,
+          'color': color,
+          'role': 'player',
+          'seat': 'p1',
+        })
+        ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
+      try {
+        await batch.commit();
+      } on FirebaseException catch (e) {
+        // A refusal here most likely means the code is taken: draw another.
+        if (e.code == 'permission-denied' && attempt < _codeTries - 1) continue;
+        throw _translate(e, RoomError.unknown);
+      }
+      return RoomMeta(
+        code: code,
+        ownerUid: uid,
+        status: RoomStatus.lobby,
+        settings: settings,
+        hasPassword: hasPassword,
+      );
+    }
+    throw const RoomException(RoomError.unknown);
+  }
+
+  @override
+  Stream<RoomMeta?> watchMeta(String code) async* {
+    await _auth.ensureSignedIn();
+    yield* _guardStream(
+      _room(code).snapshots().map((snap) {
+        final data = snap.data();
+        return data == null ? null : _meta(code, data);
+      }),
+      RoomError.roomNotFound,
+    );
+  }
+
+  @override
+  Future<List<Seat?>> readSeats(String code) async {
+    await _auth.ensureSignedIn();
+    await _readMeta(code);
+    final snaps = await _guard(
+      () =>
+          Future.wait([for (var i = 1; i <= 8; i++) _seat(code, 'p$i').get()]),
+      RoomError.unknown,
+    );
+    return [
+      for (final (i, snap) in snaps.indexed)
+        snap.data() == null ? null : _seatOf('p${i + 1}', snap.data()!),
+    ];
+  }
+
+  @override
+  Future<Seat> joinAsPlayer({
+    required String code,
+    required String name,
+    required int color,
+    String? password,
+  }) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    final mine = await _member(
+      code,
+      uid,
+    ).get().then((s) => s.data(), onError: (Object _) => null);
+    final mySeat = mine?['seat'] as String?;
+    if (mySeat != null) {
+      final snap = await _seat(code, mySeat).get();
+      return _seatOf(mySeat, snap.data()!);
+    }
+    final proof = await _passwordProof(meta, password);
+    if (meta.status != RoomStatus.lobby) {
+      throw const RoomException(RoomError.alreadyStarted);
+    }
+    final seats = await readSeats(code);
+    final free = [
+      for (var i = 0; i < meta.settings.maxPlayers; i++)
+        if (seats[i] == null) 'p${i + 1}',
+    ];
+    final clean = cutName(name);
+    // Two people may pick the same free seat at once; the loser is refused by
+    // the rules and tries the next free one.
+    for (final id in free) {
+      final batch = _db.batch()
+        ..set(_seat(code, id), {
+          'uid': uid,
+          'name': clean,
+          'color': color,
+          'joinedAt': FieldValue.serverTimestamp(),
+        })
+        ..set(_member(code, uid), {
+          'name': clean,
+          'color': color,
+          'role': 'player',
+          'seat': id,
+          ...proof,
+        })
+        ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
+      try {
+        await batch.commit();
+        return Seat(id: id, uid: uid, name: clean, color: color);
+      } on FirebaseException catch (e) {
+        if (e.code != 'permission-denied') {
+          throw _translate(e, RoomError.unknown);
+        }
+      }
+    }
+    throw const RoomException(RoomError.roomFull);
+  }
+
+  @override
+  Future<void> joinAsSpectator({
+    required String code,
+    required String name,
+    required int color,
+    String? password,
+  }) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    final existing = await _member(
+      code,
+      uid,
+    ).get().then((s) => s.exists, onError: (Object _) => false);
+    if (existing) return;
+    final proof = await _passwordProof(meta, password);
+    if (!meta.settings.allowSpectators) {
+      throw const RoomException(RoomError.spectatorsNotAllowed);
+    }
+    final batch = _db.batch()
+      ..set(_member(code, uid), {
+        'name': cutName(name),
+        'color': color,
+        'role': 'spectator',
+        'seat': null,
+        ...proof,
+      })
+      ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
+    await _guard(batch.commit, RoomError.unknown);
+  }
+
+  @override
+  Future<Seat> claimSeat({
+    required String code,
+    required String seatId,
+    String? password,
+  }) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    final snap = await _seat(code, seatId).get();
+    final data = snap.data();
+    if (data == null) {
+      throw const RoomException(RoomError.unknown, 'no such seat');
+    }
+    final seat = _seatOf(seatId, data);
+    if (seat.uid == uid) return seat;
+    final proof = await _passwordProof(meta, password);
+    // A person outside the room cannot read the old holder's presence, so the
+    // rules decide whether that holder has been gone for 2 minutes; a refusal
+    // means the seat is still in use.
+    final batch = _db.batch()
+      ..update(_seat(code, seatId), {'uid': uid})
+      ..set(_member(code, uid), {
+        'name': seat.name,
+        'color': seat.color,
+        'role': 'player',
+        'seat': seatId,
+        ...proof,
+      })
+      ..delete(_member(code, seat.uid))
+      ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
+    await _guard(batch.commit, RoomError.seatStillActive);
+    return Seat(id: seatId, uid: uid, name: seat.name, color: seat.color);
+  }
+
+  @override
+  Stream<List<Member>> watchMembers(String code) async* {
+    await _auth.ensureSignedIn();
+    yield* _guardStream(
+      _room(code)
+          .collection('members')
+          .snapshots()
+          .map((q) => [for (final d in q.docs) _memberOf(d.id, d.data())]),
+      RoomError.notAMember,
+    );
+  }
+
+  @override
+  Future<void> startGame(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    if (meta.ownerUid != uid) throw const RoomException(RoomError.notOwner);
+    if (meta.status != RoomStatus.lobby) {
+      throw const RoomException(RoomError.alreadyStarted);
+    }
+    final seats = [
+      for (final s in await readSeats(code))
+        if (s != null) s.id,
+    ];
+    if (seats.length < 2) {
+      throw const RoomException(RoomError.notEnoughPlayers);
+    }
+    final bankLimit = meta.settings.bankLimit;
+    final batch = _db.batch()
+      ..update(_room(code), {'status': 'playing'})
+      ..set(_state(code), {
+        'v': 1,
+        'seq': 0,
+        'seats': seats,
+        'balances': {
+          for (final id in seats) id: meta.settings.startingCash,
+          'bank': ?bankLimit,
+        },
+        'bankrupt': <String>[],
+        'bankerSeat': null,
+        'status': 'playing',
+      });
+    await _guard(batch.commit, RoomError.notOwner);
+  }
+
+  @override
+  Stream<RoomState?> watchState(String code) async* {
+    await _auth.ensureSignedIn();
+    yield* _guardStream(
+      _state(code).snapshots().map((snap) {
+        final data = snap.data();
+        return data == null ? null : _stateOf(data);
+      }),
+      RoomError.notAMember,
+    );
+  }
+
+  @override
+  Future<void> heartbeat(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    await _guard(
+      () =>
+          _presence(code, uid).set({'lastSeen': FieldValue.serverTimestamp()}),
+      RoomError.notAMember,
+    );
+  }
+}
