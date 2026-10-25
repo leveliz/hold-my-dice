@@ -11,6 +11,8 @@ String roomErrorText(Object error) {
     RoomError.seatTaken => 'ที่นั่งนี้มีคนนั่งแล้ว',
     RoomError.seatStillActive =>
       'ที่นั่งนี้ยังมีคนใช้อยู่ เข้าแทนได้เมื่อเจ้าของเดิมหายไปเกิน 2 นาที',
+    RoomError.ownerStillActive =>
+      'เจ้าของห้องยังอยู่ รับแทนได้เมื่อเจ้าของหายไปเกิน 2 นาที',
     RoomError.notOwner => 'เฉพาะเจ้าของห้องที่ทำได้',
     RoomError.notEnoughPlayers => 'ต้องมีผู้เล่นอย่างน้อย 2 คน',
     RoomError.spectatorsNotAllowed => 'ห้องนี้ไม่รับผู้ชม',

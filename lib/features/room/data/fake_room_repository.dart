@@ -46,7 +46,7 @@ class _Room {
       state = _Feed<RoomState?>(null);
 
   final String code;
-  final String ownerUid;
+  String ownerUid;
   final RoomSettings settings;
   final String? passwordHash;
   var status = RoomStatus.lobby;
@@ -270,6 +270,11 @@ class FakeRoomRepository implements RoomRepository {
         seat: seatId,
       ),
     );
+    // Sitting in the owner's seat is also taking the room, until it starts.
+    if (seat.uid == room.ownerUid && room.status == RoomStatus.lobby) {
+      room.ownerUid = uid;
+      room.publishMeta();
+    }
     return taken;
   }
 
@@ -281,6 +286,22 @@ class FakeRoomRepository implements RoomRepository {
       throw const RoomException(RoomError.notAMember);
     }
     return room;
+  }
+
+  @override
+  Future<void> claimOwnership(String code) async {
+    final room = await _asMember(code);
+    final uid = await _auth.ensureSignedIn();
+    if (room.ownerUid == uid) return;
+    if (room.status != RoomStatus.lobby) {
+      throw const RoomException(RoomError.alreadyStarted);
+    }
+    final seen = room.presence[room.ownerUid];
+    if (seen == null || _store.now().difference(seen) < _seatIsStaleAfter) {
+      throw const RoomException(RoomError.ownerStillActive);
+    }
+    room.ownerUid = uid;
+    room.publishMeta();
   }
 
   @override

@@ -95,6 +95,103 @@ void roomRepositoryContract(RoomHarness Function() create) {
       },
     );
 
+    group('when the owner is gone', () {
+      test('a member cannot take the room while the owner is around', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.advance(const Duration(seconds: 30));
+        await expectLater(
+          h.repoFor('u2').claimOwnership(meta.code),
+          _throws(RoomError.ownerStillActive),
+        );
+      });
+
+      test('a member takes the lobby after 2 minutes and all see it', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.advance(const Duration(minutes: 3));
+        await h.repoFor('u2').claimOwnership(meta.code);
+        final seen = await h.repoFor('u2').watchMeta(meta.code).first;
+        expect(seen?.ownerUid, 'u2');
+        // The new owner can start the game, the old one no longer can.
+        await expectLater(
+          h.repoFor('owner').startGame(meta.code),
+          _throws(RoomError.notOwner),
+        );
+        await h.repoFor('u2').startGame(meta.code);
+      });
+
+      test('somebody who is not in the room cannot claim it', () async {
+        final h = create();
+        final meta = await _create(h);
+        await h.advance(const Duration(minutes: 3));
+        await expectLater(
+          h.repoFor('stranger').claimOwnership(meta.code),
+          _throws(RoomError.notAMember),
+        );
+      });
+
+      test('the owner claiming their own room changes nothing', () async {
+        final h = create();
+        final meta = await _create(h);
+        await h.repoFor('owner').claimOwnership(meta.code);
+        final seen = await h.repoFor('owner').watchMeta(meta.code).first;
+        expect(seen?.ownerUid, 'owner');
+      });
+
+      test('after the start the room can no longer change hands', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.repoFor('owner').startGame(meta.code);
+        await h.advance(const Duration(minutes: 3));
+        await expectLater(
+          h.repoFor('u2').claimOwnership(meta.code),
+          _throws(RoomError.alreadyStarted),
+        );
+      });
+
+      test(
+        'taking over the owner\'s seat makes the newcomer the owner',
+        () async {
+          final h = create();
+          final meta = await _create(h);
+          await _join(h, meta.code, 'u2');
+          await h.advance(const Duration(minutes: 3));
+          await h.repoFor('u9').claimSeat(code: meta.code, seatId: 'p1');
+          final seen = await h.repoFor('u9').watchMeta(meta.code).first;
+          expect(seen?.ownerUid, 'u9');
+          await h.repoFor('u9').startGame(meta.code);
+        },
+      );
+
+      test(
+        'after the start taking over the owner\'s seat keeps the owner',
+        () async {
+          final h = create();
+          final meta = await _create(h);
+          await _join(h, meta.code, 'u2');
+          await h.repoFor('owner').startGame(meta.code);
+          await h.advance(const Duration(minutes: 3));
+          await h.repoFor('u9').claimSeat(code: meta.code, seatId: 'p1');
+          final seen = await h.repoFor('u9').watchMeta(meta.code).first;
+          expect(seen?.ownerUid, 'owner');
+        },
+      );
+
+      test('taking over another seat leaves the owner alone', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.advance(const Duration(minutes: 3));
+        await h.repoFor('u9').claimSeat(code: meta.code, seatId: 'p2');
+        final seen = await h.repoFor('u9').watchMeta(meta.code).first;
+        expect(seen?.ownerUid, 'owner');
+      });
+    });
+
     test('the owner sits at p1 and is the first member', () async {
       final h = create();
       final meta = await _create(h);

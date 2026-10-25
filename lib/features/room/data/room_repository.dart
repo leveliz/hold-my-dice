@@ -8,6 +8,7 @@ enum RoomError {
   alreadyStarted,
   seatTaken,
   seatStillActive,
+  ownerStillActive,
   notOwner,
   notEnoughPlayers,
   spectatorsNotAllowed,
@@ -76,6 +77,10 @@ abstract class RoomRepository {
 
   /// This person's own member document, null when they have not joined.
   Future<Member?> readMyMember(String code);
+
+  /// Takes over a lobby whose owner has not been seen for 2 minutes. Taking
+  /// over the owner's seat does this too.
+  Future<void> claimOwnership(String code);
 
   Stream<List<Member>> watchMembers(String code);
 

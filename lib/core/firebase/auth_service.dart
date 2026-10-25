@@ -13,8 +13,18 @@ class FirebaseAuthService implements AuthService {
   Future<String> ensureSignedIn() async {
     // On the web the saved sign-in is restored asynchronously, so wait for the
     // first answer before deciding that nobody is signed in.
-    final restored = await _auth.authStateChanges().first;
-    final user = restored ?? (await _auth.signInAnonymously()).user;
-    return user!.uid;
+    try {
+      final restored = await _auth.authStateChanges().first;
+      final user = restored ?? (await _auth.signInAnonymously()).user;
+      return user!.uid;
+    } on FirebaseAuthException catch (e) {
+      // Without a connection signing in fails; say so in the room's terms.
+      throw RoomException(
+        e.code == 'network-request-failed'
+            ? RoomError.offline
+            : RoomError.unknown,
+        e.code,
+      );
+    }
   }
 }

@@ -81,6 +81,51 @@ void main() {
     await leave(tester);
   });
 
+  testWidgets('coming back to the app beats at once', (tester) async {
+    await openApp(tester, store, '/room/$code', uid: 'owner');
+    // The phone slept: no timer fired, the clock moved on.
+    clock = clock.add(const Duration(minutes: 10));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(store.lastSeen(code, 'owner'), clock);
+    await leave(tester);
+  });
+
+  testWidgets('a person whose seat was taken over is told, not left staring', (
+    tester,
+  ) async {
+    await repoOn(
+      store,
+      'u2',
+    ).joinAsPlayer(code: code, name: 'แพร', color: 0xFFE11D48);
+    await openApp(tester, store, '/room/$code', uid: 'u2');
+    expect(find.byKey(const ValueKey('ticket')), findsOneWidget);
+    // u2 is silent for 3 minutes (a locked phone) and somebody sits in p2.
+    clock = clock.add(const Duration(minutes: 3));
+    await repoOn(store, 'u9').claimSeat(code: code, seatId: 'p2');
+    // u2's phone wakes up.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('join-seat')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ticket')), findsNothing);
+    await leave(tester);
+  });
+
+  testWidgets('the same happens on the next regular beat', (tester) async {
+    await repoOn(
+      store,
+      'u2',
+    ).joinAsPlayer(code: code, name: 'แพร', color: 0xFFE11D48);
+    await openApp(tester, store, '/room/$code', uid: 'u2');
+    clock = clock.add(const Duration(minutes: 3));
+    await repoOn(store, 'u9').claimSeat(code: code, seatId: 'p2');
+    await tester.pump(const Duration(seconds: 61));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('join-seat')), findsOneWidget);
+    await leave(tester);
+  });
+
   testWidgets('leaving the room stops the beats and leaves no timer', (
     tester,
   ) async {

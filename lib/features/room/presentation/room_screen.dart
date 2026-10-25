@@ -9,6 +9,7 @@ import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:hold_my_dice/features/room/application/presence_beater.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
+import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
@@ -32,18 +33,30 @@ class RoomScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final code = this.code;
     if (code == null) return const _Message(_gone, home: true);
+    // Only a room that is really not there is "gone"; a lost connection or
+    // any other failure can be tried again.
+    Widget failed(Object error) =>
+        error is RoomException && error.error == RoomError.roomNotFound
+        ? const _Message(_gone, home: true)
+        : _Message(
+            roomErrorText(error),
+            retry: () {
+              ref.invalidate(roomMetaProvider(code));
+              ref.invalidate(myMemberProvider(code));
+            },
+          );
     return ref
         .watch(roomMetaProvider(code))
         .when(
           loading: () => const _Message(null),
-          error: (_, _) => const _Message(_gone, home: true),
+          error: (e, _) => failed(e),
           data: (meta) {
             if (meta == null) return const _Message(_gone, home: true);
             return ref
                 .watch(myMemberProvider(code))
                 .when(
                   loading: () => const _Message(null),
-                  error: (_, _) => const _Message(_gone, home: true),
+                  error: (e, _) => failed(e),
                   data: (me) {
                     if (me == null) return _JoinForm(meta: meta);
                     return _Present(
@@ -71,18 +84,38 @@ class _Present extends ConsumerStatefulWidget {
   ConsumerState<_Present> createState() => _PresentState();
 }
 
-class _PresentState extends ConsumerState<_Present> {
+class _PresentState extends ConsumerState<_Present>
+    with WidgetsBindingObserver {
   late final PresenceBeater _beater;
 
   @override
   void initState() {
     super.initState();
-    _beater = PresenceBeater(ref.read(roomRepositoryProvider), widget.code)
-      ..start();
+    _beater = PresenceBeater(
+      ref.read(roomRepositoryProvider),
+      widget.code,
+      onNotAMember: _lookAgain,
+    )..start();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Asks the room who this person is now; if somebody took their seat over
+  /// while the phone slept, the screen falls back to the join form.
+  void _lookAgain() {
+    if (mounted) ref.invalidate(myMemberProvider(widget.code));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A locked or backgrounded phone sends no beats; say we are back at once.
+    if (state == AppLifecycleState.resumed) {
+      _beater.beatNow();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _beater.stop();
     super.dispose();
   }
@@ -93,10 +126,13 @@ class _PresentState extends ConsumerState<_Present> {
 
 /// A page with one line of text (or a spinner when [text] is null).
 class _Message extends StatelessWidget {
-  const _Message(this.text, {this.home = false});
+  const _Message(this.text, {this.home = false, this.retry});
 
   final String? text;
   final bool home;
+
+  /// Offers a "try again" button when given.
+  final VoidCallback? retry;
 
   @override
   Widget build(BuildContext context) {
@@ -109,6 +145,14 @@ class _Message extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(text!, style: Theme.of(context).textTheme.titleMedium),
+                  if (retry != null) ...[
+                    const SizedBox(height: 16),
+                    OutlinedButton(
+                      key: const ValueKey('room-retry'),
+                      onPressed: retry,
+                      child: const Text('ลองใหม่'),
+                    ),
+                  ],
                   if (home) ...[
                     const SizedBox(height: 16),
                     OutlinedButton(
@@ -158,6 +202,14 @@ class _Lobby extends ConsumerStatefulWidget {
 
 class _LobbyState extends ConsumerState<_Lobby> {
   var _busy = false;
+
+  Future<void> _claimOwnership() async {
+    try {
+      await ref.read(roomRepositoryProvider).claimOwnership(widget.meta.code);
+    } catch (e) {
+      if (mounted) _say(context, roomErrorText(e));
+    }
+  }
 
   Future<void> _start() async {
     setState(() => _busy = true);
@@ -304,10 +356,22 @@ class _LobbyState extends ConsumerState<_Lobby> {
                       icon: const Icon(LucideIcons.play),
                       label: Text('เริ่มเกม (${bySeat.length} คน)'),
                     )
-                  : Text(
-                      'รอเจ้าของห้องเริ่มเกม',
-                      key: const ValueKey('wait-owner'),
-                      style: text.titleMedium,
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'รอเจ้าของห้องเริ่มเกม',
+                          key: const ValueKey('wait-owner'),
+                          style: text.titleMedium,
+                        ),
+                        TextButton(
+                          key: const ValueKey('claim-owner'),
+                          onPressed: _claimOwnership,
+                          child: const Text(
+                            'เจ้าของห้องหายไปนานแล้ว? รับเป็นเจ้าของแทน',
+                          ),
+                        ),
+                      ],
                     ),
             ),
           ],

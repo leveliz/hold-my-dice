@@ -10,11 +10,12 @@ class _Counting extends FakeRoomRepository {
 
   final beats = <String>[];
   var failing = false;
+  RoomError failWith = RoomError.offline;
 
   @override
   Future<void> heartbeat(String code) async {
     beats.add(code);
-    if (failing) throw const RoomException(RoomError.offline);
+    if (failing) throw RoomException(failWith);
   }
 }
 
@@ -86,6 +87,47 @@ void main() {
       async.elapse(const Duration(seconds: 61));
       expect(repo.beats.length, 2);
       expect(async.pendingTimers.length, 1);
+    });
+  });
+
+  test('beatNow sends a beat at once without waiting for the timer', () {
+    FakeAsync().run((async) {
+      final repo = _Counting();
+      final beater = PresenceBeater(repo, 'ABC234')..start();
+      async.elapse(const Duration(seconds: 20));
+      beater.beatNow();
+      async.flushMicrotasks();
+      expect(repo.beats.length, 2);
+      async.elapse(const Duration(seconds: 40));
+      expect(repo.beats.length, 3, reason: 'the schedule is not moved');
+      beater.stop();
+    });
+  });
+
+  test(
+    'a beat refused because the person is no longer in the room says so',
+    () {
+      FakeAsync().run((async) {
+        final repo = _Counting()
+          ..failing = true
+          ..failWith = RoomError.notAMember;
+        var told = 0;
+        PresenceBeater(repo, 'ABC234', onNotAMember: () => told++).start();
+        async.flushMicrotasks();
+        expect(told, 1);
+        async.elapse(const Duration(seconds: 61));
+        expect(told, 2);
+      });
+    },
+  );
+
+  test('other failures are not reported as being out of the room', () {
+    FakeAsync().run((async) {
+      final repo = _Counting()..failing = true;
+      var told = 0;
+      PresenceBeater(repo, 'ABC234', onNotAMember: () => told++).start();
+      async.elapse(const Duration(seconds: 61));
+      expect(told, 0);
     });
   });
 

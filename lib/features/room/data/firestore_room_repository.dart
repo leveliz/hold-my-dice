@@ -8,6 +8,11 @@ import 'package:hold_my_dice/features/room/domain/room_models.dart';
 
 const _codeTries = 5;
 
+/// How long a write may take before the person is told they are offline.
+/// Firestore keeps a write it cannot send and never fails it, so without a
+/// limit a join without signal would wait for ever.
+const _writeTimeout = Duration(seconds: 15);
+
 /// Rooms in Cloud Firestore, laid out as firestore.rules expects:
 /// `rooms/{code}` with `seats`, `members`, `presence` and `state` under it.
 class FirestoreRoomRepository implements RoomRepository {
@@ -28,6 +33,11 @@ class FirestoreRoomRepository implements RoomRepository {
       _room(code).collection('presence').doc(uid);
   DocumentReference<Map<String, dynamic>> _state(String code) =>
       _room(code).collection('state').doc('current');
+
+  Future<void> _commit(WriteBatch batch) => batch.commit().timeout(
+    _writeTimeout,
+    onTimeout: () => throw const RoomException(RoomError.offline),
+  );
 
   /// Runs [action], turning what Firestore throws into a [RoomException];
   /// a refusal by the rules becomes [onDenied].
@@ -176,7 +186,7 @@ class FirestoreRoomRepository implements RoomRepository {
         })
         ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
       try {
-        await batch.commit();
+        await _commit(batch);
       } on FirebaseException catch (e) {
         // A refusal here most likely means the code is taken: draw another.
         if (e.code == 'permission-denied' && attempt < _codeTries - 1) continue;
@@ -267,7 +277,7 @@ class FirestoreRoomRepository implements RoomRepository {
         })
         ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
       try {
-        await batch.commit();
+        await _commit(batch);
         return Seat(id: id, uid: uid, name: clean, color: color);
       } on FirebaseException catch (e) {
         if (e.code != 'permission-denied') {
@@ -305,7 +315,7 @@ class FirestoreRoomRepository implements RoomRepository {
         ...proof,
       })
       ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
-    await _guard(batch.commit, RoomError.unknown);
+    await _guard(() => _commit(batch), RoomError.unknown);
   }
 
   @override
@@ -338,8 +348,36 @@ class FirestoreRoomRepository implements RoomRepository {
       })
       ..delete(_member(code, seat.uid))
       ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
-    await _guard(batch.commit, RoomError.seatStillActive);
+    await _guard(() => _commit(batch), RoomError.seatStillActive);
+    // The owner's seat comes with the room. It is a second write because the
+    // rules let only a member take the room, and the member document exists
+    // only once the batch above is committed. If it is refused the person
+    // still has their seat and can ask again from the waiting room.
+    if (seat.uid == meta.ownerUid && meta.status == RoomStatus.lobby) {
+      try {
+        await claimOwnership(code);
+      } on RoomException {
+        // See above.
+      }
+    }
     return Seat(id: seatId, uid: uid, name: seat.name, color: seat.color);
+  }
+
+  @override
+  Future<void> claimOwnership(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    if (meta.ownerUid == uid) return;
+    if (meta.status != RoomStatus.lobby) {
+      throw const RoomException(RoomError.alreadyStarted);
+    }
+    if (await readMyMember(code) == null) {
+      throw const RoomException(RoomError.notAMember);
+    }
+    await _guard(
+      () => _room(code).update({'ownerUid': uid}),
+      RoomError.ownerStillActive,
+    );
   }
 
   @override
@@ -400,7 +438,7 @@ class FirestoreRoomRepository implements RoomRepository {
         'bankerSeat': null,
         'status': 'playing',
       });
-    await _guard(batch.commit, RoomError.notOwner);
+    await _guard(() => _commit(batch), RoomError.notOwner);
   }
 
   @override

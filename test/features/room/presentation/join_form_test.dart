@@ -226,6 +226,20 @@ void main() {
       expect(inSeat('p2', find.text('คุณ')), findsOneWidget);
     });
 
+    testWidgets('the owner who lost their phone gets the room back too', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: 'bens');
+      clock = clock.add(const Duration(minutes: 3));
+      await tester.ensureVisible(find.byKey(const ValueKey('claim-p1')));
+      await tester.tap(find.byKey(const ValueKey('claim-p1')));
+      await tester.pumpAndSettle();
+      expect(find.text('ห้องรอ'), findsOneWidget);
+      expect(find.byKey(const ValueKey('start-room')), findsOneWidget);
+      expect(inSeat('p1', find.text('เจ้าของห้อง')), findsOneWidget);
+      expect(inSeat('p1', find.text('คุณ')), findsOneWidget);
+    });
+
     testWidgets('the password of the room is needed for that too', (
       tester,
     ) async {

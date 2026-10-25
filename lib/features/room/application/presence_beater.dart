@@ -11,11 +11,16 @@ class PresenceBeater {
     this._repository,
     this._code, {
     this.every = const Duration(seconds: 60),
+    this.onNotAMember,
   });
 
   final RoomRepository _repository;
   final String _code;
   final Duration every;
+
+  /// Called when a beat is refused because this person is no longer a member,
+  /// for instance because somebody took their seat over.
+  final void Function()? onNotAMember;
   Timer? _timer;
 
   /// Starts beating; does nothing if it already is.
@@ -30,5 +35,15 @@ class PresenceBeater {
     _timer = null;
   }
 
-  void _beat() => unawaited(_repository.heartbeat(_code).catchError((_) {}));
+  /// Sends a beat now, for instance when the app comes back to the screen; the
+  /// regular schedule goes on as it was.
+  void beatNow() => _beat();
+
+  void _beat() => unawaited(
+    _repository.heartbeat(_code).catchError((Object error) {
+      if (error is RoomException && error.error == RoomError.notAMember) {
+        onNotAMember?.call();
+      }
+    }),
+  );
 }

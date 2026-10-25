@@ -204,6 +204,51 @@ void main() {
     expect(inSeat('p1', find.text('คุณ')), findsNothing);
   });
 
+  group('an owner who is gone', () {
+    late DateTime clock;
+    late FakeRoomStore store;
+    late String code;
+
+    setUp(() async {
+      clock = DateTime.utc(2026, 10, 25, 12);
+      store = FakeRoomStore(now: () => clock);
+      code = await makeRoom(store);
+      await repoOn(
+        store,
+        'u2',
+      ).joinAsPlayer(code: code, name: 'แพร', color: 0xFFE11D48);
+    });
+
+    testWidgets('a member is refused while the owner is still there', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      clock = clock.add(const Duration(seconds: 30));
+      await tester.tap(find.byKey(const ValueKey('claim-owner')));
+      await tester.pumpAndSettle();
+      expect(snackText(tester), contains('เจ้าของห้องยังอยู่'));
+      expect(find.byKey(const ValueKey('start-room')), findsNothing);
+    });
+
+    testWidgets('a member takes the room after 2 minutes and can start', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      clock = clock.add(const Duration(minutes: 3));
+      await tester.tap(find.byKey(const ValueKey('claim-owner')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('start-room')), findsOneWidget);
+      expect(find.byKey(const ValueKey('claim-owner')), findsNothing);
+      expect(inSeat('p2', find.text('เจ้าของห้อง')), findsOneWidget);
+      expect(inSeat('p1', find.text('เจ้าของห้อง')), findsNothing);
+    });
+
+    testWidgets('the owner has no such button', (tester) async {
+      await openApp(tester, store, '/room/$code', uid: 'owner');
+      expect(find.byKey(const ValueKey('claim-owner')), findsNothing);
+    });
+  });
+
   testWidgets('everybody is taken to the game when the owner starts it', (
     tester,
   ) async {
