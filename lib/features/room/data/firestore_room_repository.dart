@@ -152,6 +152,9 @@ class FirestoreRoomRepository implements RoomRepository {
     final hasPassword = password != null && password.isNotEmpty;
     for (var attempt = 0; attempt < _codeTries; attempt++) {
       final code = generateRoomCode(_random);
+      // The proof of the password goes in the owner's member document too: the
+      // rules ask every new member for it, the creator included.
+      final hash = hasPassword ? hashRoomPassword(password, code) : null;
       final batch = _db.batch()
         ..set(_room(code), {
           'v': 1,
@@ -167,7 +170,7 @@ class FirestoreRoomRepository implements RoomRepository {
             'maxPlayers': settings.maxPlayers,
           },
           'hasPassword': hasPassword,
-          'passwordHash': hasPassword ? hashRoomPassword(password, code) : null,
+          'passwordHash': hash,
         })
         ..set(_seat(code, 'p1'), {
           'uid': uid,
@@ -180,6 +183,7 @@ class FirestoreRoomRepository implements RoomRepository {
           'color': color,
           'role': 'player',
           'seat': 'p1',
+          'pwHash': ?hash,
         })
         ..set(_presence(code, uid), {'lastSeen': FieldValue.serverTimestamp()});
       try {

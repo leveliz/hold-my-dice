@@ -84,6 +84,36 @@ try {
   check(await seen(thai, 'ห้องรอ'), 'a 20-unit Thai and emoji name can join');
   check(await seen(owner, longName), 'the owner sees that name whole');
 
+  // 2b2. A room with a password: the owner can open it, a wrong password is
+  // refused with its own message, the right one gets in.
+  const secretOwner = await person('secret-owner');
+  await open(secretOwner, '/room/create');
+  await typeName(secretOwner, 'Keeper');
+  await secretOwner.page.getByRole('switch', { name: 'ตั้งรหัสผ่านห้อง' }).click();
+  const fields = secretOwner.page.getByRole('textbox');
+  await fields.nth(3).click();
+  await fields.nth(3).pressSequentially('abcd', { delay: 40 });
+  await button(secretOwner, 'ออกตั๋วห้อง').click();
+  await secretOwner.page.waitForURL(/\/room\/[A-Z0-9]{6}$/, { timeout: 30000 });
+  const secretCode = secretOwner.page.url().split('/').pop();
+  check(await seen(secretOwner, 'ห้องรอ'), `an owner can open a room with a password (${secretCode})`);
+  const visitor = await person('visitor');
+  await open(visitor, `/room/${secretCode}`);
+  check(await seen(visitor, 'มีรหัสผ่าน'), 'the join form says the room has a password');
+  const visitorFields = visitor.page.getByRole('textbox');
+  await visitorFields.nth(0).click();
+  await visitorFields.nth(0).pressSequentially('wrong', { delay: 40 });
+  await visitorFields.nth(1).click();
+  await visitorFields.nth(1).pressSequentially('Visitor', { delay: 40 });
+  await button(visitor, 'นั่งโต๊ะ').click();
+  check(await seen(visitor, 'รหัสผ่านห้องไม่ถูกต้อง'), 'a wrong password is refused');
+  await visitorFields.nth(0).fill('');
+  await visitorFields.nth(0).pressSequentially('abcd', { delay: 40 });
+  await button(visitor, 'นั่งโต๊ะ').click();
+  check(await seen(visitor, 'ห้องรอ'), 'the right password gets in');
+  await secretOwner.ctx.close();
+  await visitor.ctx.close();
+
   // 2c. Without a connection a join says so (and does not claim the room ended).
   const late = await person('late');
   await open(late, `/room/${code}`);
