@@ -10,7 +10,7 @@ void main() {
   test('dark sheets and dialogs are the page navy, one step lighter', () {
     final theme = buildTheme(Brightness.dark);
     final sheet = theme.bottomSheetTheme.backgroundColor!;
-    final page = theme.scaffoldBackgroundColor;
+    final page = theme.colorScheme.surface;
     expect(page, Palette.night);
     expect(sheet, isNot(page));
     expect(

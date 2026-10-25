@@ -11,7 +11,7 @@ ThemeData buildTheme(Brightness brightness) {
         seedColor: Palette.cobalt,
         brightness: brightness,
       ).copyWith(
-        primary: Palette.cobalt,
+        primary: dark ? Palette.auroraIndigo : Palette.cobalt,
         onPrimary: Colors.white,
         surface: background,
         onSurface: onBackground,
@@ -23,7 +23,8 @@ ThemeData buildTheme(Brightness brightness) {
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    scaffoldBackgroundColor: background,
+    // The page gradient is painted behind every page (see PageBackground).
+    scaffoldBackgroundColor: Colors.transparent,
   );
   final textTheme = GoogleFonts.itimTextTheme(
     base.textTheme,

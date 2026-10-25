@@ -1,9 +1,13 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hold_my_dice/core/widgets/helper_scope.dart';
+import 'package:hold_my_dice/core/widgets/page_background.dart';
 import 'package:hold_my_dice/features/bank/presentation/game_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/history_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/setup_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/shortfall_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/summary_screen.dart';
+import 'package:hold_my_dice/features/hub/helpers.dart';
 import 'package:hold_my_dice/features/hub/hub_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_board_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_setup_screen.dart';
@@ -13,55 +17,53 @@ import 'package:hold_my_dice/features/score/presentation/score_setup_screen.dart
 import 'package:hold_my_dice/features/score/presentation/score_summary_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_table_screen.dart';
 
+/// A route whose page paints the sky gradient itself; [helper] gives its
+/// header that helper's colour.
+GoRoute _route(
+  String path,
+  Widget Function(GoRouterState state) build, {
+  String? helper,
+}) => GoRoute(
+  path: path,
+  pageBuilder: (context, state) {
+    Widget page = build(state);
+    if (helper != null) {
+      page = HelperScope(color: helperById(helper).color, child: page);
+    }
+    return MaterialPage<void>(
+      key: state.pageKey,
+      child: PageBackground(child: page),
+    );
+  },
+);
+
 GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
   initialLocation: initialLocation,
   routes: [
-    GoRoute(path: '/', builder: (context, state) => const HubScreen()),
-    GoRoute(path: '/bank', builder: (context, state) => const SetupScreen()),
-    GoRoute(
-      path: '/bank/play',
-      builder: (context, state) => const GameScreen(),
+    _route('/', (_) => const HubScreen()),
+    _route('/bank', (_) => const SetupScreen(), helper: 'bank'),
+    _route('/bank/play', (_) => const GameScreen(), helper: 'bank'),
+    _route(
+      '/bank/play/shortfall',
+      (state) => ShortfallScreen(args: state.extra! as ShortfallArgs),
+      helper: 'bank',
     ),
-    GoRoute(
-      path: '/bank/play/shortfall',
-      builder: (context, state) =>
-          ShortfallScreen(args: state.extra! as ShortfallArgs),
+    _route('/bank/history', (_) => const HistoryScreen(), helper: 'bank'),
+    _route('/bank/summary', (_) => const SummaryScreen(), helper: 'bank'),
+    _route('/score', (_) => const ScoreSetupScreen(), helper: 'score'),
+    _route('/score/play', (_) => const ScoreBoardScreen(), helper: 'score'),
+    _route(
+      '/score/summary',
+      (_) => const ScoreSummaryScreen(),
+      helper: 'score',
     ),
-    GoRoute(
-      path: '/bank/history',
-      builder: (context, state) => const HistoryScreen(),
-    ),
-    GoRoute(
-      path: '/bank/summary',
-      builder: (context, state) => const SummaryScreen(),
-    ),
-    GoRoute(
-      path: '/score',
-      builder: (context, state) => const ScoreSetupScreen(),
-    ),
-    GoRoute(
-      path: '/score/play',
-      builder: (context, state) => const ScoreBoardScreen(),
-    ),
-    GoRoute(
-      path: '/score/summary',
-      builder: (context, state) => const ScoreSummaryScreen(),
-    ),
-    GoRoute(
-      path: '/score/table',
-      builder: (context, state) => const ScoreTableScreen(),
-    ),
-    GoRoute(
-      path: '/point',
-      builder: (context, state) => const PointSetupScreen(),
-    ),
-    GoRoute(
-      path: '/point/play',
-      builder: (context, state) => const PointBoardScreen(),
-    ),
-    GoRoute(
-      path: '/point/summary',
-      builder: (context, state) => const PointSummaryScreen(),
+    _route('/score/table', (_) => const ScoreTableScreen(), helper: 'score'),
+    _route('/point', (_) => const PointSetupScreen(), helper: 'point'),
+    _route('/point/play', (_) => const PointBoardScreen(), helper: 'point'),
+    _route(
+      '/point/summary',
+      (_) => const PointSummaryScreen(),
+      helper: 'point',
     ),
   ],
 );

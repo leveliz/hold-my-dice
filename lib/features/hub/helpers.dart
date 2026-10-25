@@ -46,3 +46,5 @@ const helpers = [
     route: '/point',
   ),
 ];
+
+Helper helperById(String id) => helpers.firstWhere((h) => h.id == id);

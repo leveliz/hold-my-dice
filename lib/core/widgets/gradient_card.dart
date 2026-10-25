@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/widgets/dither.dart';
 
 /// A soft card that fades from a light tint to a deeper tint of [accent],
 /// with an icon-sized tile slot handled by the caller.
@@ -52,6 +53,10 @@ class _GradientCardState extends State<GradientCard> {
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(widget.radius),
+              // A thin light edge catches the aurora in the dark theme.
+              border: dark
+                  ? Border.all(color: Colors.white.withValues(alpha: 0.14))
+                  : null,
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -59,13 +64,27 @@ class _GradientCardState extends State<GradientCard> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: widget.accent.withValues(alpha: dark ? 0.25 : 0.22),
+                  color: widget.accent.withValues(alpha: dark ? 0.32 : 0.22),
                   blurRadius: 20,
                   offset: const Offset(0, 8),
                 ),
               ],
             ),
-            child: widget.child,
+            // Grain over the dark gradient keeps it from banding.
+            child: dark
+                ? Stack(
+                    fit: StackFit.passthrough,
+                    children: [
+                      widget.child,
+                      Positioned.fill(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(widget.radius),
+                          child: const DitherOverlay(),
+                        ),
+                      ),
+                    ],
+                  )
+                : widget.child,
           ),
         ),
       ),
