@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hold_my_dice/core/widgets/end_game_icon.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -785,7 +786,13 @@ void main() {
       await tapKey(tester, 'leave-stay');
       await tapKey(tester, 'end-game-button');
       expect(hasIcon('end-stay', LucideIcons.play), isTrue);
-      expect(hasIcon('end-confirm', LucideIcons.flag), isTrue);
+      expect(
+        find.descendant(
+          of: byKey('end-confirm'),
+          matching: find.byType(EndGameIcon),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('summary buttons', (tester) async {

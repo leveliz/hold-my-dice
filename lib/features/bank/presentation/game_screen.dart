@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/widgets/end_game_button.dart';
+import 'package:hold_my_dice/core/widgets/end_game_icon.dart';
 import 'package:hold_my_dice/core/widgets/gradient_card.dart';
 import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
@@ -179,7 +181,7 @@ class _GameScreenState extends ConsumerState<GameScreen>
           FilledButton.icon(
             key: const ValueKey('end-confirm'),
             onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(LucideIcons.flag),
+            icon: const EndGameIcon(),
             label: const Text('จบเกม'),
           ),
         ],
@@ -235,10 +237,8 @@ class _GameScreenState extends ConsumerState<GameScreen>
                   icon: const Icon(LucideIcons.history),
                   onPressed: () => context.push('/bank/history'),
                 ),
-                IconButton(
+                EndGameButton(
                   key: const ValueKey('end-game-button'),
-                  tooltip: 'จบเกม',
-                  icon: const Icon(LucideIcons.flag),
                   onPressed: _confirmEnd,
                 ),
               ],

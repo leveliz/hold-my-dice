@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hold_my_dice/core/widgets/end_game_icon.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
 import 'package:hold_my_dice/core/tour/tour_host.dart';
@@ -155,7 +156,7 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen>
           FilledButton.icon(
             key: const ValueKey('end-confirm'),
             onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(LucideIcons.flag),
+            icon: const EndGameIcon(),
             label: const Text('จบเกม'),
           ),
         ],
@@ -215,7 +216,7 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen>
               TextButton.icon(
                 key: const ValueKey('end-after-round'),
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(LucideIcons.flag),
+                icon: const EndGameIcon(),
                 label: const Text('จบเกม'),
               ),
             ],
@@ -577,32 +578,32 @@ class _ControlStrip extends StatelessWidget {
         children: [
           _StripButton(
             key: const ValueKey('undo-button'),
-            icon: LucideIcons.undo2,
+            icon: const Icon(LucideIcons.undo2),
             tooltip: 'เลิกทำ',
             onPressed: game.canUndo ? onUndo : null,
           ),
           _StripButton(
             key: const ValueKey('swap-button'),
-            icon: LucideIcons.arrowLeftRight,
+            icon: const Icon(LucideIcons.arrowLeftRight),
             tooltip: 'สลับฝั่ง',
             onPressed: onSwap,
           ),
           _StripButton(
             key: const ValueKey('finish-round'),
-            icon: LucideIcons.check,
+            icon: const Icon(LucideIcons.check),
             tooltip: 'จบรอบ',
             highlighted: decided,
             onPressed: game.canFinishRound ? onFinish : null,
           ),
           _StripButton(
             key: const ValueKey('reset-button'),
-            icon: LucideIcons.rotateCcw,
+            icon: const Icon(LucideIcons.rotateCcw),
             tooltip: 'กดค้างเพื่อรีเซ็ตแต้มรอบนี้',
             onLongPress: onReset,
           ),
           _StripButton(
             key: const ValueKey('end-game-button'),
-            icon: LucideIcons.flag,
+            icon: const EndGameIcon(),
             tooltip: 'จบเกม',
             onPressed: onEnd,
           ),
@@ -622,7 +623,7 @@ class _StripButton extends StatelessWidget {
     this.highlighted = false,
   });
 
-  final IconData icon;
+  final Widget icon;
   final String tooltip;
   final VoidCallback? onPressed;
   final VoidCallback? onLongPress;
@@ -645,12 +646,14 @@ class _StripButton extends StatelessWidget {
             shape: BoxShape.circle,
             color: highlighted ? _serveYellow : Colors.transparent,
           ),
-          child: Icon(
-            icon,
-            size: 24,
-            color: highlighted
-                ? Colors.black87
-                : Colors.white.withValues(alpha: enabled ? 1 : 0.35),
+          child: IconTheme(
+            data: IconThemeData(
+              size: 24,
+              color: highlighted
+                  ? Colors.black87
+                  : Colors.white.withValues(alpha: enabled ? 1 : 0.35),
+            ),
+            child: icon,
           ),
         ),
       ),

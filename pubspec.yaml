@@ -73,6 +73,7 @@ flutter:
   assets:
     - google_fonts/
     - assets/fonts/OFL-NotoSerifThai.txt
+    - assets/icons/end_game.png
 
   fonts:
     - family: NotoSerifThai

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hold_my_dice/core/widgets/end_game_button.dart';
+import 'package:hold_my_dice/core/widgets/end_game_icon.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
@@ -129,7 +131,7 @@ class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen>
           FilledButton.icon(
             key: const ValueKey('end-confirm'),
             onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(LucideIcons.flag),
+            icon: const EndGameIcon(),
             label: const Text('จบเกม'),
           ),
         ],
@@ -172,10 +174,8 @@ class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen>
             child: Text('Score Snitch'),
           ),
           actions: [
-            IconButton(
+            EndGameButton(
               key: const ValueKey('end-game-button'),
-              tooltip: 'จบเกม',
-              icon: const Icon(LucideIcons.flag),
               onPressed: _confirmEnd,
             ),
             const SizedBox(width: 4),
