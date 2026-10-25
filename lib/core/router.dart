@@ -14,7 +14,10 @@ import 'package:hold_my_dice/features/point/presentation/point_board_screen.dart
 import 'package:hold_my_dice/features/point/presentation/point_setup_screen.dart';
 import 'package:hold_my_dice/features/point/presentation/point_summary_screen.dart';
 import 'package:hold_my_dice/features/room/application/room_code.dart';
-import 'package:hold_my_dice/features/room/presentation/join_room_screen.dart';
+import 'package:hold_my_dice/features/room/presentation/create_room_screen.dart';
+import 'package:hold_my_dice/features/room/presentation/enter_code_screen.dart';
+import 'package:hold_my_dice/features/room/presentation/mode_picker_screen.dart';
+import 'package:hold_my_dice/features/room/presentation/room_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_board_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_setup_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_summary_screen.dart';
@@ -48,7 +51,8 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
     _route('/splash', (_) => const SplashScreen()),
     _route('/', (_) => const HubScreen()),
     _route('/settings', (_) => const SettingsScreen()),
-    _route('/bank', (_) => const SetupScreen(), helper: 'bank'),
+    _route('/bank', (_) => const BankEntryScreen(), helper: 'bank'),
+    _route('/bank/solo', (_) => const SetupScreen(), helper: 'bank'),
     _route('/bank/play', (_) => const GameScreen(), helper: 'bank'),
     _route(
       '/bank/play/shortfall',
@@ -65,11 +69,13 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
       helper: 'score',
     ),
     _route('/score/table', (_) => const ScoreTableScreen(), helper: 'score'),
+    _route('/room/create', (_) => const CreateRoomScreen(), helper: 'bank'),
+    _route('/room/join', (_) => const EnterCodeScreen(), helper: 'bank'),
     _route(
       '/room/:code',
-      (state) => JoinRoomScreen(
-        code: normalizeRoomCode(state.pathParameters['code']!),
-      ),
+      (state) =>
+          RoomScreen(code: normalizeRoomCode(state.pathParameters['code']!)),
+      helper: 'bank',
     ),
     _route('/point', (_) => const PointSetupScreen(), helper: 'point'),
     _route('/point/play', (_) => const PointBoardScreen(), helper: 'point'),

@@ -54,7 +54,10 @@ void main() {
     final store = FakeRoomStore();
     final code = await _makeRoom(store);
     await _open(tester, store, '/room/$code');
-    expect(find.text('ห้อง $code'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('join-code'))).data,
+      code,
+    );
     expect(find.text(_gone), findsNothing);
   });
 
@@ -72,7 +75,10 @@ void main() {
     final code = await _makeRoom(store);
     final typed = '${code.substring(0, 3)}-${code.substring(3)}'.toLowerCase();
     await _open(tester, store, '/room/${Uri.encodeComponent(typed)}');
-    expect(find.text('ห้อง $code'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('join-code'))).data,
+      code,
+    );
   });
 
   testWidgets('a code that cannot be a code shows the not-found message', (

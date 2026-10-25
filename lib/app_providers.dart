@@ -20,6 +20,7 @@ List<Override> productionOverrides(
   bool firebase = false,
 }) => [
   if (firebase) ...[
+    multiDeviceEnabledProvider.overrideWithValue(true),
     authServiceProvider.overrideWith((ref) => FirebaseAuthService()),
     roomRepositoryProvider.overrideWith(
       (ref) => FirestoreRoomRepository(

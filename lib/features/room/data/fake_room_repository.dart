@@ -284,6 +284,12 @@ class FakeRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<Member?> readMyMember(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    return _room(code).memberByUid[uid];
+  }
+
+  @override
   Stream<List<Member>> watchMembers(String code) async* {
     final room = await _asMember(code);
     yield* room.members.watch();

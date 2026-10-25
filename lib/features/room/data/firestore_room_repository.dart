@@ -343,6 +343,22 @@ class FirestoreRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<Member?> readMyMember(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    await _readMeta(code);
+    try {
+      final snap = await _member(code, uid).get();
+      final data = snap.data();
+      return data == null ? null : _memberOf(uid, data);
+    } on FirebaseException catch (e) {
+      // Only members may read the member documents, so a person who has not
+      // joined is refused.
+      if (e.code == 'permission-denied') return null;
+      throw _translate(e, RoomError.unknown);
+    }
+  }
+
+  @override
   Stream<List<Member>> watchMembers(String code) async* {
     await _auth.ensureSignedIn();
     yield* _guardStream(

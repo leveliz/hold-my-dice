@@ -74,6 +74,9 @@ abstract class RoomRepository {
     String? password,
   });
 
+  /// This person's own member document, null when they have not joined.
+  Future<Member?> readMyMember(String code);
+
   Stream<List<Member>> watchMembers(String code);
 
   /// Owner only: starts the game with the seats taken so far.

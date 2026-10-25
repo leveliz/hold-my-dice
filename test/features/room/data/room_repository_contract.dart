@@ -66,6 +66,35 @@ void roomRepositoryContract(RoomHarness Function() create) {
       },
     );
 
+    test('readMyMember is null until joining, then the member', () async {
+      final h = create();
+      final meta = await _create(h);
+      expect(await h.repoFor('u2').readMyMember(meta.code), isNull);
+      await _join(h, meta.code, 'u2');
+      final me = await h.repoFor('u2').readMyMember(meta.code);
+      expect(me?.uid, 'u2');
+      expect(me?.seat, 'p2');
+      expect(me?.role, MemberRole.player);
+      expect((await h.repoFor('owner').readMyMember(meta.code))?.seat, 'p1');
+    });
+
+    test(
+      'readMyMember of a room that does not exist is roomNotFound',
+      () async {
+        final h = create();
+        await expectLater(
+          h.repoFor('u2').readMyMember('ZZZZZZ'),
+          throwsA(
+            isA<RoomException>().having(
+              (e) => e.error,
+              'error',
+              RoomError.roomNotFound,
+            ),
+          ),
+        );
+      },
+    );
+
     test('the owner sits at p1 and is the first member', () async {
       final h = create();
       final meta = await _create(h);
