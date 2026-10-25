@@ -1,0 +1,39 @@
+name: Deploy web
+
+# Cloudflare's build machines have no Flutter, so the site is built here and
+# the finished files are uploaded. Needs two repository secrets,
+# CLOUDFLARE_API_TOKEN (Pages: Edit) and CLOUDFLARE_ACCOUNT_ID. The Pages
+# project name is the repository variable CLOUDFLARE_PROJECT_NAME.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.38.7
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter build web --release
+
+      # No 404.html is added on purpose: Pages then serves index.html for every
+      # path, so a link such as /room/ABC123 opens the app.
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy build/web --project-name=${{ vars.CLOUDFLARE_PROJECT_NAME || 'hold-my-dice' }} --branch=main

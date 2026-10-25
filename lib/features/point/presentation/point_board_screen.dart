@@ -191,44 +191,50 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen> {
       return const Scaffold(body: Center(child: Text('ยังไม่ได้เริ่มเกม')));
     }
 
+    final upright =
+        ref.watch(needsManualRotationProvider) &&
+        MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmLeave();
       },
       child: Scaffold(
-        body: Stack(
-          children: [
-            Row(
-              children: [
-                Expanded(child: _half(game, game.leftSide)),
-                Expanded(child: _half(game, game.rightSide)),
-              ],
-            ),
-            Align(
-              alignment: Alignment.center,
-              child: _ControlStrip(
-                game: game,
-                onUndo: _notifier.undo,
-                onSwap: _notifier.swapSides,
-                onFinish: _finishRound,
-                onReset: _notifier.reset,
-                onEnd: _confirmEnd,
+        body: upright
+            ? _RotateNotice(onLeave: _confirmLeave)
+            : Stack(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: _half(game, game.leftSide)),
+                      Expanded(child: _half(game, game.rightSide)),
+                    ],
+                  ),
+                  Align(
+                    alignment: Alignment.center,
+                    child: _ControlStrip(
+                      game: game,
+                      onUndo: _notifier.undo,
+                      onSwap: _notifier.swapSides,
+                      onFinish: _finishRound,
+                      onReset: _notifier.reset,
+                      onEnd: _confirmEnd,
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.topCenter,
+                    // Only the top is kept clear: a camera cut-out on one side must
+                    // not push the chips off the seam between the halves.
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        top: 8 + MediaQuery.paddingOf(context).top,
+                      ),
+                      child: _StatusChips(game: game),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            Align(
-              alignment: Alignment.topCenter,
-              // Only the top is kept clear: a camera cut-out on one side must
-              // not push the chips off the seam between the halves.
-              child: Padding(
-                padding: EdgeInsets.only(
-                  top: 8 + MediaQuery.paddingOf(context).top,
-                ),
-                child: _StatusChips(game: game),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -241,6 +247,48 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen> {
     onRename: () => _rename(side),
     onServe: () => _notifier.chooseServer(side),
   );
+}
+
+/// Shown in a browser while the device is upright: the board is built for a
+/// screen held sideways and a web page cannot turn it.
+class _RotateNotice extends StatelessWidget {
+  const _RotateNotice({required this.onLeave});
+
+  final VoidCallback onLeave;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Center(
+        key: const ValueKey('rotate-notice'),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(LucideIcons.smartphone, size: 56),
+              const SizedBox(height: 16),
+              Text('กรุณาหมุนจอ', style: text.headlineMedium),
+              const SizedBox(height: 8),
+              Text(
+                'Point Blank เล่นในแนวนอน เกมที่เล่นอยู่ยังอยู่ครบ',
+                textAlign: TextAlign.center,
+                style: text.bodyLarge,
+              ),
+              const SizedBox(height: 24),
+              TextButton.icon(
+                key: const ValueKey('rotate-leave'),
+                onPressed: onLeave,
+                icon: const Icon(LucideIcons.logOut),
+                label: const Text('ออกจากเกม'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _Half extends StatelessWidget {

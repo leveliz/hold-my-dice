@@ -283,6 +283,10 @@ class _HubHeader extends StatelessWidget {
   }
 }
 
+/// A phone gets two cards a row; a wider window gets more, up to this width.
+const _cardMaxWidth = 240.0;
+const _homeMaxWidth = 1000.0;
+
 class _HomeTab extends StatelessWidget {
   const _HomeTab({required this.bottomSpace});
 
@@ -291,14 +295,23 @@ class _HomeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final paper = PaperStyle.maybeOf(context) != null;
-    return GridView.count(
-      // Paper cards stack their sheets to the right and below, so the gaps are
-      // a little wider there.
-      padding: EdgeInsets.fromLTRB(20, 22, paper ? 26 : 20, bottomSpace),
-      crossAxisCount: 2,
-      mainAxisSpacing: paper ? 24 : 18,
-      crossAxisSpacing: paper ? 24 : 18,
-      children: [for (final h in helpers) _HelperCard(helper: h)],
+    final gap = paper ? 24.0 : 18.0;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _homeMaxWidth),
+        child: GridView(
+          // Paper cards stack their sheets to the right and below, so the gaps
+          // are a little wider there.
+          padding: EdgeInsets.fromLTRB(20, 22, paper ? 26 : 20, bottomSpace),
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: _cardMaxWidth,
+            mainAxisSpacing: gap,
+            crossAxisSpacing: gap,
+          ),
+          children: [for (final h in helpers) _HelperCard(helper: h)],
+        ),
+      ),
     );
   }
 }

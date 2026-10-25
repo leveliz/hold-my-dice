@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:hold_my_dice/core/platform_services.dart';
 import 'package:hold_my_dice/core/settings/app_settings.dart';
@@ -16,5 +17,6 @@ List<Override> productionOverrides(SharedPreferences prefs) => [
   screenAwakeProvider.overrideWithValue(const WakelockScreenAwake()),
   hapticsProvider.overrideWithValue(const SystemHaptics()),
   screenModeProvider.overrideWithValue(const SystemScreenMode()),
+  needsManualRotationProvider.overrideWithValue(kIsWeb),
   linkOpenerProvider.overrideWithValue(const BrowserLinkOpener()),
 ];

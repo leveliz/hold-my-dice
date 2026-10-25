@@ -194,6 +194,49 @@ void main() {
       expect(tester.getSize(byKey('player-card-p1')).height, lessThan(112));
     });
 
+    testWidgets('a wide window puts the players in two columns', (
+      tester,
+    ) async {
+      await pumpAt(
+        tester,
+        '/bank/play',
+        container: gameWith(4),
+        size: const Size(1100, 800),
+      );
+      final p1 = tester.getRect(byKey('player-card-p1'));
+      final p2 = tester.getRect(byKey('player-card-p2'));
+      final p3 = tester.getRect(byKey('player-card-p3'));
+      expect(p2.top, p1.top);
+      expect(p2.left, greaterThan(p1.right));
+      expect(p3.top, greaterThan(p1.bottom));
+      expect(p3.left, p1.left);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a phone keeps one column', (tester) async {
+      await pumpAt(tester, '/bank/play', container: gameWith(4));
+      expect(
+        tester.getTopLeft(byKey('player-card-p2')).dy,
+        greaterThan(tester.getRect(byKey('player-card-p1')).bottom),
+      );
+    });
+
+    testWidgets('an odd player on a wide window sits alone in the last row', (
+      tester,
+    ) async {
+      await pumpAt(
+        tester,
+        '/bank/play',
+        container: gameWith(3),
+        size: const Size(1100, 800),
+      );
+      final p1 = tester.getRect(byKey('player-card-p1'));
+      final p3 = tester.getRect(byKey('player-card-p3'));
+      expect(p3.top, greaterThan(p1.bottom));
+      expect(p3.left, p1.left);
+      expect(p3.width, p1.width);
+    });
+
     testWidgets('many players scroll instead of overflowing', (tester) async {
       await pumpAt(tester, '/bank/play', container: gameWith(12));
       expect(tester.takeException(), isNull);

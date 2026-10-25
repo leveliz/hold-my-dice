@@ -44,6 +44,7 @@ ProviderContainer containerWith({
   ScreenAwake? awake,
   Haptics? haptics,
   PointRules? rules,
+  bool needsManualRotation = false,
   bool started = true,
 }) {
   final c = ProviderContainer(
@@ -52,6 +53,8 @@ ProviderContainer containerWith({
       if (mode != null) screenModeProvider.overrideWithValue(mode),
       if (awake != null) screenAwakeProvider.overrideWithValue(awake),
       if (haptics != null) hapticsProvider.overrideWithValue(haptics),
+      if (needsManualRotation)
+        needsManualRotationProvider.overrideWithValue(true),
     ],
   );
   addTearDown(c.dispose);
@@ -83,6 +86,65 @@ Future<void> score(WidgetTester tester, String side, int times) async {
 
 void main() {
   setUp(() => GoogleFonts.config.allowRuntimeFetching = false);
+
+  group('a browser that cannot turn the screen', () {
+    testWidgets('asks to rotate while the screen is upright', (tester) async {
+      final c = containerWith(needsManualRotation: true);
+      await f.pumpAt(
+        tester,
+        '/point/play',
+        container: c,
+        size: const Size(400, 800),
+      );
+      expect(byKey('rotate-notice'), findsOneWidget);
+      expect(byKey('half-red'), findsNothing);
+    });
+
+    testWidgets('lets the player leave from the notice', (tester) async {
+      final c = containerWith(needsManualRotation: true);
+      await f.pumpAt(
+        tester,
+        '/point/play',
+        container: c,
+        size: const Size(400, 800),
+      );
+      await tapKey(tester, 'rotate-leave');
+      expect(byKey('leave-dialog'), findsOneWidget);
+    });
+
+    testWidgets('shows the board as soon as it is sideways', (tester) async {
+      final c = containerWith(needsManualRotation: true);
+      await openBoard(tester, c);
+      expect(byKey('rotate-notice'), findsNothing);
+      expect(byKey('half-red'), findsOneWidget);
+    });
+
+    testWidgets('the game is kept while the notice is up', (tester) async {
+      final c = containerWith(needsManualRotation: true);
+      await openBoard(tester, c);
+      await score(tester, 'red', 3);
+      tester.view.physicalSize = const Size(400, 800);
+      await tester.pumpAndSettle();
+      expect(byKey('rotate-notice'), findsOneWidget);
+      tester.view.physicalSize = _landscape;
+      await tester.pumpAndSettle();
+      expect(scoreText(tester, 'red'), '3');
+    });
+
+    testWidgets('an app that turns the screen itself never shows it', (
+      tester,
+    ) async {
+      final c = containerWith();
+      await f.pumpAt(
+        tester,
+        '/point/play',
+        container: c,
+        size: const Size(400, 800),
+      );
+      expect(byKey('rotate-notice'), findsNothing);
+      expect(byKey('half-red'), findsOneWidget);
+    });
+  });
 
   group('the board', () {
     testWidgets('a tap on a half adds a point and gives that side the serve', (

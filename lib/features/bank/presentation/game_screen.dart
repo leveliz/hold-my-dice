@@ -21,6 +21,9 @@ const _tallMax = 150.0;
 const _compactMin = 60.0;
 const _compactMax = 92.0;
 const _gap = 12.0;
+
+/// From this width the players go in two columns.
+const _twoColumnsWidth = 720.0;
 const _undoSlotHeight = 54.0;
 const _listPadding = EdgeInsets.fromLTRB(16, 4, 16, 12);
 const _bankRadius = 24.0;
@@ -162,46 +165,63 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final n = players.length;
+                  final columns = constraints.maxWidth >= _twoColumnsWidth
+                      ? 2
+                      : 1;
+                  final rows = (n / columns).ceil();
                   final available =
                       constraints.maxHeight -
                       _listPadding.vertical -
-                      _gap * (n - 1);
-                  final perCard = available / n;
-                  final tall = n <= maxTallPlayers && perCard >= _tallMin;
+                      _gap * (rows - 1);
+                  final perCard = available / rows;
+                  final tall = rows <= maxTallPlayers && perCard >= _tallMin;
                   final height = tall
                       ? perCard.clamp(_tallMin, _tallMax).toDouble()
                       : perCard.clamp(_compactMin, _compactMax).toDouble();
-                  return ListView.separated(
+                  Widget tile(int i) {
+                    final p = players[i];
+                    final out = game.isBankrupt(p.id);
+                    return DragTile(
+                      id: p.id,
+                      enabled: !out,
+                      accent: Color(p.color),
+                      radius: PlayerCard.radiusFor(compact: !tall),
+                      feedbackLabel: p.name,
+                      dragging: _dragging,
+                      onDrop: (source) => actions.handleDrop(source, p.id),
+                      child: PlayerCard(
+                        player: p,
+                        balance: game.balanceOf(p.id),
+                        compact: !tall,
+                        bankrupt: out,
+                        hideBalance: _hideBalances,
+                        onReceive: () => actions.receive(p),
+                        onPay: () => actions.payBank(p),
+                        onGo: () => notifier.passGo(p.id),
+                        onTap: () => actions.pickRecipientAndTransfer(p),
+                      ),
+                    );
+                  }
+
+                  if (columns == 1) {
+                    return ListView.separated(
+                      padding: _listPadding,
+                      itemCount: n,
+                      separatorBuilder: (_, _) => const SizedBox(height: _gap),
+                      itemBuilder: (context, i) =>
+                          SizedBox(height: height, child: tile(i)),
+                    );
+                  }
+                  return GridView.builder(
                     padding: _listPadding,
                     itemCount: n,
-                    separatorBuilder: (_, _) => const SizedBox(height: _gap),
-                    itemBuilder: (context, i) {
-                      final p = players[i];
-                      final out = game.isBankrupt(p.id);
-                      return SizedBox(
-                        height: height,
-                        child: DragTile(
-                          id: p.id,
-                          enabled: !out,
-                          accent: Color(p.color),
-                          radius: PlayerCard.radiusFor(compact: !tall),
-                          feedbackLabel: p.name,
-                          dragging: _dragging,
-                          onDrop: (source) => actions.handleDrop(source, p.id),
-                          child: PlayerCard(
-                            player: p,
-                            balance: game.balanceOf(p.id),
-                            compact: !tall,
-                            bankrupt: out,
-                            hideBalance: _hideBalances,
-                            onReceive: () => actions.receive(p),
-                            onPay: () => actions.payBank(p),
-                            onGo: () => notifier.passGo(p.id),
-                            onTap: () => actions.pickRecipientAndTransfer(p),
-                          ),
-                        ),
-                      );
-                    },
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      mainAxisExtent: height,
+                      mainAxisSpacing: _gap,
+                      crossAxisSpacing: _gap,
+                    ),
+                    itemBuilder: (context, i) => tile(i),
                   );
                 },
               ),

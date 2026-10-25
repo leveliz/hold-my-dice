@@ -141,6 +141,7 @@ void main() {
       addTearDown(c.dispose);
       expect(c.read(pointStorageProvider), isA<PrefsPointStorage>());
       expect(c.read(screenModeProvider), isA<SystemScreenMode>());
+      expect(c.read(needsManualRotationProvider), isFalse);
     });
 
     test('a corrupt saved game is dropped when read', () {

@@ -27,6 +27,49 @@ void main() {
     }
   });
 
+  group('on screens of different widths', () {
+    Future<void> openHubAt(WidgetTester tester, Size size) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp.router(
+            theme: buildTheme(Brightness.light),
+            routerConfig: createRouter(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    double top(WidgetTester tester, String id) =>
+        tester.getTopLeft(find.byKey(ValueKey('helper-$id'))).dy;
+
+    testWidgets('a phone shows two cards in a row', (tester) async {
+      await openHubAt(tester, const Size(400, 800));
+      expect(top(tester, 'bank'), top(tester, 'score'));
+      expect(top(tester, 'point'), greaterThan(top(tester, 'bank')));
+    });
+
+    testWidgets('a wide window fits more cards in a row', (tester) async {
+      await openHubAt(tester, const Size(1100, 800));
+      expect(top(tester, 'bank'), top(tester, 'score'));
+      expect(top(tester, 'bank'), top(tester, 'point'));
+    });
+
+    testWidgets('cards stay square and the window does not overflow', (
+      tester,
+    ) async {
+      await openHubAt(tester, const Size(1100, 800));
+      for (final h in helpers) {
+        final size = tester.getSize(find.byKey(ValueKey('helper-${h.id}')));
+        expect(size.width, size.height);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets('tapping a card opens that helper', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: HoldMyDiceApp()));
     await tester.pumpAndSettle();

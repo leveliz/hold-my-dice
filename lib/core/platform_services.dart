@@ -125,3 +125,7 @@ final screenAwakeProvider = Provider<ScreenAwake>(
 final hapticsProvider = Provider<Haptics>((ref) => const NoHaptics());
 final screenModeProvider = Provider<ScreenMode>((ref) => const NoScreenMode());
 final linkOpenerProvider = Provider<LinkOpener>((ref) => const NoLinkOpener());
+
+/// True where the app cannot turn the screen itself (a browser), so a game
+/// that needs it sideways has to ask the player to rotate the device.
+final needsManualRotationProvider = Provider<bool>((ref) => false);
