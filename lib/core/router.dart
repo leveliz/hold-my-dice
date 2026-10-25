@@ -5,6 +5,9 @@ import 'package:hold_my_dice/features/bank/presentation/setup_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/shortfall_screen.dart';
 import 'package:hold_my_dice/features/bank/presentation/summary_screen.dart';
 import 'package:hold_my_dice/features/hub/hub_screen.dart';
+import 'package:hold_my_dice/features/point/presentation/point_board_screen.dart';
+import 'package:hold_my_dice/features/point/presentation/point_setup_screen.dart';
+import 'package:hold_my_dice/features/point/presentation/point_summary_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_board_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_setup_screen.dart';
 import 'package:hold_my_dice/features/score/presentation/score_summary_screen.dart';
@@ -47,6 +50,18 @@ GoRouter createRouter({String initialLocation = '/'}) => GoRouter(
     GoRoute(
       path: '/score/table',
       builder: (context, state) => const ScoreTableScreen(),
+    ),
+    GoRoute(
+      path: '/point',
+      builder: (context, state) => const PointSetupScreen(),
+    ),
+    GoRoute(
+      path: '/point/play',
+      builder: (context, state) => const PointBoardScreen(),
+    ),
+    GoRoute(
+      path: '/point/summary',
+      builder: (context, state) => const PointSummaryScreen(),
     ),
   ],
 );

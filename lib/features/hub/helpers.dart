@@ -37,4 +37,12 @@ const helpers = [
     color: Palette.cobalt,
     route: '/score',
   ),
+  Helper(
+    id: 'point',
+    name: 'Point Blank',
+    subtitle: 'นับแต้มกีฬา 2 ฝั่ง',
+    icon: LucideIcons.crosshair,
+    color: Palette.rose,
+    route: '/point',
+  ),
 ];

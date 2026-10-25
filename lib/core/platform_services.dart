@@ -54,9 +54,46 @@ class SystemHaptics implements Haptics {
   }
 }
 
-/// Both default to doing nothing so tests never touch platform channels;
+/// Turns the screen sideways and hides the system bars for a game played at
+/// arm's length, and puts everything back afterwards.
+abstract class ScreenMode {
+  void enterLandscapeImmersive();
+  void restore();
+}
+
+class NoScreenMode implements ScreenMode {
+  const NoScreenMode();
+
+  @override
+  void enterLandscapeImmersive() {}
+
+  @override
+  void restore() {}
+}
+
+class SystemScreenMode implements ScreenMode {
+  const SystemScreenMode();
+
+  @override
+  void enterLandscapeImmersive() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  @override
+  void restore() {
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+}
+
+/// All default to doing nothing so tests never touch platform channels;
 /// `main()` swaps in the real ones (see `productionOverrides`).
 final screenAwakeProvider = Provider<ScreenAwake>(
   (ref) => const NoScreenAwake(),
 );
 final hapticsProvider = Provider<Haptics>((ref) => const NoHaptics());
+final screenModeProvider = Provider<ScreenMode>((ref) => const NoScreenMode());

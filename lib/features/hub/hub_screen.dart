@@ -5,6 +5,8 @@ import 'package:hold_my_dice/core/widgets/gradient_card.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
+import 'package:hold_my_dice/features/point/application/point_session.dart';
+import 'package:hold_my_dice/features/point/data/point_storage.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
 import 'package:hold_my_dice/features/score/data/score_storage.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -63,6 +65,26 @@ class _HubScreenState extends ConsumerState<HubScreen> {
             open: () {
               ref.read(scoreProvider.notifier).restore(saved);
               context.push('/score/play');
+            },
+          ),
+        );
+      }
+    }
+
+    if (ref.read(pointProvider) == null) {
+      final storage = ref.read(pointStorageProvider);
+      final saved = storage.loadGame();
+      if (saved != null && saved.isOver) {
+        await storage.clearGame();
+      } else if (saved != null) {
+        offers.add(
+          _ResumeOffer(
+            helper: 'Point Blank',
+            detail: 'รอบ ${saved.roundNumber} · ${saved.red}–${saved.blue}',
+            clear: storage.clearGame,
+            open: () {
+              ref.read(pointProvider.notifier).restore(saved);
+              context.push('/point/play');
             },
           ),
         );

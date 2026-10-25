@@ -8,4 +8,5 @@ class Palette {
   static const night = Color(0xFF1B1B45);
 
   static const green = Color(0xFF2E9E57);
+  static const rose = Color(0xFFE11D48);
 }
