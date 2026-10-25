@@ -28,7 +28,9 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter build web --release
+      # FIREBASE_ENV=prod turns on the multi-device mode with the prod Firebase
+      # project; without it the site is the single-device app only.
+      - run: flutter build web --release --dart-define=FIREBASE_ENV=prod
 
       # No 404.html is added on purpose: Pages then serves index.html for every
       # path, so a link such as /room/ABC123 opens the app.
