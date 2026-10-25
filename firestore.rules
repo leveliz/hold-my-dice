@@ -28,6 +28,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/rooms/$(code)/presence/$(id);
     }
 
+    function statePath(code) {
+      return /databases/$(database)/documents/rooms/$(code)/state/current;
+    }
+
+    function entryPath(code, id) {
+      return /databases/$(database)/documents/rooms/$(code)/entries/$(id);
+    }
+
     function isMember(code) {
       return signedIn() && exists(memberDoc(code, request.auth.uid));
     }
@@ -99,6 +107,71 @@ service cloud.firestore {
               && d.balances.bank == settings.bankLimit
               && d.balances.values().hasOnly([settings.startingCash,
                                               settings.bankLimit]));
+    }
+
+    // A reason that says something: text of at most 60 UTF-16 units that is
+    // not only spaces.
+    function validReason(r) {
+      return r is string && r.size() >= 1 && r.size() <= 60
+        && r.matches('.*\\S.*');
+    }
+
+    // What an entry does to the balances: the seat of the person who pressed
+    // moves by [delta], the bank (only when the room gives it a limit) moves
+    // the other way, and nothing else changes. Whole numbers only, none below 0.
+    function balancesMove(before, after, seat, delta) {
+      return before is map && after is map
+        && after.size() == before.size()
+        && after.diff(before).affectedKeys().hasOnly([seat, 'bank'])
+        && after[seat] is int && after[seat] >= 0
+        && after[seat] == before[seat] + delta
+        && ('bank' in before
+            ? 'bank' in after && after.bank is int && after.bank >= 0
+              && after.bank == before.bank - delta
+            : !('bank' in after));
+    }
+
+    // A line of the history, written in the same transaction as the new state.
+    // The first slice has three kinds: receive from the bank (with a reason),
+    // pass GO, and pay the bank.
+    function validEntry(code, entryId, d) {
+      let state = get(statePath(code)).data;
+      let stateAfter = getAfter(statePath(code)).data;
+      let room = get(roomDoc(code)).data;
+      return signedIn()
+        && d.keys().hasOnly(['v', 'seq', 'by', 'seat', 'at', 'kind', 'from',
+                             'to', 'amount', 'reason', 'cid', 'voided'])
+        && d.keys().hasAll(['v', 'seq', 'by', 'seat', 'at', 'kind', 'from',
+                            'to', 'amount', 'reason', 'cid', 'voided'])
+        && d.v == 1
+        && d.seq is int
+        && entryId == string(d.seq)
+        && d.seq == state.seq
+        && stateAfter.seq == d.seq + 1
+        && room.status == 'playing'
+        && d.by == request.auth.uid
+        && d.seat is string && d.seat.matches('p[1-8]')
+        && get(seatDoc(code, d.seat)).data.uid == request.auth.uid
+        && d.seat in state.seats && !(d.seat in state.bankrupt)
+        && d.at == request.time
+        && d.voided == false
+        && d.cid is string && d.cid.size() >= 8 && d.cid.size() <= 40
+        && d.amount is int && d.amount >= 1 && d.amount <= 999999999
+        && (d.kind == 'receive'
+            ? d.from == 'bank' && d.to == d.seat && validReason(d.reason)
+              && balancesMove(state.balances, stateAfter.balances, d.seat,
+                              d.amount)
+            : d.kind == 'passGo'
+            ? d.from == 'bank' && d.to == d.seat
+              && d.amount == room.settings.goAmount
+              && d.reason == 'ผ่านจุดเริ่ม'
+              && balancesMove(state.balances, stateAfter.balances, d.seat,
+                              d.amount)
+            : d.kind == 'payBank'
+              && d.from == d.seat && d.to == 'bank'
+              && (d.reason == null || validReason(d.reason))
+              && balancesMove(state.balances, stateAfter.balances, d.seat,
+                              -d.amount));
     }
 
     // ---- rooms/{code} --------------------------------------------------
@@ -270,6 +343,26 @@ service cloud.firestore {
           && validStart(request.resource.data,
                         getAfter(roomDoc(code)).data.settings);
 
+        // The numbers move only together with the entry that explains them:
+        // the entry of the old seq must be created in the same transaction.
+        allow update: if signedIn()
+          && docId == 'current'
+          && get(roomDoc(code)).data.status == 'playing'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['balances', 'seq'])
+          && request.resource.data.seq is int
+          && request.resource.data.seq == resource.data.seq + 1
+          && existsAfter(entryPath(code, string(resource.data.seq)));
+
+        allow delete: if false;
+      }
+
+      // ---- entries -----------------------------------------------------
+      // The history of the game, one line per press, written once and never
+      // changed (undoing comes with a later slice and its own rule).
+      match /entries/{entryId} {
+        allow read: if isMember(code);
+        allow create: if validEntry(code, entryId, request.resource.data);
         allow update, delete: if false;
       }
     }

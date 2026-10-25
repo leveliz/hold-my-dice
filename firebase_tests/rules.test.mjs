@@ -15,6 +15,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -835,5 +836,169 @@ describe('a person who lost their identity leaves an old member document', () =>
     );
     await assertFails(deleteDoc(member(as('s1'), 's1')));
     await assertFails(deleteDoc(member(as('owner'), 's1')));
+  });
+});
+
+// ---- the money entries: the experiment that decides how the app submits them
+
+const entryDoc = (db, id, code = CODE) => doc(db, 'rooms', code, 'entries', String(id));
+
+/** A stored entry as the app writes it (the layout of RoomEntry.toMap). */
+const entryData = (over = {}) => ({
+  v: 1,
+  seq: 0,
+  by: 'owner',
+  seat: 'p1',
+  at: serverTimestamp(),
+  kind: 'receive',
+  from: 'bank',
+  to: 'p1',
+  amount: 100,
+  reason: 'ค่าเช่า',
+  cid: 'abcdefghij0123456789',
+  voided: false,
+  ...over,
+});
+
+/** A game of four that has just started: state/current at seq 0. */
+async function seedPlaying({ settingsOver = {}, balances, seats = ['p1', 'p2', 'p3', 'p4'] } = {}) {
+  await seedRoom({
+    status: 'playing',
+    seats: ['owner', 'u2', 'u3', 'u4'],
+    metaOver: { settings: settings({ maxPlayers: 4, ...settingsOver }) },
+  });
+  await admin((db) =>
+    setDoc(
+      stateDoc(db),
+      stateData({
+        seats,
+        balances: balances ?? Object.fromEntries(seats.map((s) => [s, 1500])),
+      }),
+    ),
+  );
+}
+
+const seatOf = { owner: 'p1', u2: 'p2', u3: 'p3', u4: 'p4' };
+
+/** Reads a document past the rules (the admin helper does not return values). */
+async function adminGet(ref) {
+  let snap;
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    snap = await getDoc(ref(ctx.firestore()));
+  });
+  return snap;
+}
+
+/**
+ * One press the way the app does it: a transaction that reads the state and
+ * the entry it is about to write, then writes the entry and the new state.
+ * [tried] is told which seq the press was built on.
+ */
+function press(uid, { amount = 100, kind = 'receive', reason = 'ค่าเช่า', tried } = {}) {
+  const db = as(uid);
+  const seat = seatOf[uid];
+  return runTransaction(db, async (tx) => {
+    const st = await tx.get(stateDoc(db));
+    const seq = st.data().seq;
+    tried?.(seq);
+    const free = await tx.get(entryDoc(db, seq));
+    if (free.exists()) throw new Error('entry exists');
+    const balances = { ...st.data().balances };
+    if (kind === 'receive') balances[seat] += amount;
+    if (kind === 'payBank') balances[seat] -= amount;
+    if ('bank' in balances) balances.bank += kind === 'receive' ? -amount : amount;
+    tx.set(
+      entryDoc(db, seq),
+      entryData({
+        seq,
+        by: uid,
+        seat,
+        kind,
+        from: kind === 'payBank' ? seat : 'bank',
+        to: kind === 'payBank' ? 'bank' : seat,
+        amount,
+        reason: kind === 'payBank' ? null : reason,
+        cid: `cid-${uid}-${Math.random().toString(36).slice(2, 12)}`,
+      }),
+    );
+    tx.update(stateDoc(db), { seq: seq + 1, balances });
+  });
+}
+
+/**
+ * What the app has to do with a refusal: when the state moved on since the
+ * press was built, the refusal was the race, so build the press again; a
+ * refusal on a state that did not move is a real refusal. Finding the entry
+ * of the seq already there is the same race, seen from inside.
+ */
+async function pressWithRetry(uid, opts = {}, { attempts = 12 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    let triedSeq = -1;
+    try {
+      await press(uid, { ...opts, tried: (seq) => (triedSeq = seq) });
+      return { attempts: attempt };
+    } catch (e) {
+      // The entry of this seq already exists: the two reads of the transaction
+      // straddled another press (the emulator does not keep them consistent).
+      if (e?.message === 'entry exists' && attempt < attempts) continue;
+      const refused = e?.code === 'permission-denied';
+      if (!refused || attempt >= attempts) throw e;
+      const now = (await getDoc(stateDoc(as(uid)))).data();
+      if (now.seq === triedSeq) throw e;
+    }
+  }
+}
+
+describe('pressing at the same time', () => {
+  it('one press writes the entry and moves the state', async () => {
+    await seedPlaying();
+    await assertSucceeds(press('owner', { amount: 250 }));
+    const state = (await adminGet(stateDoc)).data();
+    assert.equal(state.seq, 1);
+    assert.equal(state.balances.p1, 1750);
+    const entry = (await adminGet((db) => entryDoc(db, 0))).data();
+    assert.equal(entry.amount, 250);
+  });
+
+  async function checkBooks(presses, results) {
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const state = (await adminGet(stateDoc)).data();
+    assert.equal(state.seq, ok, 'the state counts the presses that went through');
+    const books = { p1: 1500, p2: 1500, p3: 1500, p4: 1500 };
+    for (let seq = 0; seq < ok; seq++) {
+      const e = await adminGet((db) => entryDoc(db, seq));
+      assert.ok(e.exists(), `entry ${seq} exists`);
+      books[e.data().seat] += e.data().amount;
+    }
+    assert.ok(!(await adminGet((db) => entryDoc(db, ok))).exists(), 'no entry beyond the state');
+    assert.deepEqual(state.balances, books);
+    return ok;
+  }
+
+  it('eight presses at once, each retried after a race, all go through with matching books', async () => {
+    await seedPlaying();
+    const who = ['owner', 'u2', 'u3', 'u4', 'owner', 'u2', 'u3', 'u4'];
+    const results = await Promise.allSettled(
+      who.map((uid, i) => pressWithRetry(uid, { amount: 100 + i })),
+    );
+    const attempts = results.map((r) => (r.status === 'fulfilled' ? r.value.attempts : `lost: ${r.reason?.code}`));
+    console.log(`    attempts per press: ${JSON.stringify(attempts)}`);
+    const ok = await checkBooks(8, results);
+    assert.equal(ok, 8, 'every press goes through');
+  });
+
+  it('a hundred presses in waves of eight keep the books', async () => {
+    await seedPlaying();
+    const all = [];
+    for (let wave = 0; wave < 12; wave++) {
+      const who = ['owner', 'u2', 'u3', 'u4', 'owner', 'u2', 'u3', 'u4'];
+      all.push(
+        ...(await Promise.allSettled(who.map((uid, i) => pressWithRetry(uid, { amount: 10 + i + wave })))),
+      );
+    }
+    const lost = all.filter((r) => r.status === 'rejected').map((r) => `${r.reason?.code}: ${String(r.reason?.message).slice(0, 160)}`);
+    console.log(`    ${all.length} presses, lost: ${JSON.stringify(lost)}`);
+    const ok = await checkBooks(all.length, all);
+    assert.equal(ok, all.length);
   });
 });
