@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
+import 'package:hold_my_dice/core/tour/tour_host.dart';
+import 'package:hold_my_dice/core/tour/tour_step.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/features/point/application/point_session.dart';
 import 'package:hold_my_dice/features/point/domain/point_game.dart';
 import 'package:hold_my_dice/features/point/presentation/point_setup_screen.dart';
@@ -24,10 +27,19 @@ class PointBoardScreen extends ConsumerStatefulWidget {
   ConsumerState<PointBoardScreen> createState() => _PointBoardScreenState();
 }
 
-class _PointBoardScreenState extends ConsumerState<PointBoardScreen> {
+class _PointBoardScreenState extends ConsumerState<PointBoardScreen>
+    with TourHost<PointBoardScreen> {
   late final ScreenAwake _awake;
   late final ScreenMode _mode;
   var _asking = false;
+
+  // What the first-run tour points at: things on the left and right halves of
+  // the screen, whichever teams are sitting there.
+  final _leftKey = GlobalKey();
+  final _rightKey = GlobalKey();
+  final _leftNameKey = GlobalKey();
+  final _leftServeKey = GlobalKey();
+  final _stripKey = GlobalKey();
 
   @override
   void initState() {
@@ -40,6 +52,18 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen> {
       if (mounted && game != null && game.betweenRounds && !game.isOver) {
         _askFirstServer();
       }
+      // Offered once that question is on the screen, so the tour waits for it.
+      if (!mounted) return;
+      offerTour(
+        storage: ref.read(tourStorageProvider),
+        id: TourIds.point,
+        // The board is laid out for a screen held sideways; measure it then.
+        ready: () {
+          final size = MediaQuery.sizeOf(context);
+          return size.width > size.height;
+        },
+        steps: _tourSteps,
+      );
     });
   }
 
@@ -51,6 +75,39 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen> {
   }
 
   PointNotifier get _notifier => ref.read(pointProvider.notifier);
+
+  List<TourStep> _tourSteps() => [
+    TourStep(
+      title: 'แตะเพื่อเพิ่มแต้ม',
+      body: 'แตะฝั่งไหน ฝั่งนั้นได้ 1 แต้มและได้เสิร์ฟ',
+      target: _leftKey,
+      gesture: TourGesture.tap,
+    ),
+    TourStep(
+      title: 'ปัดลงเพื่อลดแต้ม',
+      body: 'ปัดนิ้วลงเร็ว ๆ บนฝั่งไหน ฝั่งนั้นลด 1 แต้ม ปัดช้า ๆ จะไม่ลด',
+      target: _rightKey,
+      gesture: TourGesture.swipeDown,
+    ),
+    TourStep(
+      title: 'ชื่อทีม',
+      body: 'แตะชื่อทีมเพื่อแก้ชื่อ',
+      target: _leftNameKey,
+      gesture: TourGesture.tap,
+    ),
+    TourStep(
+      title: 'ปุ่มกลางจอ',
+      body:
+          'เรียงจากบนลงล่าง: ย้อนกลับ · สลับฝั่ง · จบรอบ · รีเซ็ต (กดค้าง) · จบเกม',
+      target: _stripKey,
+    ),
+    TourStep(
+      title: 'เสิร์ฟ',
+      body: 'แตะปุ่มเสิร์ฟเพื่อเปลี่ยนคนเสิร์ฟ',
+      target: _leftServeKey,
+      gesture: TourGesture.tap,
+    ),
+  ];
 
   Future<void> _confirmLeave() async {
     final leave = await showDialog<bool>(
@@ -207,19 +264,32 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen> {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: _half(game, game.leftSide)),
-                      Expanded(child: _half(game, game.rightSide)),
+                      Expanded(
+                        child: KeyedSubtree(
+                          key: _leftKey,
+                          child: _half(game, game.leftSide),
+                        ),
+                      ),
+                      Expanded(
+                        child: KeyedSubtree(
+                          key: _rightKey,
+                          child: _half(game, game.rightSide),
+                        ),
+                      ),
                     ],
                   ),
                   Align(
                     alignment: Alignment.center,
-                    child: _ControlStrip(
-                      game: game,
-                      onUndo: _notifier.undo,
-                      onSwap: _notifier.swapSides,
-                      onFinish: _finishRound,
-                      onReset: _notifier.reset,
-                      onEnd: _confirmEnd,
+                    child: KeyedSubtree(
+                      key: _stripKey,
+                      child: _ControlStrip(
+                        game: game,
+                        onUndo: _notifier.undo,
+                        onSwap: _notifier.swapSides,
+                        onFinish: _finishRound,
+                        onReset: _notifier.reset,
+                        onEnd: _confirmEnd,
+                      ),
                     ),
                   ),
                   Align(
@@ -246,6 +316,8 @@ class _PointBoardScreenState extends ConsumerState<PointBoardScreen> {
     onRemove: () => _notifier.removePoint(side),
     onRename: () => _rename(side),
     onServe: () => _notifier.chooseServer(side),
+    nameKey: side == game.leftSide ? _leftNameKey : null,
+    serveKey: side == game.leftSide ? _leftServeKey : null,
   );
 }
 
@@ -299,7 +371,13 @@ class _Half extends StatelessWidget {
     required this.onRemove,
     required this.onRename,
     required this.onServe,
+    this.nameKey,
+    this.serveKey,
   });
+
+  /// Mark the team name and the serve button for the first-run tour.
+  final GlobalKey? nameKey;
+  final GlobalKey? serveKey;
 
   final PointGame game;
   final Side side;
@@ -337,15 +415,18 @@ class _Half extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 40),
-              GestureDetector(
-                key: ValueKey('name-${side.name}'),
-                behavior: HitTestBehavior.opaque,
-                onTap: onRename,
-                child: Text(
-                  game.nameOf(side),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.headlineMedium?.copyWith(color: Colors.white),
+              KeyedSubtree(
+                key: nameKey,
+                child: GestureDetector(
+                  key: ValueKey('name-${side.name}'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onRename,
+                  child: Text(
+                    game.nameOf(side),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.headlineMedium?.copyWith(color: Colors.white),
+                  ),
                 ),
               ),
               Text(
@@ -372,31 +453,34 @@ class _Half extends StatelessWidget {
                   ),
                 ),
               ),
-              GestureDetector(
-                key: ValueKey('serve-${side.name}'),
-                behavior: HitTestBehavior.opaque,
-                onTap: onServe,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: serving ? _serveYellow : Colors.transparent,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: serving
-                          ? _serveYellow
-                          : Colors.white.withValues(alpha: 0.5),
-                      width: 1.5,
+              KeyedSubtree(
+                key: serveKey,
+                child: GestureDetector(
+                  key: ValueKey('serve-${side.name}'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onServe,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
                     ),
-                  ),
-                  child: Text(
-                    'เสิร์ฟ',
-                    style: text.titleMedium?.copyWith(
-                      color: serving
-                          ? Colors.black87
-                          : Colors.white.withValues(alpha: 0.7),
+                    decoration: BoxDecoration(
+                      color: serving ? _serveYellow : Colors.transparent,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: serving
+                            ? _serveYellow
+                            : Colors.white.withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Text(
+                      'เสิร์ฟ',
+                      style: text.titleMedium?.copyWith(
+                        color: serving
+                            ? Colors.black87
+                            : Colors.white.withValues(alpha: 0.7),
+                      ),
                     ),
                   ),
                 ),

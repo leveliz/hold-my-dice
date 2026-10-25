@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
@@ -45,6 +46,7 @@ ProviderContainer containerWith({
   Haptics? haptics,
   PointRules? rules,
   bool needsManualRotation = false,
+  List<Override> overrides = const [],
   bool started = true,
 }) {
   final c = ProviderContainer(
@@ -55,6 +57,7 @@ ProviderContainer containerWith({
       if (haptics != null) hapticsProvider.overrideWithValue(haptics),
       if (needsManualRotation)
         needsManualRotationProvider.overrideWithValue(true),
+      ...overrides,
     ],
   );
   addTearDown(c.dispose);

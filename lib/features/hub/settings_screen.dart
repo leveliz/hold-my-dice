@@ -4,10 +4,13 @@ import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/settings/app_settings.dart';
 import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
+import 'package:hold_my_dice/features/hub/helpers.dart';
 
-/// App-wide settings, opened from the button in the corner of the hub. For
-/// now just the look: follow the phone, Papery, or Aurora.
+/// App-wide settings, opened from the button in the corner of the hub: the
+/// look (follow the phone, Papery, or Aurora) and showing a helper's first-run
+/// tour again.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -68,9 +71,62 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+            Container(
+              key: const ValueKey('howto-card'),
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              decoration: panelDecoration(context),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'วิธีใช้',
+                    style: headingStyle(context, text.titleMedium),
+                  ),
+                  const SizedBox(height: 4),
+                  for (final h in helpers) _HowToRow(helper: h),
+                ],
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A helper and the button that makes its first-run tour show again the next
+/// time its play screen opens.
+class _HowToRow extends ConsumerWidget {
+  const _HowToRow({required this.helper});
+
+  final Helper helper;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final paper = PaperStyle.maybeOf(context) != null;
+    return Row(
+      children: [
+        Icon(helper.icon, color: paper ? helper.paperColor : helper.color),
+        const SizedBox(width: 12),
+        Expanded(child: Text(helper.name)),
+        TextButton(
+          key: ValueKey('howto-${helper.id}'),
+          onPressed: () {
+            ref.read(tourStorageProvider).forget(TourIds.of(helper.id));
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'จะแนะนำ ${helper.name} อีกครั้งตอนเข้าหน้าเล่นถัดไป',
+                  ),
+                ),
+              );
+          },
+          child: const Text('ดูอีกครั้ง'),
+        ),
+      ],
     );
   }
 }

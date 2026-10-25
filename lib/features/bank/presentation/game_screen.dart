@@ -5,6 +5,9 @@ import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
+import 'package:hold_my_dice/core/tour/tour_host.dart';
+import 'package:hold_my_dice/core/tour/tour_step.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/domain/game_state.dart';
@@ -36,17 +39,92 @@ class GameScreen extends ConsumerStatefulWidget {
   ConsumerState<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends ConsumerState<GameScreen> {
+class _GameScreenState extends ConsumerState<GameScreen>
+    with TourHost<GameScreen> {
   /// Id of the tile being dragged right now ('bank' or a player id).
   final _dragging = ValueNotifier<String?>(null);
   late final ScreenAwake _awake;
   bool _hideBalances = false;
 
+  // What the first-run tour points at.
+  final _firstCardKey = GlobalKey();
+  final _secondCardKey = GlobalKey();
+  final _buttonsKey = GlobalKey();
+  final _barKey = GlobalKey();
+  final _bankKey = GlobalKey();
+  final _undoKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
     _awake = ref.read(screenAwakeProvider)..enable();
+    final tours = ref.read(tourStorageProvider);
+    offerTour(
+      storage: tours,
+      id: TourIds.bank,
+      alsoSeenOnSkip: TourIds.bankTips,
+      steps: _tourSteps,
+    );
+    ref.listenManual(bankProvider.select((s) => s?.undoAvailable ?? false), (
+      _,
+      now,
+    ) {
+      if (now) {
+        offerTour(
+          storage: tours,
+          id: TourIds.bankUndoTip,
+          steps: () => [
+            TourStep(
+              title: 'เลิกทำ',
+              body: 'กดผิดแตะตรงนี้เพื่อย้อนรายการล่าสุด ย้อนได้ 1 รายการ',
+              target: _undoKey,
+            ),
+          ],
+        );
+      }
+    });
   }
+
+  List<TourStep> _tourSteps() => [
+    TourStep(
+      title: 'เงินของแต่ละคน',
+      body: 'ตัวเลขใหญ่บนการ์ดคือเงินที่ผู้เล่นคนนั้นมีอยู่',
+      target: _firstCardKey,
+    ),
+    TourStep(
+      title: 'ปุ่มรับ จ่าย และ GO',
+      body:
+          '+ รับเงินจากธนาคาร (เลือก "จำนอง" ได้ในหน้าใส่เงิน) · − จ่ายเงินให้ธนาคาร · GO ผ่านจุดเริ่ม',
+      target: _buttonsKey,
+      gesture: TourGesture.tap,
+    ),
+    TourStep(
+      title: 'โอนให้ผู้เล่น',
+      body: 'แตะที่การ์ด แล้วเลือกคนที่จะรับเงิน',
+      target: _firstCardKey,
+      gesture: TourGesture.tap,
+    ),
+    TourStep(
+      title: 'ลากไปวางเพื่อโอน',
+      body: 'กดการ์ดค้างไว้ แล้วลากไปวางบนผู้เล่นที่จะรับเงิน',
+      target: _firstCardKey,
+      destination: _secondCardKey,
+      gesture: TourGesture.drag,
+    ),
+    TourStep(
+      title: 'ลากไปวางที่ธนาคาร',
+      body:
+          'ลากการ์ดไปวางบนธนาคารเพื่อจ่ายเงิน หรือลากธนาคารมาวางบนผู้เล่นเพื่อรับเงิน',
+      target: _firstCardKey,
+      destination: _bankKey,
+      gesture: TourGesture.drag,
+    ),
+    TourStep(
+      title: 'ปุ่มบนแถบหัว',
+      body: 'เรียงจากซ้ายไปขวา: ซ่อนยอดเงิน ดูประวัติ จบเกม',
+      target: _barKey,
+    ),
+  ];
 
   @override
   void dispose() {
@@ -138,23 +216,32 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             child: Text('Pocket Banker'),
           ),
           actions: [
-            IconButton(
-              key: const ValueKey('hide-balances-button'),
-              tooltip: _hideBalances ? 'แสดงยอดเงิน' : 'ซ่อนยอดเงิน',
-              icon: Icon(_hideBalances ? LucideIcons.eyeOff : LucideIcons.eye),
-              onPressed: () => setState(() => _hideBalances = !_hideBalances),
-            ),
-            IconButton(
-              key: const ValueKey('history-button'),
-              tooltip: 'ประวัติ',
-              icon: const Icon(LucideIcons.history),
-              onPressed: () => context.push('/bank/history'),
-            ),
-            IconButton(
-              key: const ValueKey('end-game-button'),
-              tooltip: 'จบเกม',
-              icon: const Icon(LucideIcons.flag),
-              onPressed: _confirmEnd,
+            Row(
+              key: _barKey,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  key: const ValueKey('hide-balances-button'),
+                  tooltip: _hideBalances ? 'แสดงยอดเงิน' : 'ซ่อนยอดเงิน',
+                  icon: Icon(
+                    _hideBalances ? LucideIcons.eyeOff : LucideIcons.eye,
+                  ),
+                  onPressed: () =>
+                      setState(() => _hideBalances = !_hideBalances),
+                ),
+                IconButton(
+                  key: const ValueKey('history-button'),
+                  tooltip: 'ประวัติ',
+                  icon: const Icon(LucideIcons.history),
+                  onPressed: () => context.push('/bank/history'),
+                ),
+                IconButton(
+                  key: const ValueKey('end-game-button'),
+                  tooltip: 'จบเกม',
+                  icon: const Icon(LucideIcons.flag),
+                  onPressed: _confirmEnd,
+                ),
+              ],
             ),
             const SizedBox(width: 4),
           ],
@@ -169,6 +256,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                       ? 2
                       : 1;
                   final rows = (n / columns).ceil();
+                  // The first two players still in the game are what the
+                  // tour points at.
+                  final active = [
+                    for (var i = 0; i < n; i++)
+                      if (!game.isBankrupt(players[i].id)) i,
+                  ];
                   final available =
                       constraints.maxHeight -
                       _listPadding.vertical -
@@ -181,24 +274,35 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   Widget tile(int i) {
                     final p = players[i];
                     final out = game.isBankrupt(p.id);
-                    return DragTile(
-                      id: p.id,
-                      enabled: !out,
-                      accent: Color(p.color),
-                      radius: PlayerCard.radiusFor(compact: !tall),
-                      feedbackLabel: p.name,
-                      dragging: _dragging,
-                      onDrop: (source) => actions.handleDrop(source, p.id),
-                      child: PlayerCard(
-                        player: p,
-                        balance: game.balanceOf(p.id),
-                        compact: !tall,
-                        bankrupt: out,
-                        hideBalance: _hideBalances,
-                        onReceive: () => actions.receive(p),
-                        onPay: () => actions.payBank(p),
-                        onGo: () => notifier.passGo(p.id),
-                        onTap: () => actions.pickRecipientAndTransfer(p),
+                    final tourKey = active.isNotEmpty && i == active[0]
+                        ? _firstCardKey
+                        : active.length > 1 && i == active[1]
+                        ? _secondCardKey
+                        : null;
+                    return KeyedSubtree(
+                      key: tourKey,
+                      child: DragTile(
+                        id: p.id,
+                        enabled: !out,
+                        accent: Color(p.color),
+                        radius: PlayerCard.radiusFor(compact: !tall),
+                        feedbackLabel: p.name,
+                        dragging: _dragging,
+                        onDrop: (source) => actions.handleDrop(source, p.id),
+                        child: PlayerCard(
+                          player: p,
+                          balance: game.balanceOf(p.id),
+                          compact: !tall,
+                          bankrupt: out,
+                          hideBalance: _hideBalances,
+                          onReceive: () => actions.receive(p),
+                          onPay: () => actions.payBank(p),
+                          onGo: () => notifier.passGo(p.id),
+                          onTap: () => actions.pickRecipientAndTransfer(p),
+                          buttonsKey: i == active.firstOrNull
+                              ? _buttonsKey
+                              : null,
+                        ),
                       ),
                     );
                   }
@@ -228,6 +332,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             ),
             _Dock(
               session: session,
+              bankKey: _bankKey,
+              undoKey: _undoKey,
               onUndo: notifier.undo,
               dragging: _dragging,
               onDrop: (source) => actions.handleDrop(source, Transaction.bank),
@@ -242,12 +348,18 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 class _Dock extends StatelessWidget {
   const _Dock({
     required this.session,
+    required this.bankKey,
+    required this.undoKey,
     required this.onUndo,
     required this.dragging,
     required this.onDrop,
   });
 
   final BankSession session;
+
+  /// Mark the bank card and the undo slot for the first-run tour.
+  final GlobalKey bankKey;
+  final GlobalKey undoKey;
   final VoidCallback onUndo;
   final ValueNotifier<String?> dragging;
   final void Function(String sourceId) onDrop;
@@ -335,59 +447,65 @@ class _Dock extends StatelessWidget {
           children: [
             // Space for the undo bar is always reserved so the cards above
             // never shift while people are tapping.
-            SizedBox(
-              height: _undoSlotHeight,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 150),
-                child: session.undoAvailable
-                    ? Align(
-                        key: const ValueKey('undo-bar'),
-                        alignment: Alignment.center,
-                        child: Container(
-                          height: 44,
-                          padding: const EdgeInsets.fromLTRB(16, 0, 6, 0),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.onSurface,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  session.lastLabel ?? '',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: text.bodyMedium?.copyWith(
-                                    color: theme.colorScheme.surface,
+            KeyedSubtree(
+              key: undoKey,
+              child: SizedBox(
+                height: _undoSlotHeight,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 150),
+                  child: session.undoAvailable
+                      ? Align(
+                          key: const ValueKey('undo-bar'),
+                          alignment: Alignment.center,
+                          child: Container(
+                            height: 44,
+                            padding: const EdgeInsets.fromLTRB(16, 0, 6, 0),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.onSurface,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    session.lastLabel ?? '',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: text.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.surface,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              TextButton.icon(
-                                key: const ValueKey('undo-button'),
-                                onPressed: onUndo,
-                                icon: const Icon(LucideIcons.undo2, size: 18),
-                                label: const Text('เลิกทำ'),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: theme.colorScheme.surface,
+                                const SizedBox(width: 6),
+                                TextButton.icon(
+                                  key: const ValueKey('undo-button'),
+                                  onPressed: onUndo,
+                                  icon: const Icon(LucideIcons.undo2, size: 18),
+                                  label: const Text('เลิกทำ'),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: theme.colorScheme.surface,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      )
-                    : const SizedBox.shrink(),
+                        )
+                      : const SizedBox.shrink(),
+                ),
               ),
             ),
-            DragTile(
-              id: Transaction.bank,
-              enabled: true,
-              accent: _bankColor,
-              radius: _bankRadius,
-              feedbackLabel: 'ธนาคาร',
-              dragging: dragging,
-              onDrop: onDrop,
-              child: _bankCard(context, text, theme),
+            KeyedSubtree(
+              key: bankKey,
+              child: DragTile(
+                id: Transaction.bank,
+                enabled: true,
+                accent: _bankColor,
+                radius: _bankRadius,
+                feedbackLabel: 'ธนาคาร',
+                dragging: dragging,
+                onDrop: onDrop,
+                child: _bankCard(context, text, theme),
+              ),
             ),
           ],
         ),

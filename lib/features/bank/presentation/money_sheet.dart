@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
+import 'package:hold_my_dice/core/tour/tour_host.dart';
+import 'package:hold_my_dice/core/tour/tour_step.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/core/widgets/balance_chip.dart';
 import 'package:hold_my_dice/core/widgets/key_tile.dart';
 import 'package:hold_my_dice/features/bank/domain/player.dart';
@@ -25,6 +28,7 @@ Future<MoneyResult?> showMoneySheet(
   required List<int> recent,
   Player? recipient,
   bool allowMortgage = true,
+  TourStorage? tourStorage,
 }) {
   return showModalBottomSheet<MoneyResult>(
     context: context,
@@ -37,6 +41,7 @@ Future<MoneyResult?> showMoneySheet(
       recent: recent,
       recipient: recipient,
       allowMortgage: allowMortgage,
+      tourStorage: tourStorage,
     ),
   );
 }
@@ -50,6 +55,7 @@ class MoneySheet extends StatefulWidget {
     required this.recent,
     this.recipient,
     this.allowMortgage = true,
+    this.tourStorage,
   });
 
   final Player player;
@@ -59,15 +65,51 @@ class MoneySheet extends StatefulWidget {
   final Player? recipient;
   final bool allowMortgage;
 
+  /// Where the first-run tip is remembered; null means no tip.
+  final TourStorage? tourStorage;
+
   @override
   State<MoneySheet> createState() => _MoneySheetState();
 }
 
-class _MoneySheetState extends State<MoneySheet> {
+class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
   static const _maxDigits = 9;
 
   var _digits = '';
   var _mortgage = false;
+
+  final _zeroKey = GlobalKey();
+  final _recentKey = GlobalKey();
+  final _kindKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.tourStorage case final tours?) {
+      offerTour(
+        storage: tours,
+        id: TourIds.bankMoneyTip,
+        steps: () => [
+          TourStep(
+            title: 'ใส่เงินให้เร็วขึ้น',
+            body: widget.recent.isEmpty
+                ? 'ปุ่ม 000 ใส่ศูนย์สามตัวในปุ่มเดียว เช่น 15 แล้วกด 000 ได้ 15,000'
+                : 'ปุ่ม 000 ใส่ศูนย์สามตัวในปุ่มเดียว เช่น 15 แล้วกด 000 ได้ 15,000 ส่วนแถวด้านบนคือยอดที่เพิ่งใช้ แตะเพื่อใช้ซ้ำ',
+            target: _zeroKey,
+            destination: widget.recent.isEmpty ? null : _recentKey,
+          ),
+          // On screen only when receiving with mortgage allowed; a step whose
+          // spot is missing is left out of the tour.
+          TourStep(
+            title: 'จำนอง',
+            body:
+                'เลือก "จำนอง" เมื่อรับเงินจากการจำนอง ไม่ต้องบอกว่าที่ดินแปลงไหน',
+            target: _kindKey,
+          ),
+        ],
+      );
+    }
+  }
 
   int get _amount => _digits.isEmpty ? 0 : int.parse(_digits);
 
@@ -163,23 +205,27 @@ class _MoneySheetState extends State<MoneySheet> {
               ),
             if (!widget.isPay && widget.allowMortgage) ...[
               const SizedBox(height: 10),
-              SegmentedButton<bool>(
-                key: const ValueKey('sheet-kind'),
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    icon: Icon(LucideIcons.landmark),
-                    label: Text('รับจากธนาคาร'),
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    icon: Icon(LucideIcons.handCoins),
-                    label: Text('จำนอง'),
-                  ),
-                ],
-                selected: {_mortgage},
-                onSelectionChanged: (s) => setState(() => _mortgage = s.first),
+              KeyedSubtree(
+                key: _kindKey,
+                child: SegmentedButton<bool>(
+                  key: const ValueKey('sheet-kind'),
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(
+                      value: false,
+                      icon: Icon(LucideIcons.landmark),
+                      label: Text('รับจากธนาคาร'),
+                    ),
+                    ButtonSegment(
+                      value: true,
+                      icon: Icon(LucideIcons.handCoins),
+                      label: Text('จำนอง'),
+                    ),
+                  ],
+                  selected: {_mortgage},
+                  onSelectionChanged: (s) =>
+                      setState(() => _mortgage = s.first),
+                ),
               ),
             ],
             const SizedBox(height: 10),
@@ -202,17 +248,20 @@ class _MoneySheetState extends State<MoneySheet> {
             ),
             if (widget.recent.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final r in widget.recent)
-                    ActionChip(
-                      key: ValueKey('recent-$r'),
-                      avatar: const Icon(LucideIcons.history, size: 18),
-                      label: Text('ล่าสุด ${formatMoney(r)}'),
-                      onPressed: () => setState(() => _digits = '$r'),
-                    ),
-                ],
+              KeyedSubtree(
+                key: _recentKey,
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final r in widget.recent)
+                      ActionChip(
+                        key: ValueKey('recent-$r'),
+                        avatar: const Icon(LucideIcons.history, size: 18),
+                        label: Text('ล่าสุด ${formatMoney(r)}'),
+                        onPressed: () => setState(() => _digits = '$r'),
+                      ),
+                  ],
+                ),
               ),
             ],
             const SizedBox(height: 12),
@@ -226,7 +275,10 @@ class _MoneySheetState extends State<MoneySheet> {
               children: [
                 for (final d in ['1', '2', '3', '4', '5', '6', '7', '8', '9'])
                   key(d, k: ValueKey('key-$d')),
-                key('000', k: const ValueKey('key-000')),
+                KeyedSubtree(
+                  key: _zeroKey,
+                  child: key('000', k: const ValueKey('key-000')),
+                ),
                 key('0', k: const ValueKey('key-0')),
                 key(
                   '',

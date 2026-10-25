@@ -14,9 +14,17 @@ const _totalsHeight = 54.0;
 /// numbers stay on the left and the totals stay at the bottom while the rows
 /// scroll; with many players the columns scroll sideways.
 class ScoreTable extends StatefulWidget {
-  const ScoreTable({super.key, required this.game, this.onCellTap});
+  const ScoreTable({
+    super.key,
+    required this.game,
+    this.onCellTap,
+    this.firstEmptyCellKey,
+  });
 
   final ScoreGame game;
+
+  /// Marks the first empty cell of the current round, for the first-run tour.
+  final GlobalKey? firstEmptyCellKey;
 
   /// Called with (round, player index) when a score cell is tapped. Null makes
   /// the table read-only.
@@ -181,7 +189,11 @@ class _ScoreTableState extends State<ScoreTable> {
               ),
             );
           }
+          final firstEmpty =
+              isCurrent &&
+              players.indexWhere((q) => game.scoreOf(round, q.id) == null) == i;
           return SizedBox(
+            key: firstEmpty ? widget.firstEmptyCellKey : null,
             width: columnWidth,
             height: _rowHeight + _rowGap,
             child: Padding(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
@@ -36,6 +37,7 @@ class GameActions {
       balance: _balance(player.id),
       isPay: false,
       recent: _session.recentAmounts,
+      tourStorage: ref.read(tourStorageProvider),
       allowMortgage: allowMortgage,
     );
     if (result == null || !context.mounted) return;
@@ -53,6 +55,7 @@ class GameActions {
       balance: _balance(player.id),
       isPay: true,
       recent: _session.recentAmounts,
+      tourStorage: ref.read(tourStorageProvider),
     );
     if (result == null || !context.mounted) return;
     await _settle(
@@ -70,6 +73,7 @@ class GameActions {
       balance: _balance(from.id),
       isPay: true,
       recent: _session.recentAmounts,
+      tourStorage: ref.read(tourStorageProvider),
       recipient: to,
     );
     if (result == null || !context.mounted) return;

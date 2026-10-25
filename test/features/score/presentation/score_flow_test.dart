@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
@@ -24,9 +25,14 @@ class CountingAwake implements ScreenAwake {
 
 Finder byKey(String k) => f.byKey(k);
 
-ProviderContainer containerWith({ScoreStorage? storage, ScreenAwake? awake}) {
+ProviderContainer containerWith({
+  ScoreStorage? storage,
+  ScreenAwake? awake,
+  List<Override> overrides = const [],
+}) {
   final c = ProviderContainer(
     overrides: [
+      ...overrides,
       scoreStorageProvider.overrideWithValue(storage ?? MemoryScoreStorage()),
       if (awake != null) screenAwakeProvider.overrideWithValue(awake),
     ],
@@ -52,8 +58,9 @@ ProviderContainer started({
   bool short = false,
   ScoreStorage? storage,
   ScreenAwake? awake,
+  List<Override> overrides = const [],
 }) {
-  final c = containerWith(storage: storage, awake: awake);
+  final c = containerWith(storage: storage, awake: awake, overrides: overrides);
   c
       .read(scoreProvider.notifier)
       .start(

@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
+import 'package:hold_my_dice/core/tour/tour_host.dart';
+import 'package:hold_my_dice/core/tour/tour_step.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/features/score/application/score_session.dart';
 import 'package:hold_my_dice/features/score/domain/score_game.dart';
@@ -20,14 +23,59 @@ class ScoreBoardScreen extends ConsumerStatefulWidget {
   ConsumerState<ScoreBoardScreen> createState() => _ScoreBoardScreenState();
 }
 
-class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen> {
+class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen>
+    with TourHost<ScoreBoardScreen> {
   late final ScreenAwake _awake;
+
+  // What the first-run tour points at.
+  final _infoKey = GlobalKey();
+  final _tableKey = GlobalKey();
+  final _cellKey = GlobalKey();
+  final _finishKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
     _awake = ref.read(screenAwakeProvider)..enable();
+    offerTour(
+      storage: ref.read(tourStorageProvider),
+      id: TourIds.score,
+      steps: _tourSteps,
+    );
   }
+
+  List<TourStep> _tourSteps() => [
+    TourStep(
+      title: 'รอบและคนนำ',
+      body:
+          'บอกว่าเล่นถึงรอบที่เท่าไร และเมื่อมีคะแนนแล้วจะบอกด้วยว่าใครนำอยู่',
+      target: _infoKey,
+    ),
+    TourStep(
+      title: 'ตารางคะแนน',
+      body:
+          'แถวคือรอบ คอลัมน์คือผู้เล่น ถ้าผู้เล่นเยอะ เลื่อนตารางไปทางซ้ายขวาได้',
+      target: _tableKey,
+    ),
+    TourStep(
+      title: 'กรอกคะแนน',
+      body:
+          'แตะช่องว่างของรอบนี้แล้วพิมพ์คะแนน พิมพ์สูตรได้ เช่น 3+5+2 กดตกลงแล้วจะไปช่องของคนถัดไปเอง',
+      target: _cellKey,
+      gesture: TourGesture.tap,
+    ),
+    TourStep(
+      title: 'จบรอบ',
+      body: 'กรอกครบทุกคนแล้วกดจบรอบ ปุ่มจะกดได้เมื่อกรอกครบ',
+      target: _finishKey,
+    ),
+    TourStep(
+      title: 'แก้คะแนนที่ผิด',
+      body:
+          'แตะช่องของรอบไหนก็ได้เพื่อแก้ ยอดรวมคำนวณใหม่ทันที จึงไม่มีปุ่มเลิกทำ',
+      target: _tableKey,
+    ),
+  ];
 
   @override
   void dispose() {
@@ -136,12 +184,17 @@ class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              _InfoRow(game: game),
+              KeyedSubtree(
+                key: _infoKey,
+                child: _InfoRow(game: game),
+              ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
                   child: ScoreTable(
+                    key: _tableKey,
                     game: game,
+                    firstEmptyCellKey: _cellKey,
                     onCellTap: (round, playerIndex) => showScoreEntrySheet(
                       context,
                       round: round,
@@ -152,14 +205,17 @@ class _ScoreBoardScreenState extends ConsumerState<ScoreBoardScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                child: FilledButton.icon(
-                  key: const ValueKey('finish-round'),
-                  onPressed: game.canFinishRound ? _finishRound : null,
-                  icon: const Icon(LucideIcons.check),
-                  label: Text(game.targetReached ? 'จบรอบและจบเกม' : 'จบรอบ'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(56),
-                    textStyle: Theme.of(context).textTheme.titleLarge,
+                child: KeyedSubtree(
+                  key: _finishKey,
+                  child: FilledButton.icon(
+                    key: const ValueKey('finish-round'),
+                    onPressed: game.canFinishRound ? _finishRound : null,
+                    icon: const Icon(LucideIcons.check),
+                    label: Text(game.targetReached ? 'จบรอบและจบเกม' : 'จบรอบ'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                      textStyle: Theme.of(context).textTheme.titleLarge,
+                    ),
                   ),
                 ),
               ),

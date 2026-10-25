@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/core/router.dart';
@@ -8,8 +9,13 @@ import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/domain/player.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-ProviderContainer gameWith(int players, {int start = 1500, int go = 200}) {
-  final c = ProviderContainer();
+ProviderContainer gameWith(
+  int players, {
+  int start = 1500,
+  int go = 200,
+  List<Override> overrides = const [],
+}) {
+  final c = ProviderContainer(overrides: overrides);
   addTearDown(c.dispose);
   c
       .read(bankProvider.notifier)

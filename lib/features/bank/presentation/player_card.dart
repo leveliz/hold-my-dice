@@ -20,6 +20,7 @@ class PlayerCard extends StatelessWidget {
     required this.onTap,
     this.bankrupt = false,
     this.hideBalance = false,
+    this.buttonsKey,
   });
 
   static double radiusFor({required bool compact}) => compact ? 20 : 28;
@@ -40,6 +41,9 @@ class PlayerCard extends StatelessWidget {
   /// Shows dots instead of the balance, for a phone left in the middle of
   /// the table.
   final bool hideBalance;
+
+  /// Marks the row of + − GO, for the first-run tour to point at.
+  final GlobalKey? buttonsKey;
 
   @override
   Widget build(BuildContext context) {
@@ -137,11 +141,17 @@ class PlayerCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   money(text.titleLarge),
                   const SizedBox(width: 10),
-                  SizedBox(width: 44, height: 52, child: plus()),
-                  const SizedBox(width: 6),
-                  SizedBox(width: 44, height: 52, child: minus()),
-                  const SizedBox(width: 6),
-                  SizedBox(width: 52, height: 52, child: go()),
+                  Row(
+                    key: buttonsKey,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(width: 44, height: 52, child: plus()),
+                      const SizedBox(width: 6),
+                      SizedBox(width: 44, height: 52, child: minus()),
+                      const SizedBox(width: 6),
+                      SizedBox(width: 52, height: 52, child: go()),
+                    ],
+                  ),
                 ],
               )
             : Column(
@@ -157,6 +167,7 @@ class PlayerCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   SizedBox(
+                    key: buttonsKey,
                     height: 46,
                     child: Row(
                       children: [
