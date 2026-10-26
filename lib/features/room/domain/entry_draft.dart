@@ -68,12 +68,11 @@ class EntryDraft {
   /// seat [creditorSeat] (the bank when null). What they hold at that moment
   /// is read when the press is made, not here.
   EntryDraft.bankrupt(
-    int owed, {
+    this.owed, {
     this.creditorSeat,
     String? cid,
     Random? random,
   }) : kind = EntryKind.bankrupt,
-       owed = owed,
        amount = null,
        reason = null,
        toSeat = null,
