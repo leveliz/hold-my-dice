@@ -7,6 +7,8 @@ import 'package:hold_my_dice/features/room/application/balance_check.dart';
 import 'package:hold_my_dice/features/room/application/press_control.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
+import 'package:hold_my_dice/features/room/data/room_repository.dart'
+    show historyWindow;
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/presentation/room_game_screen.dart';
@@ -315,6 +317,38 @@ void main() {
         find.descendant(of: key('history-row-1'), matching: find.text('−120')),
         findsOneWidget,
       );
+      await leave(tester);
+    });
+  });
+
+  group('a long game', () {
+    testWidgets('shows the newest entries only, and still plays', (
+      tester,
+    ) async {
+      final other = repoOn(store, 'u2');
+      for (var i = 0; i < historyWindow + 5; i++) {
+        await other.submitEntry(code, EntryDraft.passGo());
+      }
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      expect(key('band-mismatch'), findsNothing);
+      expect(enabled(tester, 'press-go'), isTrue);
+      await tester.tap(key('history-strip'));
+      await tester.pumpAndSettle();
+      expect(key('history-window'), findsOneWidget);
+      expect(find.text('แสดง 30 รายการล่าสุด'), findsOneWidget);
+      expect(key('history-row-34'), findsOneWidget);
+      expect(key('history-row-4'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('says nothing about a window while the game is short', (
+      tester,
+    ) async {
+      await repoOn(store, 'u2').submitEntry(code, EntryDraft.passGo());
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('history-strip'));
+      await tester.pumpAndSettle();
+      expect(key('history-window'), findsNothing);
       await leave(tester);
     });
   });

@@ -370,7 +370,11 @@ class FakeRoomRepository implements RoomRepository {
   @override
   Stream<List<RoomEntry>> watchEntries(String code) async* {
     final room = await _asMember(code);
-    yield* room.entryFeed.watch();
+    yield* room.entryFeed.watch().map(
+      (all) => all.length <= historyWindow
+          ? all
+          : all.sublist(all.length - historyWindow),
+    );
   }
 
   @override

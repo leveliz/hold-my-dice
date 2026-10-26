@@ -81,6 +81,9 @@ class RoomException implements Exception {
       'RoomException($error${detail == null ? '' : ': $detail'})';
 }
 
+/// How many of the newest entries a device listens to.
+const historyWindow = 30;
+
 /// A press that was given up on waiting for but may still be going through.
 /// [settled] completes (never with an error) when the attempt is over, written
 /// or not; until then pressing again could count the same money twice.
@@ -161,7 +164,9 @@ abstract class RoomRepository {
   /// [RoomException] (nothing is written) when it cannot be done.
   Future<void> submitEntry(String code, EntryDraft draft);
 
-  /// The history of the game, oldest first, live. Members only.
+  /// The newest [historyWindow] entries of the game, oldest first, live.
+  /// Members only. A long game is not read whole: every device would pay for
+  /// all of it each time it opens the room.
   Stream<List<RoomEntry>> watchEntries(String code);
 
   /// Whether this device can reach the service, live (see `onlineFrom`).

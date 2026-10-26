@@ -249,6 +249,79 @@ void main() {
       );
     });
 
+    group('a window of the newest entries', () {
+      List<RoomEntry> window(int from, int to) => [
+        for (var s = from; s <= to; s++) _receive(s, 'p1', 10),
+      ];
+
+      test('an unbroken row ending at the last entry is accepted', () {
+        expect(
+          checkBalances(
+            state: _state(40, {'p1': 1500, 'p2': 1500}),
+            entries: window(10, 39),
+            settings: _settings,
+          ),
+          BalanceCheck.ok,
+          reason: 'the balances cannot be added up, so they are not compared',
+        );
+      });
+
+      test('a window that stops short of the last entry is syncing', () {
+        expect(
+          checkBalances(
+            state: _state(40, {'p1': 1500, 'p2': 1500}),
+            entries: window(10, 38),
+            settings: _settings,
+          ),
+          BalanceCheck.syncing,
+        );
+      });
+
+      test('a window that runs past the state is syncing', () {
+        expect(
+          checkBalances(
+            state: _state(40, {'p1': 1500, 'p2': 1500}),
+            entries: window(10, 40),
+            settings: _settings,
+          ),
+          BalanceCheck.syncing,
+        );
+      });
+
+      test('a gap in the window is syncing', () {
+        expect(
+          checkBalances(
+            state: _state(40, {'p1': 1500, 'p2': 1500}),
+            entries: [...window(10, 20), ...window(22, 39)],
+            settings: _settings,
+          ),
+          BalanceCheck.syncing,
+        );
+      });
+
+      test('an entry still on its way in the window is syncing', () {
+        final pending = RoomEntry(
+          seq: 39,
+          kind: EntryKind.receive,
+          seat: 'p1',
+          by: 'u',
+          cid: 'c39',
+          from: 'bank',
+          to: 'p1',
+          amount: 10,
+          reason: 'ค่าเช่า',
+        );
+        expect(
+          checkBalances(
+            state: _state(40, {'p1': 1500, 'p2': 1500}),
+            entries: [...window(10, 38), pending],
+            settings: _settings,
+          ),
+          BalanceCheck.syncing,
+        );
+      });
+    });
+
     test('a voided entry moves no money', () {
       final voided = RoomEntry(
         seq: 0,

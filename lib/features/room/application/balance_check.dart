@@ -20,11 +20,26 @@ enum BalanceCheck {
 /// history is whole: the entries numbered 0 up to `state.seq - 1`, none still
 /// on its way. Otherwise it says [BalanceCheck.syncing], so a state that
 /// arrives a moment before its entry is not taken for a fault.
+///
+/// A device only holds the newest entries of a long game, which cannot be
+/// added up (the balances they start from are not known). Then it only checks
+/// that the entries are in an unbroken row ending at `state.seq - 1`; that the
+/// money is right is the Firestore rules' job.
 BalanceCheck checkBalances({
   required RoomState state,
   required List<RoomEntry> entries,
   required RoomSettings settings,
 }) {
+  final first = entries.isEmpty ? 0 : entries.first.seq;
+  if (first > 0) {
+    if (entries.last.seq != state.seq - 1) return BalanceCheck.syncing;
+    for (final (i, entry) in entries.indexed) {
+      if (entry.seq != first + i || entry.at == null) {
+        return BalanceCheck.syncing;
+      }
+    }
+    return BalanceCheck.ok;
+  }
   if (entries.length != state.seq) return BalanceCheck.syncing;
   for (final (i, entry) in entries.indexed) {
     if (entry.seq != i || entry.at == null) return BalanceCheck.syncing;

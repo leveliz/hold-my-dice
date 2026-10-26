@@ -227,6 +227,23 @@ try {
   await host.page.keyboard.press('Escape');
   await sleep(1800);
 
+  // 6a2. Three more rounds of eight at once: more entries than a device holds.
+  for (let round = 0; round < 3; round++) {
+    await sleep(2000);
+    await Promise.all(players.map((p) => button(p, 'GO', true).click()));
+  }
+  let at2300 = 0;
+  for (let i = 0; i < 40 && at2300 < 8; i++) {
+    const lines = (await screenText(host)).split(String.fromCharCode(10));
+    at2300 = new Set(lines.filter((l) => /^(ยอดของฉัน · )?P\d 2,300$/.test(l))).size;
+    if (at2300 < 8) await sleep(500);
+  }
+  check(at2300 === 8, `32 presses in four rounds all went in (${at2300} of 8 players are at 2,300)`);
+  await host.page.getByText('ทั้งหมด').first().click();
+  check(await seen(host, 'แสดง 30 รายการล่าสุด'), 'a game longer than the window lists the newest 30');
+  await host.page.keyboard.press('Escape');
+  await sleep(1800);
+
   // 6b. A receive with the longest reason (Thai and emoji, 60 units); one unit
   // more is not accepted.
   const p2 = players[1];

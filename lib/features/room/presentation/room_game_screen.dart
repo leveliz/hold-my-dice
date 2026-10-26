@@ -596,6 +596,13 @@ class _HistorySheetState extends ConsumerState<_HistorySheet> {
                   const LiveMark(),
                 ],
               ),
+              // Longer than what a device holds: only the newest are listed.
+              if (entries.isNotEmpty && entries.last.seq > 0)
+                Text(
+                  'แสดง ${entries.length} รายการล่าสุด',
+                  key: const ValueKey('history-window'),
+                  style: text.bodySmall?.copyWith(color: muted),
+                ),
               const SizedBox(height: 8),
               Flexible(
                 child: entries.isEmpty

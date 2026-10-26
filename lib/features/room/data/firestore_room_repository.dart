@@ -546,9 +546,10 @@ class FirestoreRoomRepository implements RoomRepository {
     yield* _guardStream(
       _room(code)
           .collection('entries')
-          .orderBy('seq')
+          .orderBy('seq', descending: true)
+          .limit(historyWindow)
           .snapshots()
-          .map((q) => [for (final d in q.docs) _entryOf(d.data())]),
+          .map((q) => [for (final d in q.docs.reversed) _entryOf(d.data())]),
       RoomError.notAMember,
     );
   }

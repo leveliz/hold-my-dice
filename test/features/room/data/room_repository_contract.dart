@@ -334,6 +334,23 @@ void roomRepositoryContract(RoomHarness Function() create) {
         },
       );
 
+      test(
+        'a long game is listened to only as far back as the window',
+        () async {
+          final h = create();
+          final code = await started(h);
+          final owner = h.repoFor('owner');
+          for (var i = 0; i < historyWindow + 5; i++) {
+            await owner.submitEntry(code, EntryDraft.passGo());
+          }
+          final entries = await history(h, code);
+          expect(entries, hasLength(historyWindow));
+          expect(entries.first.seq, 5);
+          expect(entries.last.seq, historyWindow + 4);
+          expect((await state(h, code)).seq, historyWindow + 5);
+        },
+      );
+
       test('a press sent twice with the same code is written once', () async {
         final h = create();
         final code = await started(h);
