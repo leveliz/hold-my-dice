@@ -13,6 +13,18 @@ firebase deploy --only firestore --project dev     # or: prod
 `.firebaserc` maps `dev` to `hold-my-dice-dev` and `prod` to `hold-my-dice`.
 To go back: check out the tag and deploy again.
 
+### Order of a release that changes the rules
+
+**Rules first, then the app.** A new rules file accepts everything an older app
+writes (it is a superset), so it is safe on its own. A new app against old
+rules has its writes refused (a payment with a mortgage, a bankruptcy, the
+banker's presses). Go back the other way round only together: roll the rules
+and the app back at the same time (a room that already has a banker loses the
+banker's presses with the old rules). After the web deploy, tell the players to
+reload: an older page that stays open shows "ยอดไม่ตรง" on a bankruptcy or a
+mortgaged payment it does not understand, and its buttons stay off until it is
+reloaded.
+
 ## Automated (dev only, it makes a real room)
 
 ```

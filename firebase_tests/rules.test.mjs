@@ -2136,6 +2136,15 @@ describe('a banker: what is accepted', () => {
   });
 });
 
+describe('a banker who still plays', () => {
+  it('pays a friend with a mortgage from their own seat, like any player without a banker', async () => {
+    const base = { ...BASE, p1: 400 };
+    await seedPlaying({ stateOver: { bankerSeat: 'p1' }, balances: base });
+    await assertSucceeds(put('owner', mortgagePay('p1', 'p2', 700, 360, base)));
+    assert.equal((await adminGet(stateDoc)).data().balances.p1, 60);
+  });
+});
+
 describe('a banker: what is refused', () => {
   const refuse = (title, run, setup = withBanker()) =>
     it(title, async () => {

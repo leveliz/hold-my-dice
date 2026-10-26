@@ -1025,6 +1025,25 @@ void roomRepositoryContract(RoomHarness Function() create) {
           });
 
           test(
+            'the new banker, still playing, pays a friend with a mortgage of their own',
+            () async {
+              final h = create();
+              final code = await withBanker(h);
+              await h.repoFor('u3').passBanker(code, 'p1');
+              await h
+                  .repoFor('owner')
+                  .submitEntry(code, EntryDraft.transfer('p2', 1400));
+              await h
+                  .repoFor('owner')
+                  .submitEntry(
+                    code,
+                    EntryDraft.transfer('p2', 700, mortgage: 650),
+                  );
+              expect((await state(h, code)).balances['p1'], 50);
+            },
+          );
+
+          test(
             'the new banker, still playing, presses for their own seat with a reason',
             () async {
               final h = create();

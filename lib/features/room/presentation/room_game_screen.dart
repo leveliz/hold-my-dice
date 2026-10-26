@@ -1304,10 +1304,11 @@ class _UndoBarState extends ConsumerState<_UndoBar> {
 }
 
 /// Who the banker is: for the banker, that they are and the button to hand the
-/// seat on; for the others, that the banker presses the bank's buttons, and,
-/// when nothing has happened for 2 minutes, the button to take the seat over
-/// (the room says no while the banker is still there).
-class _BankerBar extends ConsumerStatefulWidget {
+/// seat on; for the others, that the banker presses the bank's buttons, and the
+/// button to take the seat over (the room says no while the banker has been
+/// seen in the last 2 minutes; the others' own activity says nothing about
+/// whether the banker is there).
+class _BankerBar extends StatelessWidget {
   const _BankerBar({
     required this.view,
     required this.onPass,
@@ -1319,38 +1320,12 @@ class _BankerBar extends ConsumerStatefulWidget {
   final VoidCallback onTakeOver;
 
   @override
-  ConsumerState<_BankerBar> createState() => _BankerBarState();
-}
-
-class _BankerBarState extends ConsumerState<_BankerBar> {
-  static const _quiet = Duration(minutes: 2);
-  Timer? _tick;
-
-  @override
-  void initState() {
-    super.initState();
-    _tick = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _tick?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final view = widget.view;
     final banker = view.bankerSeat;
     if (banker == null || view.isSpectator) return const SizedBox.shrink();
     const color = Color(0xFF3D5AFE);
     final text = Theme.of(context).textTheme;
     final mine = view.iAmBanker;
-    final last = view.entries.isEmpty ? null : view.entries.last.at;
-    final quiet =
-        last != null && ref.read(roomClockProvider)().difference(last) > _quiet;
     final title = mine
         ? 'คุณเป็นนายธนาคาร'
         : 'นายธนาคาร ${view.nameOf(banker)}';
@@ -1398,17 +1373,17 @@ class _BankerBarState extends ConsumerState<_BankerBar> {
             if (mine)
               OutlinedButton(
                 key: const ValueKey('banker-pass'),
-                onPressed: widget.onPass,
+                onPressed: onPass,
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(0, 36),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                 ),
                 child: const Text('ส่งต่อ'),
               )
-            else if (quiet)
+            else
               TextButton(
                 key: const ValueKey('banker-takeover'),
-                onPressed: widget.onTakeOver,
+                onPressed: onTakeOver,
                 child: const Text('รับตำแหน่งแทน'),
               ),
           ],

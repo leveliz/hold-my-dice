@@ -646,7 +646,7 @@ void main() {
     );
 
     testWidgets(
-      'a player is offered the seat of the banker only after 2 quiet minutes',
+      'a player is always offered the banker seat, and the room says if it is too soon',
       (tester) async {
         await banked();
         await openApp(
@@ -656,21 +656,10 @@ void main() {
           uid: _owner,
           overrides: [roomClockProvider.overrideWithValue(() => clock)],
         );
-        expect(
-          key('banker-takeover'),
-          findsNothing,
-          reason: 'the last entry is new',
-        );
-        await leave(tester);
-        clock = clock.add(const Duration(minutes: 3));
-        await openApp(
-          tester,
-          store,
-          '/room/$code',
-          uid: _owner,
-          overrides: [roomClockProvider.overrideWithValue(() => clock)],
-        );
         expect(key('banker-takeover'), findsOneWidget);
+        await tester.tap(key('banker-takeover'));
+        await tester.pumpAndSettle();
+        expect(snackText(tester), 'นายธนาคารยังออนไลน์อยู่');
         await leave(tester);
       },
     );
@@ -730,6 +719,95 @@ void main() {
       expect(snackText(tester), 'นายธนาคาร แพร กด GO ให้คุณ +200');
       expect(balance(tester), '1,700');
       await rest(tester);
+      await leave(tester);
+    });
+  });
+
+  group('the not-enough-money sheet when there is a banker', () {
+    // Three players; p3 went out first and is the banker.
+    Future<String> threeWithBanker() async {
+      final room = await makeRoom(store);
+      for (final u in ['u2', 'u3']) {
+        await repoOn(store, u).joinAsPlayer(code: room, name: u, color: 1);
+      }
+      await repoOn(store, _owner).startGame(room);
+      await repoOn(store, 'u3').submitEntry(room, EntryDraft.bankrupt(2000));
+      return room;
+    }
+
+    Future<void> payFriend(WidgetTester tester, String digits) async {
+      await tester.tap(
+        find.descendant(of: key('friend-p2'), matching: find.text('u2')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-give'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, digits);
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'a player cannot mortgage: the sheet says to ask the banker, or go bankrupt',
+      (tester) async {
+        final room = await threeWithBanker();
+        await openApp(tester, store, '/room/$room', uid: _owner);
+        await payFriend(tester, '2000');
+        expect(key('shortfall-sheet'), findsOneWidget);
+        expect(key('mortgage-input'), findsNothing);
+        expect(key('mortgage-blocked'), findsOneWidget);
+        expect(enabled(tester, 'mortgage-confirm'), isFalse);
+        expect(enabled(tester, 'bankrupt-button'), isTrue);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('a banker who still plays can mortgage for their own payment', (
+      tester,
+    ) async {
+      final room = await threeWithBanker();
+      await repoOn(store, 'u3').passBanker(room, 'p1');
+      await openApp(tester, store, '/room/$room', uid: _owner);
+      await payFriend(tester, '2000');
+      expect(key('mortgage-input'), findsOneWidget);
+      expect(key('mortgage-blocked'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'money that arrives meanwhile makes the payment possible again',
+      (tester) async {
+        final room = await threeWithBanker();
+        await openApp(tester, store, '/room/$room', uid: _owner);
+        await payFriend(tester, '2000');
+        expect(key('mortgage-blocked'), findsOneWidget);
+        await repoOn(
+          store,
+          'u2',
+        ).submitEntry(room, EntryDraft.transfer('p1', 600));
+        await tester.pumpAndSettle();
+        expect(key('mortgage-blocked'), findsNothing);
+        expect(
+          tester.widget<Text>(key('mortgage-total')).data,
+          'ตอนนี้เงินพอจ่ายแล้ว ไม่ต้องจำนอง',
+        );
+        expect(enabled(tester, 'mortgage-confirm'), isTrue);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('the same when a request is paid', (tester) async {
+      final room = await threeWithBanker();
+      await repoOn(
+        store,
+        'u2',
+      ).requestMoney(room, fromSeat: 'p1', amount: 2000);
+      await openApp(tester, store, '/room/$room', uid: _owner);
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.tap(key('request-pay'));
+      await tester.pumpAndSettle();
+      expect(key('mortgage-blocked'), findsOneWidget);
+      expect(key('mortgage-input'), findsNothing);
       await leave(tester);
     });
   });

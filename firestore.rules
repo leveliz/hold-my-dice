@@ -172,7 +172,8 @@ service cloud.firestore {
     // seat that is in the game; a bankruptcy owed to the bank may be declared
     // by the banker too; everything else (a transfer, a bankruptcy owed to a
     // player) stays with the person at the seat, and a mortgage on a transfer
-    // is a bank action, so it is not for a player any more.
+    // is a bank action, so it is not for a player any more (the banker, who
+    // still plays, raises their own).
     function pressAllowed(code, state, d) {
       return state.bankerSeat == null
         ? ownsSeat(code, d.seat)
@@ -182,7 +183,8 @@ service cloud.firestore {
         ? ownsSeat(code, d.seat)
           || (d.bankrupt is map && d.bankrupt.get('creditorSeat', null) == null
               && ownsSeat(code, state.bankerSeat))
-        : ownsSeat(code, d.seat) && !('mortgage' in d);
+        : ownsSeat(code, d.seat)
+          && (!('mortgage' in d) || d.seat == state.bankerSeat);
     }
 
     // The bankruptcy of d.seat: the facts are the real ones, the debtor ends at

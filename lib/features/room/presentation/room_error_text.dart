@@ -30,7 +30,7 @@ String roomErrorText(Object error) {
       'จำนองไม่ถูกต้อง: ต้องจำเป็น พอจ่ายส่วนที่ขาด และเหลือไม่เกิน 1 ใน 5 ของเงินเริ่มต้น',
     RoomError.invalidBankrupt =>
       'ล้มละลายไม่ได้ ถ้าเงินที่มีพอจ่าย หรือหนี้เกิน 10 เท่าของเงินเริ่มต้น',
-    RoomError.creditorOut => 'คนที่เป็นหนี้ออกจากเกมไปแล้ว',
+    RoomError.creditorOut => 'เจ้าหนี้ออกจากเกมไปแล้ว',
     RoomError.bankerPresses =>
       'ตอนนี้นายธนาคารเป็นคนกดรับเงิน จ่ายธนาคาร และ GO',
     RoomError.notBanker =>

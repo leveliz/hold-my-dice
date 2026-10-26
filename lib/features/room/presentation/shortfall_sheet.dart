@@ -145,13 +145,25 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
     final bank = view.balances[Transaction.bank];
     final bankShort = !covered && bank != null && bank < total;
     final tooMuch = !covered && total >= shortfall && left > cap;
-    final enough = covered || (total >= shortfall && left <= cap && !bankShort);
+    // With a banker a mortgage is the banker's to raise: a player paying a
+    // friend cannot (the banker, who still plays, can).
+    final mortgageBlocked =
+        !covered &&
+        widget.toSeat != null &&
+        view.bankerSeat != null &&
+        view.mySeat != view.bankerSeat;
+    final enough =
+        covered ||
+        (!mortgageBlocked && total >= shortfall && left <= cap && !bankShort);
     final canGoBankrupt =
         amount <= maxOwedTimesStartingCash * view.settings.startingCash;
 
     String status;
     Color statusColor;
-    if (covered) {
+    if (mortgageBlocked) {
+      status = 'ให้นายธนาคารกดรับเงินจำนองให้ก่อน หรือล้มละลาย';
+      statusColor = scheme.error;
+    } else if (covered) {
       status = 'ตอนนี้เงินพอจ่ายแล้ว ไม่ต้องจำนอง';
       statusColor = const Color(0xFF10A15F);
     } else if (bankShort) {
@@ -210,7 +222,17 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
               key: const ValueKey('shortfall-owed'),
               style: text.bodyMedium?.copyWith(color: muted),
             ),
-            if (!covered) ...[
+            if (mortgageBlocked)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  'ตอนนี้นายธนาคารเป็นคนกดรับเงินจากธนาคาร '
+                  'ขอให้นายธนาคารกดรับเงินจำนองให้คุณก่อน แล้วค่อยจ่าย',
+                  key: const ValueKey('mortgage-blocked'),
+                  style: text.bodyMedium?.copyWith(color: muted),
+                ),
+              ),
+            if (!covered && !mortgageBlocked) ...[
               const SizedBox(height: 12),
               for (final (i, m) in _mortgages.indexed)
                 Row(
@@ -284,7 +306,7 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      covered
+                      covered || mortgageBlocked
                           ? status
                           : 'รวมจำนอง ${formatMoney(total)} · $status',
                       key: const ValueKey('mortgage-total'),
