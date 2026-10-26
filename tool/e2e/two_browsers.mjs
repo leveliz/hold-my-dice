@@ -260,6 +260,54 @@ try {
   check((await count(host, reasonText + 'ข', { exact: false })) === 0, 'a 61st unit was not accepted');
   await host.page.keyboard.press('Escape');
 
+  // 6b2. Transfers and taking back. Balances as the screens show them.
+  const balancesOn = async (p) => {
+    const out = {};
+    for (const l of (await screenText(p)).split('\n')) {
+      const m = l.match(/^(?:ยอดของฉัน · )?(P\d) ([\d,]+)$/);
+      if (m) out[m[1]] = Number(m[2].replace(/,/g, ''));
+    }
+    return out;
+  };
+  const waitFor = async (fn, ms = 15000) => {
+    for (let t = 0; t < ms; t += 400) {
+      if (await fn()) return true;
+      await sleep(400);
+    }
+    return false;
+  };
+  const before1 = (await balancesOn(host)).P1;
+  const before2 = (await balancesOn(players[1])).P2;
+  await button(host, 'โอนให้ P2').click();
+  await keys(host, '500');
+  await button(host, 'ตกลง').click();
+  check(await seen(host, 'โอน 500 ให้P2แล้ว', 10000), 'the giver gets the bar to take the transfer back');
+  check(await waitFor(async () => (await balancesOn(players[1])).P2 === before2 + 500), 'the receiver sees the money arrive');
+  check(await seen(players[1], 'P1 โอนให้คุณ +500', 8000), 'and is told who sent it');
+  check((await balancesOn(host)).P1 === before1 - 500, 'the giver sees the balance go down');
+  await button(host, 'เลิกทำ').click();
+  check(await waitFor(async () => (await balancesOn(host)).P1 === before1), 'taking it back gives the giver the money back');
+  check(await waitFor(async () => (await balancesOn(players[1])).P2 === before2), 'and takes it from the receiver');
+  check(await seen(players[1], 'P1 ยกเลิกการโอน 500', 8000), 'who is told it was taken back');
+  await sleep(2000);
+
+  // A take-back against somebody else's press at the same moment: whatever
+  // wins, every screen shows the same books and none cries "balances differ".
+  await button(host, 'โอนให้ P2').click();
+  await keys(host, '100');
+  await button(host, 'ตกลง').click();
+  await seen(host, 'โอน 100 ให้P2แล้ว', 10000);
+  await Promise.allSettled([button(host, 'เลิกทำ').click({ timeout: 3000 }), button(players[2], 'GO', true).click()]);
+  await sleep(4000);
+  const hostBooks = await balancesOn(host);
+  const watchBooks = await balancesOn(watcher);
+  check(
+    Object.keys(watchBooks).length === 8 && Object.entries(hostBooks).every(([k, v]) => watchBooks[k] === v),
+    'after a take-back that races a press, the host and the watcher see the same balances',
+  );
+  check(!(await seen(host, 'ยอดไม่ตรงกับประวัติ', 1500)), 'and no screen says the balances differ');
+  await sleep(2500);
+
   // 6c. Paying more than they hold says so, in words.
   const p3 = players[2];
   await button(p3, 'จ่ายธนาคาร').click();

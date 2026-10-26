@@ -11,10 +11,12 @@ import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/features/bank/presentation/money_sheet.dart';
 import 'package:hold_my_dice/features/room/application/balance_check.dart';
 import 'package:hold_my_dice/features/room/application/entry_text.dart';
+import 'package:hold_my_dice/features/room/application/incoming_events.dart';
 import 'package:hold_my_dice/features/room/application/press_control.dart';
 import 'package:hold_my_dice/features/room/application/relative_time.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
+import 'package:hold_my_dice/features/room/application/undo_offer.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
@@ -28,7 +30,7 @@ final roomClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 const _reasonChips = ['ค่าเช่า', 'การ์ดโอกาส', 'ภาษี'];
 
 /// The amount a history title ends with; the row shows it on its own.
-final _trailingAmount = RegExp(r' [+-][\d,]+$');
+final _trailingAmount = RegExp(r' [+-]?[\d,]+$');
 const _plusColor = Color(0xFF10A15F);
 const _minusColor = Color(0xFFD6336C);
 
@@ -98,6 +100,9 @@ class _GameBody extends ConsumerWidget {
 
   Color _color(String seat) => Color(view.colorOf(seat) ?? 0xFF8A8A8A);
 
+  /// Shows [message] above the buttons, so they stay in reach while it is up.
+  /// (The undo bar never has to share the place with an announcement: whatever
+  /// is announced came after the press the bar is for, and ends the offer.)
   void _say(BuildContext context, String message) =>
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -105,7 +110,6 @@ class _GameBody extends ConsumerWidget {
           SnackBar(
             content: Text(message),
             behavior: SnackBarBehavior.floating,
-            // Above the buttons, so they stay in reach while it is up.
             margin: const EdgeInsets.fromLTRB(20, 0, 20, 96),
           ),
         );
@@ -165,6 +169,27 @@ class _GameBody extends ConsumerWidget {
     await _send(context, ref, EntryDraft.payBank(result.amount));
   }
 
+  Future<void> _transfer(
+    BuildContext context,
+    WidgetRef ref,
+    String toSeat,
+  ) async {
+    final result = await showMoneySheet(
+      context,
+      player: _me,
+      balance: view.myBalance ?? 0,
+      isPay: true,
+      recent: const [],
+      recipient: Player(
+        id: toSeat,
+        name: view.nameOf(toSeat),
+        color: view.colorOf(toSeat) ?? 0xFF8A8A8A,
+      ),
+    );
+    if (result == null || !context.mounted) return;
+    await _send(context, ref, EntryDraft.transfer(toSeat, result.amount));
+  }
+
   void _openHistory(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -183,6 +208,10 @@ class _GameBody extends ConsumerWidget {
         if (s != view.mySeat) s,
     ];
     final canPress = view.block == PressBlock.none;
+    final offer = ref.watch(undoOfferProvider(code));
+    ref.listen(incomingEventsProvider(code), (_, batch) {
+      if (batch != null) _say(context, batch.lines.join('\n'));
+    });
 
     return SafeArea(
       child: Column(
@@ -235,6 +264,22 @@ class _GameBody extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                 ],
+                if (!view.isSpectator && view.seatActive) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Icon(LucideIcons.users, size: 14, color: muted),
+                        const SizedBox(width: 6),
+                        Text(
+                          'แตะชื่อเพื่อนเพื่อโอนเงิน',
+                          key: const ValueKey('friends-hint'),
+                          style: text.bodySmall?.copyWith(color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 for (final seat in view.isSpectator ? view.seats : others) ...[
                   _FriendRow(
                     seat: seat,
@@ -242,6 +287,9 @@ class _GameBody extends ConsumerWidget {
                     color: _color(seat),
                     balance: view.balances[seat] ?? 0,
                     out: view.state.bankrupt.contains(seat),
+                    onTap: canPress && !view.state.bankrupt.contains(seat)
+                        ? () => _transfer(context, ref, seat)
+                        : null,
                   ),
                   const SizedBox(height: 6),
                 ],
@@ -257,6 +305,14 @@ class _GameBody extends ConsumerWidget {
                   view: view,
                   onOpen: () => _openHistory(context),
                 ),
+                if (offer != null)
+                  _UndoBar(
+                    key: ValueKey('undo-${offer.seq}'),
+                    code: code,
+                    offer: offer,
+                    nameOf: view.nameOf,
+                    onSay: (m) => _say(context, m),
+                  ),
                 if (!view.isSpectator) ...[
                   const SizedBox(height: 10),
                   Row(
@@ -354,6 +410,7 @@ class _FriendRow extends StatelessWidget {
     required this.color,
     required this.balance,
     required this.out,
+    required this.onTap,
   });
 
   final String seat;
@@ -362,33 +419,145 @@ class _FriendRow extends StatelessWidget {
   final int balance;
   final bool out;
 
+  /// Opens the transfer to this person; null when it cannot be done now.
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    return Container(
-      key: ValueKey('friend-$seat'),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: tileDecoration(context),
-      child: Row(
-        children: [
-          PlayerAvatar(name: name, color: color, size: 28),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: text.titleMedium,
-            ),
+    return Semantics(
+      button: onTap != null,
+      label: onTap == null ? null : 'โอนให้ $name',
+      excludeSemantics: onTap != null,
+      child: InkWell(
+        key: ValueKey('friend-$seat'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(PaperStyle.radius),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: tileDecoration(context),
+          child: Row(
+            children: [
+              PlayerAvatar(name: name, color: color, size: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.titleMedium,
+                ),
+              ),
+              if (out) ...[
+                const RoomChip('ออกจากเกม'),
+                const SizedBox(width: 8),
+              ],
+              Text(
+                formatMoney(balance),
+                style: serifStyle(
+                  text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
           ),
-          if (out) ...[const RoomChip('ออกจากเกม'), const SizedBox(width: 8)],
-          Text(
-            formatMoney(balance),
-            style: serifStyle(
-              text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+/// What the person just did and the few seconds to take it back.
+class _UndoBar extends ConsumerStatefulWidget {
+  const _UndoBar({
+    super.key,
+    required this.code,
+    required this.offer,
+    required this.nameOf,
+    required this.onSay,
+  });
+
+  final String code;
+  final UndoOffer offer;
+  final String Function(String seat) nameOf;
+  final void Function(String message) onSay;
+
+  @override
+  ConsumerState<_UndoBar> createState() => _UndoBarState();
+}
+
+class _UndoBarState extends ConsumerState<_UndoBar> {
+  late int _left = widget.offer.window.inSeconds;
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _left > 1) setState(() => _left--);
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  String _label(RoomEntry e) {
+    final amount = formatMoney(e.amount ?? 0);
+    return switch (e.kind) {
+      EntryKind.transfer => 'โอน $amount ให้${widget.nameOf(e.to ?? '')}แล้ว',
+      EntryKind.receive => 'รับเงิน $amount แล้ว',
+      EntryKind.payBank => 'จ่ายธนาคาร $amount แล้ว',
+      EntryKind.passGo => 'ผ่านจุดเริ่ม +$amount แล้ว',
+      _ => 'ทำรายการแล้ว',
+    };
+  }
+
+  Future<void> _undo() async {
+    final error = await ref
+        .read(pressControllerProvider(widget.code).notifier)
+        .undo(widget.offer.seq);
+    if (error != null && mounted) {
+      widget.onSay(roomErrorText(RoomException(error)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final on = theme.colorScheme.surface;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        key: const ValueKey('undo-bar'),
+        padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.onSurface,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _label(widget.offer.entry),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(color: on),
+              ),
             ),
-          ),
-        ],
+            TextButton(
+              key: const ValueKey('undo-button'),
+              onPressed: _undo,
+              style: TextButton.styleFrom(
+                foregroundColor: on,
+                side: BorderSide(color: on.withValues(alpha: 0.6)),
+                shape: const StadiumBorder(),
+              ),
+              child: Text('เลิกทำ $_left'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -628,6 +797,12 @@ class _HistorySheetState extends ConsumerState<_HistorySheet> {
                           final sign = switch (e.kind) {
                             EntryKind.receive || EntryKind.passGo => '+',
                             EntryKind.payBank => '−',
+                            EntryKind.transfer =>
+                              e.to == view.mySeat
+                                  ? '+'
+                                  : e.seat == view.mySeat
+                                  ? '−'
+                                  : '',
                             _ => '',
                           };
                           return Padding(
@@ -668,13 +843,14 @@ class _HistorySheetState extends ConsumerState<_HistorySheet> {
                                     ],
                                   ),
                                 ),
-                                if (sign.isNotEmpty)
+                                if (sign.isNotEmpty ||
+                                    e.kind == EntryKind.transfer)
                                   Text(
                                     '$sign${formatMoney(e.amount ?? 0)}',
                                     style: serifStyle(
                                       text.titleSmall?.copyWith(
                                         fontWeight: FontWeight.w700,
-                                        color: e.voided
+                                        color: e.voided || sign.isEmpty
                                             ? muted
                                             : (sign == '+'
                                                   ? _plusColor

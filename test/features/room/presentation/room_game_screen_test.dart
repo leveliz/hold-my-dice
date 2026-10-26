@@ -321,6 +321,237 @@ void main() {
     });
   });
 
+  group('transfers and taking back', () {
+    String friendBalance(WidgetTester tester, String seat) => tester
+        .widgetList<Text>(
+          find.descendant(of: key('friend-$seat'), matching: find.byType(Text)),
+        )
+        .map((t) => t.data!)
+        .last;
+
+    Future<void> transferTo(
+      WidgetTester tester,
+      String seat,
+      String digits,
+    ) async {
+      await tester.tap(key('friend-$seat'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, digits);
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('tapping a friend opens the transfer sheet for that friend', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      expect(key('friends-hint'), findsOneWidget);
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      expect(find.text('โอนเงิน'), findsOneWidget);
+      expect(key('transfer-pair'), findsOneWidget);
+      expect(
+        find.descendant(of: key('transfer-pair'), matching: find.text('แพร')),
+        findsOneWidget,
+      );
+      expect(
+        key('sheet-reason'),
+        findsNothing,
+        reason: 'no reason for a transfer',
+      );
+      await leave(tester);
+    });
+
+    testWidgets('the money goes to the friend and the history says so', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await transferTo(tester, 'p2', '700');
+      expect(balance(tester), '800');
+      expect(friendBalance(tester, 'p2'), '2,200');
+      expect(
+        tester.widget<Text>(key('history-latest')).data,
+        'โอน ต้น → แพร 700',
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('more than you have is refused in words', (tester) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await transferTo(tester, 'p2', '2000');
+      expect(snackText(tester), contains('เงินไม่พอ'));
+      expect(balance(tester), '1,500');
+      await leave(tester);
+    });
+
+    testWidgets('right after a press there is a bar to take it back', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      expect(key('undo-bar'), findsNothing);
+      await transferTo(tester, 'p2', '700');
+      expect(key('undo-bar'), findsOneWidget);
+      expect(find.text('โอน 700 ให้แพรแล้ว'), findsOneWidget);
+      expect(find.text('เลิกทำ 4'), findsOneWidget);
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('taking it back gives the money back on both sides', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await transferTo(tester, 'p2', '700');
+      await tester.tap(key('undo-button'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '1,500');
+      expect(friendBalance(tester, 'p2'), '1,500');
+      expect(key('undo-bar'), findsNothing);
+      expect(
+        tester.widget<Text>(key('history-latest')).data,
+        'โอน ต้น → แพร 700 · ยกเลิกแล้ว',
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('a receive from the bank can be taken back too', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('press-go'));
+      await tester.pumpAndSettle();
+      expect(find.text('ผ่านจุดเริ่ม +200 แล้ว'), findsOneWidget);
+      await tester.tap(key('undo-button'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '1,500');
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('the bar goes away when its time is up', (tester) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('press-go'));
+      await tester.pumpAndSettle();
+      expect(key('undo-bar'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.text('เลิกทำ 1'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(key('undo-bar'), findsNothing);
+      expect(balance(tester), '1,700', reason: 'the press stays');
+      await leave(tester);
+    });
+
+    testWidgets('the bar goes away when somebody else presses after you', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('press-go'));
+      await tester.pumpAndSettle();
+      await repoOn(store, 'u2').submitEntry(code, EntryDraft.passGo());
+      await tester.pumpAndSettle();
+      expect(key('undo-bar'), findsNothing);
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('a press from before the screen opened has no bar', (
+      tester,
+    ) async {
+      await repoOn(store, _owner).submitEntry(code, EntryDraft.passGo());
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      expect(key('undo-bar'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a friend who gives you money is announced, and taking it back too',
+      (tester) async {
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        await repoOn(
+          store,
+          'u2',
+        ).submitEntry(code, EntryDraft.transfer('p1', 250));
+        await tester.pumpAndSettle();
+        expect(snackText(tester), 'แพร โอนให้คุณ +250');
+        expect(balance(tester), '1,750');
+        await repoOn(store, 'u2').undoEntry(code, 0);
+        await tester.pumpAndSettle();
+        expect(snackText(tester), 'แพร ยกเลิกการโอน 250');
+        expect(balance(tester), '1,500');
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a transfer that was there when the screen opened is not announced',
+      (tester) async {
+        await repoOn(
+          store,
+          'u2',
+        ).submitEntry(code, EntryDraft.transfer('p1', 250));
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        expect(snackText(tester), isNull);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a transfer in the history shows the amount, plus for what I got',
+      (tester) async {
+        await repoOn(
+          store,
+          'u2',
+        ).submitEntry(code, EntryDraft.transfer('p1', 250));
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        await tester.tap(key('history-strip'));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: key('history-row-0'),
+            matching: find.text('+250'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: key('history-row-0'),
+            matching: find.text('โอน แพร → ต้น'),
+          ),
+          findsOneWidget,
+        );
+        await leave(tester);
+      },
+    );
+
+    testWidgets('friends cannot be tapped offline', (tester) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      store.setOnline(false);
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      expect(find.text('โอนเงิน'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('a spectator cannot start a transfer and sees no hint', (
+      tester,
+    ) async {
+      await repoOn(
+        store,
+        's1',
+      ).joinAsSpectator(code: code, name: 'ดู', color: 0xFF2E9E57);
+      await openApp(tester, store, '/room/$code', uid: 's1');
+      expect(key('friends-hint'), findsNothing);
+      await tester.tap(key('friend-p1'));
+      await tester.pumpAndSettle();
+      expect(find.text('โอนเงิน'), findsNothing);
+      await leave(tester);
+    });
+  });
+
   group('a long game', () {
     testWidgets('shows the newest entries only, and still plays', (
       tester,
@@ -482,6 +713,13 @@ void main() {
         expect(enabled(tester, k), isFalse, reason: k);
       }
       expect(key('band-offline'), findsNothing);
+    });
+
+    testWidgets('a friend who is out cannot be given money', (tester) async {
+      await show(tester, view(bankrupt: const ['p2']));
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      expect(find.text('โอนเงิน'), findsNothing);
     });
 
     testWidgets('a friend who is out is marked', (tester) async {
