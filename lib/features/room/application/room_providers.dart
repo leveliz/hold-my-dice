@@ -4,6 +4,7 @@ import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 /// Who this device is. Tests get a made-up person; `productionOverrides`
 /// swaps in Firebase Auth once Firebase is set up.
@@ -68,3 +69,9 @@ final roomOnlineProvider = StreamProvider.autoDispose.family<bool, String>(
 /// installed app the public site.
 String roomShareLink(String code) =>
     '${kIsWeb ? Uri.base.origin : 'https://hold-my-dice.pages.dev'}/room/$code';
+
+/// Every request to pay of the room, live (also the closed ones).
+final roomRequestsProvider = StreamProvider.autoDispose
+    .family<List<RoomRequest>, String>(
+      (ref, code) => ref.watch(roomRepositoryProvider).watchRequests(code),
+    );

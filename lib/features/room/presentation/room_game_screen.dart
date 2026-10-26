@@ -14,6 +14,7 @@ import 'package:hold_my_dice/features/room/application/entry_text.dart';
 import 'package:hold_my_dice/features/room/application/incoming_events.dart';
 import 'package:hold_my_dice/features/room/application/press_control.dart';
 import 'package:hold_my_dice/features/room/application/relative_time.dart';
+import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/application/undo_offer.dart';
@@ -23,9 +24,6 @@ import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-
-/// What "now" is for the times in the history; tests replace it.
-final roomClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
 const _reasonChips = ['ค่าเช่า', 'การ์ดโอกาส', 'ภาษี'];
 

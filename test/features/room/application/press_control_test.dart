@@ -10,6 +10,7 @@ import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 /// A repository whose presses can be held back, made to fail, or made to
 /// look lost (written but answered with "not sure", or not written at all).
@@ -476,6 +477,89 @@ void main() {
         expect(w.undoNow(0), RoomError.unsure);
         async.flushMicrotasks();
         expect(w.press.unsureCid, isNull, reason: 'the entry shows as undone');
+      });
+
+      _inWorld('a request can be paid, and the buttons rest after it', (
+        async,
+        w,
+      ) {
+        w.finish(
+          FakeRoomRepository(
+            w.store,
+            FakeAuthService('u2'),
+          ).requestMoney(w.code, fromSeat: 'p1', amount: 300),
+        );
+        expect(w.finish(w.controller.payRequest('p2_p1')), isNull);
+        expect(w.press.cooling, isTrue);
+        async.elapse(const Duration(seconds: 2));
+        expect(w.press.cooling, isFalse);
+        final entries = w.container.read(roomEntriesProvider(w.code)).value!;
+        expect(entries.single.amount, 300);
+        expect(entries.single.reason, requestReason);
+      });
+
+      _inWorld('a request that is not there says so', (async, w) {
+        expect(
+          w.finish(w.controller.payRequest('p2_p1')),
+          RoomError.requestGone,
+        );
+        expect(w.press.sending, isFalse);
+      });
+
+      _inWorld('a request that costs more than I have is refused in words', (
+        async,
+        w,
+      ) {
+        w.finish(
+          FakeRoomRepository(
+            w.store,
+            FakeAuthService('u2'),
+          ).requestMoney(w.code, fromSeat: 'p1', amount: 2000),
+        );
+        expect(
+          w.finish(w.controller.payRequest('p2_p1')),
+          RoomError.insufficientFunds,
+        );
+        expect(w.press.unsureCid, isNull);
+      });
+
+      _inWorld('a payment whose answer was lost is settled by the history', (
+        async,
+        w,
+      ) {
+        w.finish(
+          FakeRoomRepository(
+            w.store,
+            FakeAuthService('u2'),
+          ).requestMoney(w.code, fromSeat: 'p1', amount: 300),
+        );
+        w.repo.writeThenLose = true;
+        expect(w.finish(w.controller.payRequest('p2_p1')), RoomError.unsure);
+        async.flushMicrotasks();
+        expect(
+          w.press.unsureCid,
+          isNull,
+          reason: 'its entry is in the history',
+        );
+      });
+
+      _inWorld('a payment is left alone while another action is on its way', (
+        async,
+        w,
+      ) {
+        w.finish(
+          FakeRoomRepository(
+            w.store,
+            FakeAuthService('u2'),
+          ).requestMoney(w.code, fromSeat: 'p1', amount: 300),
+        );
+        w.repo.hold = Completer<void>();
+        unawaited(w.controller.press(EntryDraft.passGo()));
+        async.flushMicrotasks();
+        expect(w.finish(w.controller.payRequest('p2_p1')), isNull);
+        w.repo.hold!.complete();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 2));
       });
 
       _inWorld('after it is settled, pressing works again', (async, w) {

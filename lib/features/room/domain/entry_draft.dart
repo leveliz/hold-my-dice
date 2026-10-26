@@ -5,6 +5,9 @@ import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 const _codeAlphabet =
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
+/// A new press code: 20 letters and digits nobody else will have drawn.
+String newPressCode([Random? random]) => _newCode(random);
+
 String _newCode(Random? random) {
   final rng = random ?? Random.secure();
   return String.fromCharCodes([
