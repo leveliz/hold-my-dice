@@ -103,16 +103,20 @@ class _GameBody extends ConsumerWidget {
   /// Shows [message] above the buttons, so they stay in reach while it is up.
   /// (The undo bar never has to share the place with an announcement: whatever
   /// is announced came after the press the bar is for, and ends the offer.)
-  void _say(BuildContext context, String message) =>
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(message),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.fromLTRB(20, 0, 20, 96),
-          ),
-        );
+  void _say(BuildContext context, String message) {
+    // The one who asked may be a bar or a card that is gone by now; the
+    // screen under them is what matters.
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(20, 0, 20, 96),
+        ),
+      );
+  }
 
   /// Sends [draft] and tells the person if the room said no.
   Future<void> _send(
@@ -695,9 +699,9 @@ class _OutgoingBandState extends ConsumerState<_OutgoingBand> {
           e.error == RoomError.alreadyPaid) {
         requests.dismiss(r.id);
       }
-      if (mounted) say(roomErrorText(e));
+      say(roomErrorText(e));
     } catch (e) {
-      if (mounted) say(roomErrorText(e));
+      say(roomErrorText(e));
     }
   }
 
@@ -808,7 +812,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     final error = await press.payRequest(id);
     if (error == null) return;
     _dropIfGone(requests, id, error);
-    if (mounted) say(roomErrorText(RoomException(error)));
+    say(roomErrorText(RoomException(error)));
   }
 
   Future<void> _decline() async {
@@ -820,9 +824,9 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
       await repo.cancelRequest(widget.code, id);
     } on RoomException catch (e) {
       _dropIfGone(requests, id, e.error);
-      if (mounted) say(roomErrorText(e));
+      say(roomErrorText(e));
     } catch (e) {
-      if (mounted) say(roomErrorText(e));
+      say(roomErrorText(e));
     }
   }
 
@@ -1006,9 +1010,7 @@ class _UndoBarState extends ConsumerState<_UndoBar> {
     final error = await ref
         .read(pressControllerProvider(widget.code).notifier)
         .undo(widget.offer.seq);
-    if (error != null && mounted) {
-      widget.onSay(roomErrorText(RoomException(error)));
-    }
+    if (error != null) widget.onSay(roomErrorText(RoomException(error)));
   }
 
   @override

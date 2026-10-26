@@ -36,6 +36,19 @@ class _HoldPay extends FakeRoomRepository {
   }
 }
 
+/// A repository whose taking back waits until it is told to go on.
+class _HoldUndo extends FakeRoomRepository {
+  _HoldUndo(super.store, super.auth, this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<void> undoEntry(String code, int seq) async {
+    await gate.future;
+    return super.undoEntry(code, seq);
+  }
+}
+
 /// A requests controller that shows what it is told to.
 class _StubRequests extends RequestsController {
   _StubRequests(this.shown) : super('K7M2QX');
@@ -470,6 +483,33 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('an undo that fails after its bar is gone still says why', (
+      tester,
+    ) async {
+      final gate = Completer<void>();
+      await openApp(
+        tester,
+        store,
+        '/room/$code',
+        uid: _owner,
+        repo: _HoldUndo(store, FakeAuthService(_owner), gate),
+      );
+      await tester.tap(key('press-go'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('undo-button'));
+      await tester.pump();
+      // Somebody else presses while the undo is on its way: the bar goes.
+      await repoOn(store, 'u2').submitEntry(code, EntryDraft.passGo());
+      await tester.pumpAndSettle();
+      expect(key('undo-bar'), findsNothing);
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(snackText(tester), 'ไม่ทันแล้ว มีรายการใหม่หรือหมดเวลา');
+      expect(balance(tester), '1,700', reason: 'the press stays');
+      await rest(tester);
+      await leave(tester);
+    });
+
     testWidgets('a receive from the bank can be taken back too', (
       tester,
     ) async {
@@ -687,6 +727,21 @@ void main() {
       },
     );
 
+    testWidgets('paying a request leaves no bar to take it back', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.tap(key('request-pay'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '1,200');
+      expect(key('undo-bar'), findsNothing);
+      await rest(tester);
+      await leave(tester);
+    });
+
     testWidgets('the pay button waits a moment, then pays', (tester) async {
       await openAs(tester, _owner);
       await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
@@ -822,6 +877,7 @@ void main() {
       gate.complete();
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+      expect(snackText(tester), 'คำขอนี้ปิดแล้ว', reason: 'it is still told');
       await leave(tester);
     });
 

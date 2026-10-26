@@ -785,22 +785,20 @@ void roomRepositoryContract(RoomHarness Function() create) {
           expect((await requests(h, code)).single.status, RequestStatus.paid);
         });
 
-        test(
-          'a paid transfer can be taken back, and the request stays paid',
-          () async {
-            final h = create();
-            final code = await twoPlayers(h);
-            await h
-                .repoFor('u2')
-                .requestMoney(code, fromSeat: 'p1', amount: 300);
-            await h
-                .repoFor('owner')
-                .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
-            await h.repoFor('owner').undoEntry(code, 0);
-            expect((await state(h, code)).balances['p1'], 1500);
-            expect((await requests(h, code)).single.status, RequestStatus.paid);
-          },
-        );
+        test('a payment of a request cannot be taken back', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          await h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 300);
+          await h
+              .repoFor('owner')
+              .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
+          await expectLater(
+            h.repoFor('owner').undoEntry(code, 0),
+            _throws(RoomError.tooLate),
+          );
+          expect((await state(h, code)).balances['p1'], 1200);
+          expect((await requests(h, code)).single.status, RequestStatus.paid);
+        });
 
         test('a player who is out cannot be asked, nor ask', () async {
           final h = create();

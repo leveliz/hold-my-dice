@@ -1482,6 +1482,7 @@ describe('taking back an entry: what is refused', () => {
   refuse('by a stranger', one(), () => takeBack('stranger'));
   refuse('an entry that is not the latest', one(receive('p1', 300), { extra: true }), () => takeBack('owner', { balances: { ...BASE, p4: 1510 } }));
   refuse('after 6.5 seconds', one(receive('p1', 300), { at: Timestamp.fromMillis(Date.now() - 9000) }), () => takeBack('owner'));
+  refuse('a transfer that paid a request to pay', one(transfer('p1', 'p2', 300), { entryOver: { reason: 'ตามคำขอเรียกเก็บ' } }), () => takeBack('owner', { balances: BASE }));
   refuse('an entry already taken back', one(receive('p1', 300), { entryOver: { voided: true } }), () => takeBack('owner'));
   refuse('when the game is not being played', one(receive('p1', 300), { seedOver: {} }), async () => {
     await admin((db) => updateDoc(room(db), { status: 'ended' }));

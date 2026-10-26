@@ -134,6 +134,17 @@ void main() {
       expect(c.read(undoOfferProvider(g.code)), isNull);
     });
 
+    test('paying a request is not offered to be taken back', () async {
+      final g = await _game();
+      final c = g.as_('owner');
+      await _settle(c, g.code);
+      await g.repo('u2').requestMoney(g.code, fromSeat: 'p1', amount: 300);
+      await _settle(c, g.code);
+      await g.repo('owner').payRequest(g.code, 'p2_p1', cid: 'cidcidcid1234');
+      await _settle(c, g.code);
+      expect(c.read(undoOfferProvider(g.code)), isNull);
+    });
+
     test("somebody else's press is not offered to me", () async {
       final g = await _game();
       final c = g.as_('owner');

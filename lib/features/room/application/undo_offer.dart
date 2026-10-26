@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 /// How long the "undo" bar is offered. The room allows a little longer
 /// (6.5 seconds); the rest is room for the answer to travel.
@@ -58,7 +59,9 @@ class UndoOfferController extends Notifier<UndoOffer?> {
           last.seq > baseline &&
           last.at != null &&
           !last.voided &&
-          _undoable.contains(last.kind);
+          _undoable.contains(last.kind) &&
+          // The request it paid would stay "paid" with nothing paid.
+          last.reason != requestReason;
       if (offered) {
         if (state?.seq != last.seq) {
           final window = ref.read(undoOfferWindowProvider);

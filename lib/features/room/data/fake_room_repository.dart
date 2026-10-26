@@ -464,6 +464,7 @@ class FakeRoomRepository implements RoomRepository {
     final at = entry.at;
     if (entry.by != uid ||
         entry.voided ||
+        entry.reason == requestReason ||
         seq != state.seq - 1 ||
         at == null ||
         _store.now().difference(at) >= undoWindow) {

@@ -136,6 +136,60 @@ void _inWorld(
 }
 
 void main() {
+  group('requestIsStale', () {
+    final t = DateTime.utc(2026, 10, 26, 12);
+
+    test('a request of a moment ago is not', () {
+      expect(
+        requestIsStale(createdAt: t, newestServerTime: t, now: t),
+        isFalse,
+      );
+    });
+
+    test('one that the server clock has left behind by over 2 minutes is', () {
+      expect(
+        requestIsStale(
+          createdAt: t,
+          newestServerTime: t.add(const Duration(minutes: 2, seconds: 1)),
+          now: t,
+        ),
+        isTrue,
+        reason: 'a later entry says so, whatever this phone thinks',
+      );
+      expect(
+        requestIsStale(
+          createdAt: t,
+          newestServerTime: t.add(const Duration(minutes: 1, seconds: 59)),
+          now: t,
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'with nothing newer to go by, this phone\'s clock decides, with slack',
+      () {
+        expect(
+          requestIsStale(
+            createdAt: t,
+            newestServerTime: null,
+            now: t.add(const Duration(minutes: 3)),
+          ),
+          isFalse,
+          reason: 'a minute of slack for a clock that is a little off',
+        );
+        expect(
+          requestIsStale(
+            createdAt: t,
+            newestServerTime: null,
+            now: t.add(const Duration(minutes: 3, seconds: 1)),
+          ),
+          isTrue,
+        );
+      },
+    );
+  });
+
   _inWorld('nothing is asked at first', (async, w) {
     async.flushMicrotasks();
     expect(w.now.incoming, isEmpty);
@@ -283,6 +337,31 @@ void main() {
     fresh.dispose();
     async.flushMicrotasks();
   });
+
+  _inWorld(
+    'an open request that ran out long ago is not offered again on reopening',
+    (async, w) {
+      w.ask('u2', 'p1', 300);
+      async.flushMicrotasks();
+      async.elapse(const Duration(minutes: 10));
+      final fresh = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWithValue(FakeAuthService('owner')),
+          roomRepositoryProvider.overrideWithValue(w.repo('owner')),
+          roomClockProvider.overrideWithValue(w.clock),
+        ],
+      );
+      fresh.listen(roomGameProvider(w.code), (_, _) {});
+      fresh.listen(requestsControllerProvider(w.code), (_, _) {});
+      async.flushMicrotasks();
+      async.elapse(const Duration(milliseconds: 1));
+      final state = fresh.read(requestsControllerProvider(w.code));
+      expect(state.incoming, isEmpty);
+      expect(state.notice, isNull);
+      fresh.dispose();
+      async.flushMicrotasks();
+    },
+  );
 
   _inWorld('a request that has no server time yet is not offered', (async, w) {
     w.ask('u2', 'p1', 300);

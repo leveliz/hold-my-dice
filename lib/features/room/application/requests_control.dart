@@ -4,7 +4,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
+import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_request.dart';
+
+/// Whether an open request ran out long ago, so that it is not offered again
+/// when the screen is opened afresh (requests that run out are never closed in
+/// the database). The server's own time is the judge when anything newer than
+/// the request gives it ([newestServerTime]: an entry, or another request);
+/// otherwise this phone's clock, with a minute of slack for a clock that is a
+/// little off.
+bool requestIsStale({
+  required DateTime createdAt,
+  required DateTime? newestServerTime,
+  required DateTime now,
+}) {
+  final reference = newestServerTime;
+  if (reference != null) {
+    return reference.difference(createdAt) > requestLifetime;
+  }
+  return now.difference(createdAt) >
+      requestLifetime + const Duration(minutes: 1);
+}
 
 /// A request that is still to be answered, with the moment this device stops
 /// offering it. The time is counted here, from the moment the request was
@@ -90,16 +110,44 @@ class RequestsController extends Notifier<RequestsState> {
     _look();
   }
 
+  /// The newest time the server gave to anything but [except].
+  DateTime? _newestServerTime(
+    List<RoomEntry>? entries, {
+    required RoomRequest except,
+  }) {
+    DateTime? newest;
+    void see(DateTime? t) {
+      if (t != null && (newest == null || t.isAfter(newest!))) newest = t;
+    }
+
+    for (final e in entries ?? const <RoomEntry>[]) {
+      see(e.at);
+    }
+    for (final r in _all) {
+      if (r.id != except.id) see(r.createdAt);
+    }
+    return newest;
+  }
+
   void _look() => state = _compute(keepNotice: state.notice);
 
   RequestsState _compute({RequestNotice? keepNotice}) {
     final seat = _seat;
     if (seat == null) return const RequestsState();
     final now = ref.read(roomClockProvider)();
+    final entries = ref.read(roomGameProvider(code)).value?.entries;
     for (final r in _all) {
       if (!r.isOpen || r.createdAt == null) continue;
       final key = _key(r);
-      if (_deadlines.containsKey(key)) continue;
+      if (_deadlines.containsKey(key) || _expired.contains(key)) continue;
+      if (requestIsStale(
+        createdAt: r.createdAt!,
+        newestServerTime: _newestServerTime(entries, except: r),
+        now: now,
+      )) {
+        _expired.add(key);
+        continue;
+      }
       _deadlines[key] = now.add(requestLifetime);
       _timers[key] = Timer(requestLifetime, () {
         _expired.add(key);

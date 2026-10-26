@@ -789,7 +789,12 @@ class FirestoreRoomRepository implements RoomRepository {
           alreadyDone = true;
           return;
         }
-        if (entry.by != uid || entry.voided || seq != state.seq - 1) {
+        // A payment of a request is not taken back: the request would stay
+        // "paid" with nothing paid.
+        if (entry.by != uid ||
+            entry.voided ||
+            entry.reason == requestReason ||
+            seq != state.seq - 1) {
           refused = RoomError.tooLate;
           return;
         }

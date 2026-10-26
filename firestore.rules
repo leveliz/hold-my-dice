@@ -207,6 +207,7 @@ service cloud.firestore {
         && d.diff(old).affectedKeys().hasOnly(['voided'])
         && old.voided == false && d.voided == true
         && old.kind in ['receive', 'passGo', 'payBank', 'transfer']
+        && !(old.kind == 'transfer' && old.reason == 'ตามคำขอเรียกเก็บ')
         && old.by == request.auth.uid
         && get(seatDoc(code, old.seat)).data.uid == request.auth.uid
         && entryId == string(state.seq - 1)
