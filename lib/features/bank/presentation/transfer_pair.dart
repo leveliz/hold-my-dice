@@ -10,11 +10,15 @@ class TransferPair extends StatelessWidget {
     required this.from,
     required this.to,
     this.center = false,
+    this.caption = 'โอนให้',
   });
 
   final Player from;
   final Player to;
   final bool center;
+
+  /// The small grey word between the two names.
+  final String caption;
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +61,7 @@ class TransferPair extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'โอนให้',
+                caption,
                 style: text.bodySmall?.copyWith(color: muted, fontSize: 12),
               ),
               Icon(LucideIcons.arrowRightLeft, size: 20, color: muted),

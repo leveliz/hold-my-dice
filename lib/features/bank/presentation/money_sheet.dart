@@ -32,7 +32,8 @@ class ReasonOptions {
 
 /// Opens the amount entry sheet. [isPay] is the "−" flow; the "+" flow lets
 /// the player switch between receiving from the bank and mortgaging (unless
-/// [allowMortgage] is off). With a [recipient] it is a transfer from [player].
+/// [allowMortgage] is off). With a [recipient] it is a transfer from [player];
+/// with [collectFrom] it is a request to pay from that person to [player].
 Future<MoneyResult?> showMoneySheet(
   BuildContext context, {
   required Player player,
@@ -40,6 +41,7 @@ Future<MoneyResult?> showMoneySheet(
   required bool isPay,
   required List<int> recent,
   Player? recipient,
+  Player? collectFrom,
   bool allowMortgage = true,
   ReasonOptions? reason,
   TourStorage? tourStorage,
@@ -54,6 +56,7 @@ Future<MoneyResult?> showMoneySheet(
       isPay: isPay,
       recent: recent,
       recipient: recipient,
+      collectFrom: collectFrom,
       allowMortgage: allowMortgage,
       reason: reason,
       tourStorage: tourStorage,
@@ -69,6 +72,7 @@ class MoneySheet extends StatefulWidget {
     required this.isPay,
     required this.recent,
     this.recipient,
+    this.collectFrom,
     this.allowMortgage = true,
     this.reason,
     this.tourStorage,
@@ -79,6 +83,9 @@ class MoneySheet extends StatefulWidget {
   final bool isPay;
   final List<int> recent;
   final Player? recipient;
+
+  /// When given, the sheet asks that person to pay [player] instead.
+  final Player? collectFrom;
   final bool allowMortgage;
 
   /// When given, the sheet will not close with an amount until a reason is typed.
@@ -180,7 +187,26 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.recipient case final to?)
+            if (widget.collectFrom case final payer?)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'เรียกเก็บเงิน',
+                    key: const ValueKey('sheet-collect-title'),
+                    style: headingStyle(context, text.titleMedium),
+                  ),
+                  const SizedBox(height: 8),
+                  TransferPair(
+                    key: const ValueKey('collect-pair'),
+                    from: payer,
+                    to: widget.player,
+                    center: true,
+                    caption: 'จ่ายให้',
+                  ),
+                ],
+              )
+            else if (widget.recipient case final to?)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -269,17 +295,25 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
               style: text.displayMedium,
             ),
             const SizedBox(height: 6),
-            Text(
-              'ยอดเงินคงเหลือปัจจุบัน',
-              key: const ValueKey('sheet-balance-label'),
-              style: text.bodySmall?.copyWith(color: muted),
-            ),
-            const SizedBox(height: 4),
-            BalanceChip(
-              key: const ValueKey('sheet-balance-chip'),
-              amount: widget.balance,
-              accent: accent,
-            ),
+            if (widget.collectFrom case final payer?)
+              Text(
+                '${payer.name} มีเวลา 2 นาทีในการตอบ',
+                key: const ValueKey('sheet-collect-note'),
+                style: text.bodySmall?.copyWith(color: muted),
+              )
+            else ...[
+              Text(
+                'ยอดเงินคงเหลือปัจจุบัน',
+                key: const ValueKey('sheet-balance-label'),
+                style: text.bodySmall?.copyWith(color: muted),
+              ),
+              const SizedBox(height: 4),
+              BalanceChip(
+                key: const ValueKey('sheet-balance-chip'),
+                amount: widget.balance,
+                accent: accent,
+              ),
+            ],
             if (widget.recent.isNotEmpty) ...[
               const SizedBox(height: 10),
               KeyedSubtree(
@@ -370,7 +404,11 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
                 textStyle: text.titleLarge,
               ),
               icon: const Icon(LucideIcons.check),
-              label: const Text('ตกลง'),
+              label: Text(
+                widget.collectFrom != null && _amount > 0
+                    ? 'ส่งคำขอ ${formatMoney(_amount)}'
+                    : 'ตกลง',
+              ),
             ),
           ],
         ),

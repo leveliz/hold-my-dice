@@ -280,6 +280,7 @@ try {
   const before1 = (await balancesOn(host)).P1;
   const before2 = (await balancesOn(players[1])).P2;
   await button(host, /^P2 [\d,]+/).click();
+  await button(host, 'โอนให้ P2').click();
   await keys(host, '500');
   await button(host, 'ตกลง').click();
   check(await seen(host, 'โอน 500 ให้P2แล้ว', 10000), 'the giver gets the bar to take the transfer back');
@@ -295,6 +296,7 @@ try {
   // A take-back against somebody else's press at the same moment: whatever
   // wins, every screen shows the same books and none cries "balances differ".
   await button(host, /^P2 [\d,]+/).click();
+  await button(host, 'โอนให้ P2').click();
   await keys(host, '100');
   await button(host, 'ตกลง').click();
   await seen(host, 'โอน 100 ให้P2แล้ว', 10000);
@@ -308,6 +310,64 @@ try {
   );
   check(!(await seen(host, 'ยอดไม่ตรงกับประวัติ', 1500)), 'and no screen says the balances differ');
   await sleep(2500);
+
+  // 6b3. Requests to pay.
+  const askFriend = async (p, name, digits) => {
+    await button(p, new RegExp('^' + name + ' [\\d,]+')).click();
+    await button(p, 'เรียกเก็บจาก ' + name).click();
+    await keys(p, digits);
+    await button(p, 'ส่งคำขอ').click();
+  };
+  await sleep(1500);
+  const hostBefore = (await balancesOn(host)).P1;
+  const p2Before = (await balancesOn(players[1])).P2;
+  await askFriend(host, 'P2', '300');
+  let waiting = false;
+  try {
+    await button(host, 'ยกเลิก').waitFor({ state: 'attached', timeout: 10000 });
+    waiting = true;
+  } catch {}
+  check(waiting, 'the one who asks sees the request waiting (with its cancel button)');
+  check(await seen(players[1], 'P1 เรียกเก็บ', 10000), 'the one who is asked sees the request');
+  await askFriend(host, 'P2', '50');
+  check(await seen(host, 'มีคำขอถึงคนนี้รออยู่แล้ว', 8000), 'asking the same person again is refused in words');
+  await sleep(1200);
+  await button(players[1], 'จ่าย 300').click();
+  check(await waitFor(async () => (await balancesOn(players[1])).P2 === p2Before - 300), 'paying takes the money from the payer');
+  check(await waitFor(async () => (await balancesOn(host)).P1 === hostBefore + 300), 'and gives it to the one who asked');
+  check(await seen(host, 'P2 จ่ายตามที่เรียกเก็บ +300', 8000), 'who is told it was paid');
+  check(await waitFor(async () => !(await seen(host, 'รอP2จ่าย', 500))), 'and the waiting bar is gone');
+  await sleep(2500);
+
+  // Saying no.
+  await askFriend(host, 'P2', '40');
+  await seen(players[1], 'P1 เรียกเก็บ', 10000);
+  await button(players[1], 'ไม่จ่าย').click();
+  check(await seen(host, 'คำขอถูกยกเลิก', 8000), 'the one who asked is told it was said no to');
+  check((await balancesOn(host)).P1 === hostBefore + 300, 'and no money moved');
+
+  // The asker takes it back while the payer pays: one of the two wins, and
+  // every screen shows the same books.
+  await askFriend(host, 'P2', '60');
+  await seen(players[1], 'P1 เรียกเก็บ', 10000);
+  await sleep(1000);
+  await Promise.allSettled([button(host, 'ยกเลิก').click({ timeout: 3000 }), button(players[1], 'จ่าย 60').click({ timeout: 3000 })]);
+  await sleep(4000);
+  const afterHost = await balancesOn(host);
+  const afterWatch = await balancesOn(watcher);
+  check(
+    Object.keys(afterWatch).length === 8 && Object.entries(afterHost).every(([k, v]) => afterWatch[k] === v),
+    'after a cancel that races a payment, the host and the watcher see the same balances',
+  );
+  check(afterHost.P1 === hostBefore + 300 || afterHost.P1 === hostBefore + 360, 'and the request was either paid or not, never half');
+  check(!(await seen(host, 'ยอดไม่ตรงกับประวัติ', 1500)), 'and no screen says the balances differ');
+  await sleep(2500);
+  if (!quick) {
+    await askFriend(host, 'P2', '70');
+    await sleep(125_000);
+    check(await seen(host, 'คำขอหมดอายุ', 8000), 'a request nobody answers runs out after 2 minutes');
+    check(!(await seen(players[1], 'P1 เรียกเก็บ', 1500)), 'and the card of the one asked goes away');
+  }
 
   // 6c. Paying more than they hold says so, in words.
   const p3 = players[2];

@@ -14,6 +14,7 @@ import 'package:hold_my_dice/features/room/application/entry_text.dart';
 import 'package:hold_my_dice/features/room/application/incoming_events.dart';
 import 'package:hold_my_dice/features/room/application/press_control.dart';
 import 'package:hold_my_dice/features/room/application/relative_time.dart';
+import 'package:hold_my_dice/features/room/application/requests_control.dart';
 import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
@@ -21,6 +22,7 @@ import 'package:hold_my_dice/features/room/application/undo_offer.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -188,6 +190,52 @@ class _GameBody extends ConsumerWidget {
     await _send(context, ref, EntryDraft.transfer(toSeat, result.amount));
   }
 
+  /// A friend was tapped: give or ask.
+  Future<void> _friend(BuildContext context, WidgetRef ref, String seat) async {
+    final choice = await showModalBottomSheet<_FriendAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => _FriendSheet(
+        name: view.nameOf(seat),
+        color: _color(seat),
+        balance: view.balances[seat] ?? 0,
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+    switch (choice) {
+      case _FriendAction.give:
+        await _transfer(context, ref, seat);
+      case _FriendAction.ask:
+        await _ask(context, ref, seat);
+    }
+  }
+
+  Future<void> _ask(BuildContext context, WidgetRef ref, String seat) async {
+    final result = await showMoneySheet(
+      context,
+      player: _me,
+      balance: view.myBalance ?? 0,
+      isPay: false,
+      recent: const [],
+      allowMortgage: false,
+      collectFrom: Player(
+        id: seat,
+        name: view.nameOf(seat),
+        color: view.colorOf(seat) ?? 0xFF8A8A8A,
+      ),
+    );
+    if (result == null || !context.mounted) return;
+    final now = ref.read(roomGameProvider(code)).value;
+    if (now == null || now.block != PressBlock.none) return;
+    try {
+      await ref
+          .read(roomRepositoryProvider)
+          .requestMoney(code, fromSeat: seat, amount: result.amount);
+    } catch (e) {
+      if (context.mounted) _say(context, roomErrorText(e));
+    }
+  }
+
   void _openHistory(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -207,6 +255,13 @@ class _GameBody extends ConsumerWidget {
     ];
     final canPress = view.block == PressBlock.none;
     final offer = ref.watch(undoOfferProvider(code));
+    final requests = ref.watch(requestsControllerProvider(code));
+    ref.listen(requestsControllerProvider(code), (before, next) {
+      final notice = next.notice;
+      if (notice != null && notice.id != before?.notice?.id) {
+        _say(context, notice.text);
+      }
+    });
     ref.listen(incomingEventsProvider(code), (_, batch) {
       if (batch != null) _say(context, batch.lines.join('\n'));
     });
@@ -219,6 +274,13 @@ class _GameBody extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               children: [
                 _StatusBand(view: view),
+                if (requests.outgoing.isNotEmpty)
+                  _OutgoingBand(
+                    code: code,
+                    pending: requests.outgoing,
+                    nameOf: view.nameOf,
+                    onSay: (m) => _say(context, m),
+                  ),
                 if (view.mySeat case final seat?) ...[
                   Container(
                     key: const ValueKey('my-balance-card'),
@@ -270,7 +332,7 @@ class _GameBody extends ConsumerWidget {
                         Icon(LucideIcons.users, size: 14, color: muted),
                         const SizedBox(width: 6),
                         Text(
-                          'แตะชื่อเพื่อนเพื่อโอนเงิน',
+                          'แตะชื่อเพื่อนเพื่อโอนหรือเรียกเก็บ',
                           key: const ValueKey('friends-hint'),
                           style: text.bodySmall?.copyWith(color: muted),
                         ),
@@ -286,7 +348,7 @@ class _GameBody extends ConsumerWidget {
                     balance: view.balances[seat] ?? 0,
                     out: view.state.bankrupt.contains(seat),
                     onTap: canPress && !view.state.bankrupt.contains(seat)
-                        ? () => _transfer(context, ref, seat)
+                        ? () => _friend(context, ref, seat)
                         : null,
                   ),
                   const SizedBox(height: 6),
@@ -303,6 +365,18 @@ class _GameBody extends ConsumerWidget {
                   view: view,
                   onOpen: () => _openHistory(context),
                 ),
+                if (requests.incoming.isNotEmpty && view.seatActive)
+                  _RequestCard(
+                    key: ValueKey(
+                      '${requests.incoming.first.request.id}@'
+                      '${requests.incoming.first.deadline.microsecondsSinceEpoch}',
+                    ),
+                    code: code,
+                    view: view,
+                    pending: requests.incoming.first,
+                    more: requests.incoming.length - 1,
+                    onSay: (m) => _say(context, m),
+                  ),
                 if (offer != null)
                   _UndoBar(
                     key: ValueKey('undo-${offer.seq}'),
@@ -459,6 +533,421 @@ class _FriendRow extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _FriendAction { give, ask }
+
+/// What to do with a friend: give them money or ask them for some.
+class _FriendSheet extends StatelessWidget {
+  const _FriendSheet({
+    required this.name,
+    required this.color,
+    required this.balance,
+  });
+
+  final String name;
+  final Color color;
+  final int balance;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final muted = text.bodySmall?.color?.withValues(alpha: 0.65);
+    Widget tile(
+      Key key,
+      IconData icon,
+      String title,
+      String sub,
+      _FriendAction action,
+    ) => Semantics(
+      button: true,
+      child: InkWell(
+        key: key,
+        onTap: () => Navigator.pop(context, action),
+        borderRadius: BorderRadius.circular(PaperStyle.radius),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: tileDecoration(context),
+          child: Row(
+            children: [
+              Icon(icon, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: text.titleMedium),
+                    Text(sub, style: text.bodySmall?.copyWith(color: muted)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                PlayerAvatar(name: name, color: color, size: 36),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: headingStyle(context, text.titleMedium),
+                      ),
+                      Text(
+                        'มี ${formatMoney(balance)}',
+                        style: text.bodySmall?.copyWith(color: muted),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            tile(
+              const ValueKey('friend-action-give'),
+              LucideIcons.arrowRightLeft,
+              'โอนให้ $name',
+              'จ่ายเงินให้ตรง ๆ',
+              _FriendAction.give,
+            ),
+            const SizedBox(height: 10),
+            tile(
+              const ValueKey('friend-action-ask'),
+              LucideIcons.clock,
+              'เรียกเก็บจาก $name',
+              'กดจ่ายเองภายใน 2 นาที',
+              _FriendAction.ask,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _mmss(Duration d) {
+  final total = d.inSeconds < 0 ? 0 : d.inSeconds;
+  return '${total ~/ 60}:${(total % 60).toString().padLeft(2, '0')}';
+}
+
+/// "รอแพรจ่าย 300 · 1:48 · ยกเลิก": a request this person made, waiting.
+class _OutgoingBand extends ConsumerStatefulWidget {
+  const _OutgoingBand({
+    required this.code,
+    required this.pending,
+    required this.nameOf,
+    required this.onSay,
+  });
+
+  final String code;
+  final List<PendingRequest> pending;
+  final String Function(String seat) nameOf;
+  final void Function(String message) onSay;
+
+  @override
+  ConsumerState<_OutgoingBand> createState() => _OutgoingBandState();
+}
+
+class _OutgoingBandState extends ConsumerState<_OutgoingBand> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _cancel(RoomRequest r) async {
+    // Taken before the await: the answer can come after this bar is gone.
+    final requests = ref.read(requestsControllerProvider(widget.code).notifier);
+    final repo = ref.read(roomRepositoryProvider);
+    final say = widget.onSay;
+    try {
+      await repo.cancelRequest(widget.code, r.id);
+    } on RoomException catch (e) {
+      if (e.error == RoomError.requestGone ||
+          e.error == RoomError.alreadyPaid) {
+        requests.dismiss(r.id);
+      }
+      if (mounted) say(roomErrorText(e));
+    } catch (e) {
+      if (mounted) say(roomErrorText(e));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF3D5AFE);
+    final first = widget.pending.first;
+    final r = first.request;
+    final left = first.deadline.difference(ref.read(roomClockProvider)());
+    final more = widget.pending.length - 1;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        key: const ValueKey('request-waiting'),
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+        decoration: BoxDecoration(
+          color: blue.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: blue.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.clock, size: 18, color: blue),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'รอ${widget.nameOf(r.fromSeat)}จ่าย ${formatMoney(r.amount)}'
+                ' · ${_mmss(left)}${more > 0 ? ' (อีก $more)' : ''}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            TextButton(
+              key: const ValueKey('request-cancel'),
+              onPressed: () => _cancel(r),
+              child: const Text('ยกเลิก'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A request to pay that is asked of this person, above the buttons. The pay
+/// button waits a moment before it works, so a card that appears just as a
+/// finger comes down is not paid by accident.
+class _RequestCard extends ConsumerStatefulWidget {
+  const _RequestCard({
+    super.key,
+    required this.code,
+    required this.view,
+    required this.pending,
+    required this.more,
+    required this.onSay,
+  });
+
+  final String code;
+  final RoomGameView view;
+  final PendingRequest pending;
+  final int more;
+  final void Function(String message) onSay;
+
+  @override
+  ConsumerState<_RequestCard> createState() => _RequestCardState();
+}
+
+class _RequestCardState extends ConsumerState<_RequestCard> {
+  static const _guard = Duration(milliseconds: 600);
+  var _armed = false;
+  Timer? _tick;
+  Timer? _arm;
+
+  @override
+  void initState() {
+    super.initState();
+    _arm = Timer(_guard, () {
+      if (mounted) setState(() => _armed = true);
+    });
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _arm?.cancel();
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  RoomRequest get _r => widget.pending.request;
+
+  // Answers can come after this card is gone (the asker took the request
+  // back meanwhile), so what is needed after an await is taken before it.
+  static void _dropIfGone(RequestsController requests, String id, RoomError e) {
+    if (e == RoomError.requestGone || e == RoomError.alreadyPaid) {
+      requests.dismiss(id);
+    }
+  }
+
+  Future<void> _pay() async {
+    final requests = ref.read(requestsControllerProvider(widget.code).notifier);
+    final press = ref.read(pressControllerProvider(widget.code).notifier);
+    final say = widget.onSay;
+    final id = _r.id;
+    final error = await press.payRequest(id);
+    if (error == null) return;
+    _dropIfGone(requests, id, error);
+    if (mounted) say(roomErrorText(RoomException(error)));
+  }
+
+  Future<void> _decline() async {
+    final requests = ref.read(requestsControllerProvider(widget.code).notifier);
+    final repo = ref.read(roomRepositoryProvider);
+    final say = widget.onSay;
+    final id = _r.id;
+    try {
+      await repo.cancelRequest(widget.code, id);
+    } on RoomException catch (e) {
+      _dropIfGone(requests, id, e.error);
+      if (mounted) say(roomErrorText(e));
+    } catch (e) {
+      if (mounted) say(roomErrorText(e));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const amber = Color(0xFFD97706);
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final muted = text.bodySmall?.color?.withValues(alpha: 0.65);
+    final view = widget.view;
+    final r = _r;
+    final left = widget.pending.deadline.difference(
+      ref.read(roomClockProvider)(),
+    );
+    final mine = view.myBalance ?? 0;
+    final enough = mine >= r.amount;
+    final canPay =
+        _armed &&
+        enough &&
+        left > Duration.zero &&
+        view.block == PressBlock.none;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        key: const ValueKey('request-card'),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: amber, width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              liveRegion: true,
+              container: true,
+              label:
+                  '${view.nameOf(r.toSeat)} เรียกเก็บ ${formatMoney(r.amount)}',
+              child: ExcludeSemantics(
+                child: Row(
+                  children: [
+                    PlayerAvatar(
+                      name: view.nameOf(r.toSeat),
+                      color: Color(view.colorOf(r.toSeat) ?? 0xFF8A8A8A),
+                      size: 24,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${view.nameOf(r.toSeat)} เรียกเก็บ',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.titleSmall,
+                      ),
+                    ),
+                    const Icon(LucideIcons.clock, size: 14, color: amber),
+                    const SizedBox(width: 4),
+                    Text(
+                      left > Duration.zero
+                          ? 'หมดอายุใน ${_mmss(left)}'
+                          : 'หมดอายุ',
+                      key: const ValueKey('request-timer'),
+                      style: text.bodySmall?.copyWith(color: amber),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Text(
+              formatMoney(r.amount),
+              key: const ValueKey('request-amount'),
+              style: serifStyle(
+                text.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            if (enough)
+              Text(
+                'คุณมี ${formatMoney(mine)} · จะเหลือ ${formatMoney(mine - r.amount)}',
+                style: text.bodySmall?.copyWith(color: muted),
+              )
+            else ...[
+              Text(
+                'คุณมี ${formatMoney(mine)} · ไม่พอจ่าย',
+                style: text.bodySmall?.copyWith(color: muted),
+              ),
+              Text(
+                'รับเงินจากธนาคารด้วยเหตุผล "จำนอง" ก่อน',
+                key: const ValueKey('request-short'),
+                style: text.bodySmall?.copyWith(color: const Color(0xFFBE123C)),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    key: const ValueKey('request-decline'),
+                    onPressed: _decline,
+                    child: const Text('ไม่จ่าย'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton(
+                    key: const ValueKey('request-pay'),
+                    onPressed: canPay ? _pay : null,
+                    child: Text('จ่าย ${formatMoney(r.amount)}'),
+                  ),
+                ),
+              ],
+            ),
+            if (widget.more > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Center(
+                  child: Text(
+                    'ยังมีอีก ${widget.more} คำขอ',
+                    key: const ValueKey('request-more'),
+                    style: text.bodySmall?.copyWith(color: muted),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

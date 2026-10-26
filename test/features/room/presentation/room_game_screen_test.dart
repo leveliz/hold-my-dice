@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/features/room/application/balance_check.dart';
 import 'package:hold_my_dice/features/room/application/press_control.dart';
+import 'package:hold_my_dice/features/room/application/requests_control.dart';
 import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
@@ -12,12 +15,48 @@ import 'package:hold_my_dice/features/room/data/room_repository.dart'
     show historyWindow;
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 import 'package:hold_my_dice/features/room/presentation/room_game_screen.dart';
 
 import 'room_test_app.dart';
 
 const _owner = 'owner';
 final _t0 = DateTime.utc(2026, 10, 26, 12);
+
+/// A repository whose payment of a request waits until it is told to go on.
+class _HoldPay extends FakeRoomRepository {
+  _HoldPay(super.store, super.auth, this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<void> payRequest(String code, String id, {required String cid}) async {
+    await gate.future;
+    return super.payRequest(code, id, cid: cid);
+  }
+}
+
+/// A requests controller that shows what it is told to.
+class _StubRequests extends RequestsController {
+  _StubRequests(this.shown) : super('K7M2QX');
+
+  final RequestsState shown;
+
+  @override
+  RequestsState build() => shown;
+}
+
+PendingRequest _pending({Duration left = const Duration(minutes: 1)}) =>
+    PendingRequest(
+      const RoomRequest(
+        id: 'p2_p1',
+        fromSeat: 'p1',
+        toSeat: 'p2',
+        amount: 300,
+        status: RequestStatus.open,
+      ),
+      DateTime.now().add(left),
+    );
 
 void main() {
   late DateTime clock;
@@ -337,17 +376,31 @@ void main() {
     ) async {
       await tester.tap(key('friend-$seat'));
       await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-give'));
+      await tester.pumpAndSettle();
       await typeAmount(tester, digits);
       await tester.tap(key('sheet-ok'));
       await tester.pumpAndSettle();
     }
 
-    testWidgets('tapping a friend opens the transfer sheet for that friend', (
-      tester,
-    ) async {
+    testWidgets('tapping a friend offers to give or to ask', (tester) async {
       await openApp(tester, store, '/room/$code', uid: _owner);
       expect(key('friends-hint'), findsOneWidget);
       await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      expect(find.text('โอนให้ แพร'), findsOneWidget);
+      expect(find.text('เรียกเก็บจาก แพร'), findsOneWidget);
+      expect(find.text('มี 1,500'), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets('giving opens the transfer sheet for that friend', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-give'));
       await tester.pumpAndSettle();
       expect(find.text('โอนเงิน'), findsOneWidget);
       expect(key('transfer-pair'), findsOneWidget);
@@ -553,6 +606,289 @@ void main() {
     });
   });
 
+  group('requests to pay', () {
+    FakeRoomRepository u2() => repoOn(store, 'u2');
+
+    Future<void> openAs(WidgetTester tester, String uid) => openApp(
+      tester,
+      store,
+      '/room/$code',
+      uid: uid,
+      overrides: [roomClockProvider.overrideWithValue(() => clock)],
+    );
+
+    String ownBalance(WidgetTester tester) => balance(tester);
+
+    Future<void> ask(WidgetTester tester, String seat, String digits) async {
+      await tester.tap(key('friend-$seat'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-ask'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, digits);
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('asking opens a sheet that is about asking', (tester) async {
+      await openAs(tester, _owner);
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-ask'));
+      await tester.pumpAndSettle();
+      expect(find.text('เรียกเก็บเงิน'), findsOneWidget);
+      expect(key('collect-pair'), findsOneWidget);
+      expect(find.text('แพร มีเวลา 2 นาทีในการตอบ'), findsOneWidget);
+      expect(key('sheet-balance-chip'), findsNothing);
+      await typeAmount(tester, '300');
+      expect(find.text('ส่งคำขอ 300'), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets('a request I send waits on top, and can be taken back', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await ask(tester, 'p2', '300');
+      expect(key('request-waiting'), findsOneWidget);
+      expect(find.textContaining('รอแพรจ่าย 300'), findsOneWidget);
+      await tester.tap(key('request-cancel'));
+      await tester.pumpAndSettle();
+      expect(key('request-waiting'), findsNothing);
+      expect(snackText(tester), 'คำขอถูกยกเลิก');
+      await leave(tester);
+    });
+
+    testWidgets('asking again while the first is open is refused in words', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await ask(tester, 'p2', '300');
+      await ask(tester, 'p2', '50');
+      expect(snackText(tester), 'มีคำขอถึงคนนี้รออยู่แล้ว');
+      expect(find.textContaining('รอแพรจ่าย 300'), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a request made of me shows on a card with what I would have left',
+      (tester) async {
+        await openAs(tester, _owner);
+        await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+        await tester.pumpAndSettle();
+        expect(key('request-card'), findsOneWidget);
+        expect(find.text('แพร เรียกเก็บ'), findsOneWidget);
+        expect(tester.widget<Text>(key('request-amount')).data, '300');
+        expect(find.text('คุณมี 1,500 · จะเหลือ 1,200'), findsOneWidget);
+        expect(
+          tester.widget<Text>(key('request-timer')).data,
+          'หมดอายุใน 2:00',
+        );
+        await leave(tester);
+      },
+    );
+
+    testWidgets('the pay button waits a moment, then pays', (tester) async {
+      await openAs(tester, _owner);
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+      await tester.pumpAndSettle();
+      expect(enabled(tester, 'request-pay'), isFalse);
+      await tester.tap(key('request-pay'), warnIfMissed: false);
+      await tester.pump();
+      expect(balance(tester), '1,500', reason: 'too early to count');
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(enabled(tester, 'request-pay'), isTrue);
+      await tester.tap(key('request-pay'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '1,200');
+      expect(key('request-card'), findsNothing);
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('saying no closes it', (tester) async {
+      await openAs(tester, _owner);
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+      await tester.pumpAndSettle();
+      await tester.tap(key('request-decline'));
+      await tester.pumpAndSettle();
+      expect(key('request-card'), findsNothing);
+      expect(balance(tester), '1,500');
+      await leave(tester);
+    });
+
+    testWidgets('with too little money the card says so and cannot pay', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 2000);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(find.text('คุณมี 1,500 · ไม่พอจ่าย'), findsOneWidget);
+      expect(key('request-short'), findsOneWidget);
+      expect(enabled(tester, 'request-pay'), isFalse);
+      await leave(tester);
+    });
+
+    testWidgets('several requests come one at a time, with a count', (
+      tester,
+    ) async {
+      final three = await makeRoom(store);
+      await repoOn(
+        store,
+        'u2',
+      ).joinAsPlayer(code: three, name: 'แพร', color: 0xFFE11D48);
+      await repoOn(
+        store,
+        'u3',
+      ).joinAsPlayer(code: three, name: 'โอ๊ต', color: 0xFF10B981);
+      await repoOn(store, _owner).startGame(three);
+      await repoOn(store, 'u3').requestMoney(three, fromSeat: 'p1', amount: 30);
+      await openApp(
+        tester,
+        store,
+        '/room/$three',
+        uid: _owner,
+        overrides: [roomClockProvider.overrideWithValue(() => clock)],
+      );
+      await repoOn(store, 'u2').requestMoney(three, fromSeat: 'p1', amount: 20);
+      await tester.pumpAndSettle();
+      expect(key('request-card'), findsOneWidget);
+      expect(tester.widget<Text>(key('request-amount')).data, '30');
+      expect(find.text('ยังมีอีก 1 คำขอ'), findsOneWidget);
+      await tester.tap(key('request-decline'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(key('request-amount')).data, '20');
+      expect(key('request-more'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('a request the room says is closed leaves the card', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      // The room's clock moves on; this screen's timer has not run out yet.
+      clock = clock.add(const Duration(minutes: 3));
+      await tester.tap(key('request-pay'));
+      await tester.pumpAndSettle();
+      expect(snackText(tester), 'คำขอนี้ปิดแล้ว');
+      expect(key('request-card'), findsNothing);
+      expect(balance(tester), '1,500');
+      await leave(tester);
+    });
+
+    testWidgets('a request confirmed after the signal was lost is not sent', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-ask'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '300');
+      store.setOnline(false);
+      await tester.pump();
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      store.setOnline(true);
+      await tester.pumpAndSettle();
+      expect(key('request-waiting'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('a payment that ends after its card is gone does not blow up', (
+      tester,
+    ) async {
+      final gate = Completer<void>();
+      await openApp(
+        tester,
+        store,
+        '/room/$code',
+        uid: _owner,
+        overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        repo: _HoldPay(store, FakeAuthService(_owner), gate),
+      );
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.tap(key('request-pay'));
+      await tester.pump();
+      // The asker takes the request back while the payment is on its way.
+      await u2().cancelRequest(code, 'p2_p1');
+      await tester.pumpAndSettle();
+      expect(key('request-card'), findsNothing);
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('a request that runs out goes away by itself', (tester) async {
+      await openAs(tester, _owner);
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+      await tester.pumpAndSettle();
+      expect(key('request-card'), findsOneWidget);
+      clock = clock.add(const Duration(minutes: 2, seconds: 1));
+      await tester.pump(const Duration(minutes: 2, seconds: 1));
+      await tester.pumpAndSettle();
+      expect(key('request-card'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('the one who asked is told when it was paid, by the money', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await ask(tester, 'p2', '300');
+      expect(key('request-waiting'), findsOneWidget);
+      await u2().payRequest(code, 'p1_p2', cid: 'cidcidcid1234');
+      await tester.pumpAndSettle();
+      expect(key('request-waiting'), findsNothing);
+      expect(snackText(tester), 'แพร จ่ายตามที่เรียกเก็บ +300');
+      expect(ownBalance(tester), '1,800');
+      await leave(tester);
+    });
+
+    testWidgets('the one who asked is told when it was said no to', (
+      tester,
+    ) async {
+      await openAs(tester, _owner);
+      await ask(tester, 'p2', '300');
+      await u2().cancelRequest(code, 'p1_p2');
+      await tester.pumpAndSettle();
+      expect(snackText(tester), 'คำขอถูกยกเลิก');
+      await leave(tester);
+    });
+
+    testWidgets('a spectator sees no card and no waiting bar', (tester) async {
+      await repoOn(
+        store,
+        's1',
+      ).joinAsSpectator(code: code, name: 'ดู', color: 0xFF2E9E57);
+      await openAs(tester, 's1');
+      await u2().requestMoney(code, fromSeat: 'p1', amount: 300);
+      await tester.pumpAndSettle();
+      expect(key('request-card'), findsNothing);
+      expect(key('request-waiting'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'the card holds a long name and the largest amount on a narrow screen',
+      (tester) async {
+        await openAs(tester, _owner);
+        tester.view.physicalSize = const Size(300, 900);
+        await u2().requestMoney(code, fromSeat: 'p1', amount: 999999999);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('999,999,999'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+  });
+
   group('a long game', () {
     testWidgets('shows the newest entries only, and still plays', (
       tester,
@@ -714,6 +1050,68 @@ void main() {
         expect(enabled(tester, k), isFalse, reason: k);
       }
       expect(key('band-offline'), findsNothing);
+    });
+
+    Future<void> showWithRequest(
+      WidgetTester tester,
+      RoomGameView v,
+      PendingRequest p,
+    ) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            roomGameProvider('K7M2QX').overrideWithValue(AsyncData(v)),
+            requestsControllerProvider(
+              'K7M2QX',
+            ).overrideWith(() => _StubRequests(RequestsState(incoming: [p]))),
+          ],
+          child: MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: const RoomGameScreen(code: 'K7M2QX'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets('a request is offered to a player who is in the game', (
+      tester,
+    ) async {
+      await showWithRequest(tester, view(), _pending());
+      expect(key('request-card'), findsOneWidget);
+      expect(enabled(tester, 'request-pay'), isTrue);
+    });
+
+    testWidgets('a player who is out is not offered requests', (tester) async {
+      await showWithRequest(tester, view(bankrupt: const ['p1']), _pending());
+      expect(key('request-card'), findsNothing);
+    });
+
+    testWidgets('a request whose time is up says so and cannot be paid', (
+      tester,
+    ) async {
+      await showWithRequest(
+        tester,
+        view(),
+        _pending(left: const Duration(seconds: -5)),
+      );
+      expect(tester.widget<Text>(key('request-timer')).data, 'หมดอายุ');
+      expect(enabled(tester, 'request-pay'), isFalse);
+    });
+
+    testWidgets('a request cannot be paid while the buttons are off', (
+      tester,
+    ) async {
+      await showWithRequest(
+        tester,
+        view(check: BalanceCheck.mismatch),
+        _pending(),
+      );
+      expect(enabled(tester, 'request-pay'), isFalse);
     });
 
     testWidgets('a friend who is out cannot be given money', (tester) async {

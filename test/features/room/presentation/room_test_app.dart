@@ -41,6 +41,7 @@ Future<void> openApp(
   String uid = 'visitor',
   bool enabled = true,
   List<Override> overrides = const [],
+  RoomRepository? repo,
 }) async {
   tester.view.physicalSize = const Size(400, 900);
   tester.view.devicePixelRatio = 1;
@@ -49,7 +50,7 @@ Future<void> openApp(
     ProviderScope(
       overrides: [
         authServiceProvider.overrideWithValue(FakeAuthService(uid)),
-        roomRepositoryProvider.overrideWithValue(repoOn(store, uid)),
+        roomRepositoryProvider.overrideWithValue(repo ?? repoOn(store, uid)),
         multiDeviceEnabledProvider.overrideWithValue(enabled),
         ...overrides,
       ],
