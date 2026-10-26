@@ -240,7 +240,7 @@ class _GameBody extends ConsumerWidget {
       builder: (_) => _FriendSheet(
         name: view.nameOf(seat),
         color: _color(seat),
-        balance: view.balances[seat] ?? 0,
+        balance: view.balanceShown(seat) ? view.balances[seat] ?? 0 : null,
       ),
     );
     if (choice == null || !context.mounted) return;
@@ -520,6 +520,7 @@ class _GameBody extends ConsumerWidget {
                     name: view.nameOf(seat),
                     color: _color(seat),
                     balance: view.balances[seat] ?? 0,
+                    hidden: !view.balanceShown(seat),
                     out: view.state.bankrupt.contains(seat),
                     onTap: canTransfer && !view.state.bankrupt.contains(seat)
                         ? () => _friend(context, ref, seat)
@@ -671,6 +672,7 @@ class _FriendRow extends StatelessWidget {
     required this.name,
     required this.color,
     required this.balance,
+    this.hidden = false,
     required this.out,
     required this.onTap,
     this.bankerActions = false,
@@ -683,6 +685,9 @@ class _FriendRow extends StatelessWidget {
   final String name;
   final Color color;
   final int balance;
+
+  /// The room hides this balance from the person looking.
+  final bool hidden;
   final bool out;
 
   /// Whether the banker's three buttons for this person are shown; they are
@@ -728,12 +733,28 @@ class _FriendRow extends StatelessWidget {
                     const RoomChip('ออกจากเกม'),
                     const SizedBox(width: 8),
                   ],
-                  Text(
-                    formatMoney(balance),
-                    style: serifStyle(
-                      text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  if (hidden)
+                    Semantics(
+                      label: 'ซ่อนยอด',
+                      child: ExcludeSemantics(
+                        child: Text(
+                          '•••',
+                          key: ValueKey('balance-hidden-$seat'),
+                          style: serifStyle(
+                            text.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Text(
+                      formatMoney(balance),
+                      style: serifStyle(
+                        text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      ),
                     ),
-                  ),
                 ],
               ),
               if (bankerActions)
@@ -785,7 +806,9 @@ class _FriendSheet extends StatelessWidget {
 
   final String name;
   final Color color;
-  final int balance;
+
+  /// What they hold; null when the room hides it from this person.
+  final int? balance;
 
   @override
   Widget build(BuildContext context) {
@@ -845,10 +868,11 @@ class _FriendSheet extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: headingStyle(context, text.titleMedium),
                       ),
-                      Text(
-                        'มี ${formatMoney(balance)}',
-                        style: text.bodySmall?.copyWith(color: muted),
-                      ),
+                      if (balance != null)
+                        Text(
+                          'มี ${formatMoney(balance!)}',
+                          style: text.bodySmall?.copyWith(color: muted),
+                        ),
                     ],
                   ),
                 ),

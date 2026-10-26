@@ -50,6 +50,12 @@ class RoomGameView {
   String? get bankerSeat => state.bankerSeat;
   bool get iAmBanker => mySeat != null && bankerSeat == mySeat;
 
+  /// Whether the balance of [seat] is shown to this person. A room can hide
+  /// the balances of the others on the screen (only there: the data is still
+  /// readable); the banker sees every one, and everybody sees their own.
+  bool balanceShown(String seat) =>
+      !settings.hideOthers || iAmBanker || seat == mySeat;
+
   /// The name of the person who pressed [e] when it was not the person at its
   /// seat (the banker pressed it for them); null for a press of their own.
   String? pressedByOther(RoomEntry e) {

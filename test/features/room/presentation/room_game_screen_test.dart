@@ -847,6 +847,133 @@ void main() {
     });
   });
 
+  group('a room that hides the balances of the others', () {
+    // Three players in a room with hideOthers; p3 may go out first (banker).
+    Future<String> hidden({bool banker = false}) async {
+      final room = await makeRoom(
+        store,
+        settings: const RoomSettings(
+          startingCash: 1500,
+          goAmount: 200,
+          maxPlayers: 4,
+          hideOthers: true,
+        ),
+      );
+      for (final u in ['u2', 'u3']) {
+        await repoOn(store, u).joinAsPlayer(code: room, name: u, color: 1);
+      }
+      await repoOn(store, _owner).startGame(room);
+      if (banker) {
+        await repoOn(store, 'u3').submitEntry(room, EntryDraft.bankrupt(2000));
+      }
+      return room;
+    }
+
+    testWidgets('a player sees their own balance and not the others', (
+      tester,
+    ) async {
+      final room = await hidden();
+      await openApp(tester, store, '/room/$room', uid: _owner);
+      expect(balance(tester), '1,500');
+      for (final seat in ['p2', 'p3']) {
+        expect(key('balance-hidden-$seat'), findsOneWidget, reason: seat);
+        expect(
+          find.descendant(
+            of: key('friend-$seat'),
+            matching: find.text('1,500'),
+          ),
+          findsNothing,
+          reason: seat,
+        );
+      }
+      await leave(tester);
+    });
+
+    testWidgets('the sheet of a friend does not tell what they hold either', (
+      tester,
+    ) async {
+      final room = await hidden();
+      await openApp(tester, store, '/room/$room', uid: _owner);
+      await tester.tap(
+        find.descendant(of: key('friend-p2'), matching: find.text('u2')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('โอนให้ u2'), findsOneWidget);
+      expect(find.text('มี 1,500'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('money to a friend still works without seeing their balance', (
+      tester,
+    ) async {
+      final room = await hidden();
+      await openApp(tester, store, '/room/$room', uid: _owner);
+      await tester.tap(
+        find.descendant(of: key('friend-p2'), matching: find.text('u2')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-give'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '200');
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '1,300');
+      expect(key('balance-hidden-p2'), findsOneWidget);
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('a watcher sees none of the balances', (tester) async {
+      final room = await hidden();
+      await repoOn(
+        store,
+        's1',
+      ).joinAsSpectator(code: room, name: 'ดู', color: 3);
+      await openApp(tester, store, '/room/$room', uid: 's1');
+      for (final seat in ['p1', 'p2', 'p3']) {
+        expect(key('balance-hidden-$seat'), findsOneWidget, reason: seat);
+      }
+      await leave(tester);
+    });
+
+    testWidgets('the banker sees every balance', (tester) async {
+      final room = await hidden(banker: true);
+      await openApp(tester, store, '/room/$room', uid: 'u3');
+      for (final seat in ['p1', 'p2']) {
+        expect(key('balance-hidden-$seat'), findsNothing, reason: seat);
+        expect(
+          find.descendant(
+            of: key('friend-$seat'),
+            matching: find.text('1,500'),
+          ),
+          findsOneWidget,
+          reason: seat,
+        );
+      }
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a player sees the balance of the banker who went out as hidden',
+      (tester) async {
+        final room = await hidden(banker: true);
+        await openApp(tester, store, '/room/$room', uid: _owner);
+        expect(key('balance-hidden-p3'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('a room without the option shows everything', (tester) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      expect(key('balance-hidden-p2'), findsNothing);
+      expect(
+        find.descendant(of: key('friend-p2'), matching: find.text('1,500')),
+        findsOneWidget,
+      );
+      await leave(tester);
+    });
+  });
+
   group('a player', () {
     testWidgets('sees their balance, the others and a quiet history', (
       tester,

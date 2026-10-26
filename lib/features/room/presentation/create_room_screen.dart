@@ -203,6 +203,21 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                     value: _hideOthers,
                     onChanged: (v) => setState(() => _hideOthers = v),
                   ),
+                  if (_hideOthers)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                      child: Text(
+                        'ซ่อนบนหน้าจอเท่านั้น ข้อมูลในห้องยังอ่านได้ '
+                        'คนที่แก้แอพยังแอบดูได้ และประวัติธุรกรรมยังเห็นยอดที่เคลื่อนไหว '
+                        'นายธนาคารเห็นทุกยอด',
+                        key: const ValueKey('hide-note'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.color?.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
                   RoomSwitch(
                     label: 'ธนาคารมีเงินจำกัด',
                     value: _limitBank,

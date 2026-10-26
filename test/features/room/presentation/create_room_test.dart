@@ -158,6 +158,9 @@ void main() {
     await tester.tap(find.text('ธนาคารมีเงินจำกัด'));
     await tester.pump();
     await typeInto(tester, 'bank-limit', '20000');
+    await tester.ensureVisible(
+      find.byKey(ValueKey('color-${playerPalette[3].toARGB32()}')),
+    );
     await tester.tap(
       find.byKey(ValueKey('color-${playerPalette[3].toARGB32()}')),
     );
@@ -195,5 +198,20 @@ void main() {
     expect(meta.settings.hideOthers, isFalse);
     expect(meta.settings.bankLimit, isNull);
     expect(meta.settings.startingCash, 1500);
+  });
+
+  testWidgets('says that hiding the balances is only on the screen', (
+    tester,
+  ) async {
+    await openApp(tester, FakeRoomStore(), '/room/create');
+    await tester.ensureVisible(find.text('ซ่อนยอดคนอื่นบนจอ'));
+    expect(find.byKey(const ValueKey('hide-note')), findsNothing);
+    await tester.tap(find.text('ซ่อนยอดคนอื่นบนจอ'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('hide-note')), findsOneWidget);
+    expect(find.textContaining('ซ่อนบนหน้าจอเท่านั้น'), findsOneWidget);
+    await tester.tap(find.text('ซ่อนยอดคนอื่นบนจอ'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('hide-note')), findsNothing);
   });
 }
