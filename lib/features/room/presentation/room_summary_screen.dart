@@ -11,8 +11,23 @@ import 'package:hold_my_dice/features/room/domain/standings.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
 import 'package:hold_my_dice/features/room/presentation/room_game_screen.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 const _gold = Color(0xFFC8962A);
+
+/// Gold text that can be read on the light and on the dark ground.
+Color _goldText(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+    ? const Color(0xFFF0C060)
+    : const Color(0xFF8A5E00);
+
+/// The colour of a rank number: gold, silver, bronze, then plain.
+Color? _rankColor(int rank) => switch (rank) {
+  1 => _gold,
+  2 => const Color(0xFF8E959C),
+  3 => const Color(0xFFB87333),
+  _ => null,
+};
 
 /// What everybody in the room sees once the game has ended: the ranking, as a
 /// podium for the first three and a list for the rest. Every balance is
@@ -86,29 +101,22 @@ class _Summary extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'จบเกมแล้ว',
-                        style: headingStyle(context, text.headlineSmall),
-                      ),
-                    ),
-                    const RoomChip('ดูสรุปอันดับ'),
-                  ],
+                Text(
+                  'จบเกมแล้ว',
+                  style: headingStyle(context, text.headlineSmall),
                 ),
                 const SizedBox(height: 16),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     if (podium.length > 1) ...[
-                      step(1, 178),
+                      step(1, 200),
                       const SizedBox(width: 8),
                     ],
-                    step(0, 218),
+                    step(0, 262),
                     if (podium.length > 2) ...[
                       const SizedBox(width: 8),
-                      step(2, 160),
+                      step(2, 176),
                     ],
                   ],
                 ),
@@ -195,6 +203,8 @@ class _Step extends StatelessWidget {
         children: [
           Column(
             children: [
+              if (winner)
+                const Icon(LucideIcons.trophy, size: 22, color: _gold),
               PlayerAvatar(name: name, color: color, size: winner ? 36 : 30),
               const SizedBox(height: 4),
               Text(
@@ -207,8 +217,8 @@ class _Step extends StatelessWidget {
               if (winner)
                 Text(
                   'ผู้ชนะ',
-                  style: text.bodySmall?.copyWith(
-                    color: _gold,
+                  style: text.bodyMedium?.copyWith(
+                    color: _goldText(context),
                     fontWeight: FontWeight.w700,
                   ),
                 )
@@ -229,11 +239,19 @@ class _Step extends StatelessWidget {
                   child: Text(
                     formatMoney(standing.balance),
                     style: serifStyle(
-                      text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      (winner ? text.titleLarge : text.titleMedium)?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
-              Text('${standing.rank}', style: text.titleLarge),
+              Text(
+                '${standing.rank}',
+                style: text.titleLarge?.copyWith(
+                  color: _rankColor(standing.rank),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ],

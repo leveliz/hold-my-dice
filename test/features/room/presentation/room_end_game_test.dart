@@ -5,6 +5,7 @@ import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'room_test_app.dart';
 
@@ -350,6 +351,29 @@ void main() {
           find.descendant(of: key('standing-p4'), matching: find.text('4')),
           findsOneWidget,
         );
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'the winner has a trophy and the others do not, and no stray chip',
+      (tester) async {
+        await endedAndOpened(tester, _owner);
+        expect(
+          find.descendant(
+            of: key('podium-p1'),
+            matching: find.byIcon(LucideIcons.trophy),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: key('podium-p2'),
+            matching: find.byIcon(LucideIcons.trophy),
+          ),
+          findsNothing,
+        );
+        expect(find.text('ดูสรุปอันดับ'), findsNothing);
         await leave(tester);
       },
     );
