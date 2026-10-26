@@ -845,7 +845,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
         left > Duration.zero &&
         view.block == PressBlock.none;
     return Padding(
-      padding: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.only(top: 10, bottom: 6),
       child: Container(
         key: const ValueKey('request-card'),
         padding: const EdgeInsets.all(12),
