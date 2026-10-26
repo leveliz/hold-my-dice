@@ -4,6 +4,8 @@ import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
+const _bankKinds = {EntryKind.receive, EntryKind.passGo, EntryKind.payBank};
+
 /// Entries older than this, next to the newest one, are history that a late
 /// snapshot brought along, not news.
 const _newsAge = Duration(seconds: 60);
@@ -26,8 +28,9 @@ class IncomingTracker {
   /// version of the list; it is safe to call with the same list again.
   List<String> update(
     List<RoomEntry> entries,
-    String Function(String seat) nameOf,
-  ) {
+    String Function(String seat) nameOf, {
+    String? Function(RoomEntry e)? pressedByOther,
+  }) {
     final baseline = _baseline;
     if (baseline == null) {
       _baseline = entries.isEmpty ? -1 : entries.last.seq;
@@ -39,7 +42,11 @@ class IncomingTracker {
       final out = e.kind == EntryKind.bankrupt && e.seat != mySeat;
       final forMe =
           e.kind == EntryKind.transfer && e.to == mySeat && e.seat != mySeat;
-      if (!forMe && !out) continue;
+      final bankerName = e.seat == mySeat && _bankKinds.contains(e.kind)
+          ? pressedByOther?.call(e)
+          : null;
+      if (!forMe && !out && bankerName == null) continue;
+      if (bankerName != null && e.voided) continue;
       final who = nameOf(e.seat);
       final amount = formatMoney(e.amount ?? 0);
       if (e.voided && forMe) {
@@ -56,6 +63,15 @@ class IncomingTracker {
         continue;
       }
       _announced.add(e.seq);
+      if (bankerName != null) {
+        final amount = formatMoney(e.amount ?? 0);
+        lines.add(switch (e.kind) {
+          EntryKind.passGo => 'นายธนาคาร $bankerName กด GO ให้คุณ +$amount',
+          EntryKind.payBank => 'นายธนาคาร $bankerName หักจากคุณ -$amount',
+          _ => 'นายธนาคาร $bankerName ให้คุณ +$amount',
+        });
+        continue;
+      }
       if (out) {
         final info = e.bankrupt;
         lines.add(
@@ -99,7 +115,11 @@ class IncomingEvents extends Notifier<IncomingBatch?> {
       final seat = view.mySeat;
       if (seat == null) return;
       final tracker = _tracker ??= IncomingTracker(mySeat: seat);
-      final lines = tracker.update(view.entries, view.nameOf);
+      final lines = tracker.update(
+        view.entries,
+        view.nameOf,
+        pressedByOther: view.pressedByOther,
+      );
       if (lines.isNotEmpty) state = IncomingBatch(++_count, lines);
     }, fireImmediately: true);
     return null;

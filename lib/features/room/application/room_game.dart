@@ -18,6 +18,8 @@ class RoomGameView {
     required this.check,
     required this.press,
     required this.block,
+    this.myUid,
+    this.seatUids = const {},
   });
 
   final RoomState state;
@@ -38,6 +40,28 @@ class RoomGameView {
 
   /// Why the money buttons are off, or [PressBlock.none].
   final PressBlock block;
+
+  /// The uid of this person, and the uid of whoever sits at each seat.
+  final String? myUid;
+  final Map<String, String> seatUids;
+
+  /// The seat of the banker (the first to go out, or whoever was handed or took
+  /// the seat), null when nobody has gone out yet.
+  String? get bankerSeat => state.bankerSeat;
+  bool get iAmBanker => mySeat != null && bankerSeat == mySeat;
+
+  /// The name of the person who pressed [e] when it was not the person at its
+  /// seat (the banker pressed it for them); null for a press of their own.
+  String? pressedByOther(RoomEntry e) {
+    final by = e.by;
+    final owner = seatUids[e.seat];
+    if (by == null || owner == null || by == owner) return null;
+    final seat = seatUids.entries
+        .where((x) => x.value == by)
+        .map((x) => x.key)
+        .firstOrNull;
+    return seat == null ? null : nameOf(seat);
+  }
 
   bool get isSpectator => mySeat == null;
   bool get seatActive => mySeat != null && !state.bankrupt.contains(mySeat);
@@ -102,12 +126,18 @@ final roomGameProvider = Provider.autoDispose
           online: isOnline,
           check: check,
           press: press,
+          myUid: me.value?.uid,
+          seatUids: {
+            for (final p in people)
+              if (p.seat != null) p.seat!: p.uid,
+          },
           block: pressBlock(
             mySeat: seat,
             seatActive: seatActive,
             online: isOnline,
             check: check,
             press: press,
+            isBanker: seat != null && s.bankerSeat == seat,
           ),
         ),
       );

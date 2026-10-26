@@ -310,8 +310,12 @@ void main() {
       await tester.tap(key('bankrupt-confirm'));
       await tester.pumpAndSettle();
       expect(balance(tester), '0');
-      expect(key('band-out'), findsOneWidget);
-      expect(enabled(tester, 'press-pay'), isFalse);
+      expect(key('band-banker'), findsOneWidget);
+      expect(
+        key('press-pay'),
+        findsNothing,
+        reason: 'the banker has no seat to press for',
+      );
       expect(
         tester.widget<Text>(key('history-latest')).data,
         'ล้มละลาย ต้น · หนี้ 2,000 ให้ธนาคาร',
@@ -342,7 +346,7 @@ void main() {
         find.descendant(of: key('friend-p2'), matching: find.text('3,500')),
         findsOneWidget,
       );
-      expect(key('band-out'), findsOneWidget);
+      expect(key('band-banker'), findsOneWidget);
       await rest(tester);
       await leave(tester);
     });
@@ -371,6 +375,353 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(key('mortgage-confirm'), findsOneWidget);
+      await leave(tester);
+    });
+  });
+
+  group('the banker', () {
+    // p2 (u2, แพร) goes out first and is the banker; p1 (owner, ต้น) plays on.
+    Future<void> banked() =>
+        repoOn(store, 'u2').submitEntry(code, EntryDraft.bankrupt(2000));
+
+    testWidgets(
+      'a player has no bank buttons: the banner says the banker presses them',
+      (tester) async {
+        await banked();
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        for (final k in ['press-pay', 'press-go', 'press-receive']) {
+          expect(key(k), findsNothing, reason: k);
+        }
+        expect(
+          find.textContaining(
+            'นายธนาคาร แพร เป็นคนกดรับเงิน จ่ายธนาคาร และ GO',
+          ),
+          findsOneWidget,
+        );
+        expect(key('band-banker-presses'), findsOneWidget);
+        expect(key('banker-pass'), findsNothing);
+        expect(key('banker-receive-p2'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'the banker who is out sees who they are and has no buttons of their own',
+      (tester) async {
+        await banked();
+        await openApp(tester, store, '/room/$code', uid: 'u2');
+        expect(key('band-banker'), findsOneWidget);
+        expect(
+          find.textContaining(
+            'คุณออกจากเกมแล้ว กดรับ จ่าย และ GO ให้เพื่อนได้',
+          ),
+          findsOneWidget,
+        );
+        expect(key('band-out'), findsNothing);
+        expect(key('press-pay'), findsNothing);
+        expect(key('banker-pass'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'each friend in the game has a receive, a pay and a GO button',
+      (tester) async {
+        await banked();
+        await openApp(tester, store, '/room/$code', uid: 'u2');
+        for (final k in [
+          'banker-receive-p1',
+          'banker-pay-p1',
+          'banker-go-p1',
+        ]) {
+          expect(key(k), findsOneWidget, reason: k);
+        }
+        expect(
+          key('banker-go-p2'),
+          findsNothing,
+          reason: 'nothing for a seat that is out',
+        );
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'GO for a friend: their balance, the history and the bar to take it back',
+      (tester) async {
+        await banked();
+        await openApp(tester, store, '/room/$code', uid: 'u2');
+        await tester.tap(key('banker-go-p1'));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(of: key('friend-p1'), matching: find.text('1,700')),
+          findsOneWidget,
+        );
+        expect(
+          tester.widget<Text>(key('history-latest')).data,
+          'ผ่านจุดเริ่ม ต้น +200 · โดยนายธนาคาร แพร',
+        );
+        expect(key('undo-bar'), findsOneWidget);
+        expect(find.text('GO ให้ต้น +200 แล้ว'), findsOneWidget);
+        await tester.tap(key('undo-button'));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(of: key('friend-p1'), matching: find.text('1,500')),
+          findsOneWidget,
+        );
+        await rest(tester);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('receive for a friend asks for no reason', (tester) async {
+      await banked();
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      await tester.tap(key('banker-receive-p1'));
+      await tester.pumpAndSettle();
+      expect(key('sheet-reason'), findsNothing);
+      await typeAmount(tester, '300');
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: key('friend-p1'), matching: find.text('1,800')),
+        findsOneWidget,
+      );
+      expect(find.text('รับเงิน 300 ให้ต้นแล้ว'), findsOneWidget);
+      expect(
+        tester.widget<Text>(key('history-latest')).data,
+        'รับจากธนาคาร ต้น +300 · โดยนายธนาคาร แพร',
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('pay for a friend takes the money from them', (tester) async {
+      await banked();
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      await tester.tap(key('banker-pay-p1'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '500');
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: key('friend-p1'), matching: find.text('1,000')),
+        findsOneWidget,
+      );
+      expect(find.text('จ่ายธนาคาร 500 จากต้นแล้ว'), findsOneWidget);
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('paying exactly what a friend holds needs no sheet', (
+      tester,
+    ) async {
+      await banked();
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      await tester.tap(key('banker-pay-p1'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '1500');
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      expect(key('shortfall-sheet'), findsNothing);
+      expect(
+        find.descendant(of: key('friend-p1'), matching: find.text('0')),
+        findsOneWidget,
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a banker who is out cannot give from a seat they do not have',
+      (tester) async {
+        await banked();
+        await openApp(tester, store, '/room/$code', uid: 'u2');
+        await tester.tap(
+          find.descendant(of: key('friend-p1'), matching: find.text('ต้น')),
+        );
+        await tester.pumpAndSettle();
+        expect(key('friend-action-give'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('a watcher is not told who the banker is', (tester) async {
+      await banked();
+      await repoOn(
+        store,
+        's1',
+      ).joinAsSpectator(code: code, name: 'ดู', color: 3);
+      await openApp(tester, store, '/room/$code', uid: 's1');
+      expect(key('band-spectator'), findsOneWidget);
+      expect(key('band-banker-presses'), findsNothing);
+      expect(key('banker-takeover'), findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a payment a friend cannot cover opens the sheet about them, with a mortgage',
+      (tester) async {
+        await banked();
+        await openApp(tester, store, '/room/$code', uid: 'u2');
+        await tester.tap(key('banker-pay-p1'));
+        await tester.pumpAndSettle();
+        await typeAmount(tester, '2000');
+        await tester.tap(key('sheet-ok'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('ต้น จ่ายธนาคาร 2,000 · มีอยู่ 1,500'),
+          findsOneWidget,
+        );
+        await tester.enterText(key('mortgage-input'), '600');
+        await tester.pump();
+        await tester.tap(key('mortgage-add'));
+        await tester.pump();
+        await tester.tap(key('mortgage-confirm'));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(of: key('friend-p1'), matching: find.text('100')),
+          findsOneWidget,
+        );
+        await rest(tester);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('and the banker can declare that friend bankrupt', (
+      tester,
+    ) async {
+      await banked();
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      await tester.tap(key('banker-pay-p1'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '2000');
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('bankrupt-button'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('ต้องจ่าย 2,000 · มี 1,500'), findsOneWidget);
+      await tester.tap(key('bankrupt-confirm'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('ออกจากเกม'),
+        findsOneWidget,
+        reason: 'the friend; my own seat is no row',
+      );
+      expect(key('banker-go-p1'), findsNothing);
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'the banker hands the seat to a friend, who gets the banker\'s bar',
+      (tester) async {
+        await banked();
+        await openApp(tester, store, '/room/$code', uid: 'u2');
+        await tester.tap(key('banker-pass'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('banker-pass-p1'));
+        await tester.pumpAndSettle();
+        expect(key('band-banker'), findsNothing);
+        expect(key('band-banker-presses'), findsOneWidget);
+        await leave(tester);
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        expect(key('band-banker'), findsOneWidget);
+        expect(find.textContaining('คุณเป็นนายธนาคาร'), findsOneWidget);
+        expect(
+          key('press-pay'),
+          findsOneWidget,
+          reason: 'a banker who still plays has their own buttons',
+        );
+        expect(key('banker-go-p2'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a player is offered the seat of the banker only after 2 quiet minutes',
+      (tester) async {
+        await banked();
+        await openApp(
+          tester,
+          store,
+          '/room/$code',
+          uid: _owner,
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
+        expect(
+          key('banker-takeover'),
+          findsNothing,
+          reason: 'the last entry is new',
+        );
+        await leave(tester);
+        clock = clock.add(const Duration(minutes: 3));
+        await openApp(
+          tester,
+          store,
+          '/room/$code',
+          uid: _owner,
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
+        expect(key('banker-takeover'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'taking it over is refused in words while the banker is there',
+      (tester) async {
+        await banked();
+        clock = clock.add(const Duration(minutes: 3));
+        await repoOn(store, 'u2').heartbeat(code);
+        await openApp(
+          tester,
+          store,
+          '/room/$code',
+          uid: _owner,
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
+        await tester.tap(key('banker-takeover'));
+        await tester.pumpAndSettle();
+        expect(snackText(tester), 'นายธนาคารยังออนไลน์อยู่');
+        expect(key('band-banker-presses'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a banker who is gone is replaced by the one who takes the seat',
+      (tester) async {
+        await banked();
+        clock = clock.add(const Duration(minutes: 3));
+        await openApp(
+          tester,
+          store,
+          '/room/$code',
+          uid: _owner,
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
+        await tester.tap(key('banker-takeover'));
+        await tester.pumpAndSettle();
+        expect(key('band-banker'), findsOneWidget);
+        expect(key('press-pay'), findsOneWidget);
+        expect(key('banker-takeover'), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('a friend of the banker is told what the banker did for them', (
+      tester,
+    ) async {
+      await banked();
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await repoOn(
+        store,
+        'u2',
+      ).submitEntry(code, EntryDraft.passGo().onBehalfOf('p1'));
+      await tester.pumpAndSettle();
+      expect(snackText(tester), 'นายธนาคาร แพร กด GO ให้คุณ +200');
+      expect(balance(tester), '1,700');
+      await rest(tester);
       await leave(tester);
     });
   });
@@ -1095,7 +1446,7 @@ void main() {
         await tester.tap(key('bankrupt-confirm'));
         await tester.pumpAndSettle();
         expect(balance(tester), '0');
-        expect(key('band-out'), findsOneWidget);
+        expect(key('band-banker'), findsOneWidget);
         expect(key('request-card'), findsNothing);
         expect(
           find.descendant(of: key('friend-p2'), matching: find.text('3,500')),

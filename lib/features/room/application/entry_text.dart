@@ -7,8 +7,9 @@ import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 /// name of a seat.
 EntryLabel describeRoomEntry(
   RoomEntry entry,
-  String Function(String seat) nameOf,
-) {
+  String Function(String seat) nameOf, {
+  String? pressedBy,
+}) {
   final who = nameOf(entry.seat);
   final amount = formatMoney(entry.amount ?? 0);
   final title = switch (entry.kind) {
@@ -28,6 +29,7 @@ EntryLabel describeRoomEntry(
     if (mortgage != null) 'จำนอง ${formatMoney(mortgage)}',
     if (info != null)
       'หนี้ ${formatMoney(info.owed)} ให้${info.creditorSeat == null ? 'ธนาคาร' : ' ${nameOf(info.creditorSeat!)}'}',
+    if (pressedBy != null) 'โดยนายธนาคาร $pressedBy',
     if (entry.voided) 'ยกเลิกแล้ว',
   ];
   return EntryLabel(title, notes.isEmpty ? null : notes.join(' · '));

@@ -52,15 +52,19 @@ enum PressBlock {
 /// Whether a press can be made, and if not, why. While the balances are still
 /// being added up ([BalanceCheck.syncing]) pressing is allowed: the press is
 /// decided by the room, not by this screen.
+///
+/// The banker presses for the others even when they are out themselves
+/// ([isBanker]).
 PressBlock pressBlock({
   required String? mySeat,
   required bool seatActive,
   required bool online,
   required BalanceCheck check,
   required PressState press,
+  bool isBanker = false,
 }) {
   if (mySeat == null) return PressBlock.spectator;
-  if (!seatActive) return PressBlock.out;
+  if (!seatActive && !isBanker) return PressBlock.out;
   if (press.unsureCid != null) return PressBlock.unsure;
   if (!online) return PressBlock.offline;
   if (check == BalanceCheck.mismatch) return PressBlock.mismatch;

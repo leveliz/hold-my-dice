@@ -274,6 +274,127 @@ class _GameBody extends ConsumerWidget {
     }
   }
 
+  Player _playerOf(String seat) => Player(
+    id: seat,
+    name: view.nameOf(seat),
+    color: view.colorOf(seat) ?? 0xFF8A8A8A,
+  );
+
+  /// The banker gives [seat] money from the bank (no reason is asked).
+  Future<void> _bankerReceive(
+    BuildContext context,
+    WidgetRef ref,
+    String seat,
+  ) async {
+    final result = await showMoneySheet(
+      context,
+      player: _playerOf(seat),
+      balance: view.balances[seat] ?? 0,
+      isPay: false,
+      recent: const [],
+      allowMortgage: false,
+    );
+    if (result == null || !context.mounted) return;
+    await _send(
+      context,
+      ref,
+      EntryDraft.receive(result.amount, null).onBehalfOf(seat),
+    );
+  }
+
+  /// The banker takes money from [seat] for the bank; when they cannot cover
+  /// it, the sheet that mortgages for them or declares them bankrupt.
+  Future<void> _bankerPay(
+    BuildContext context,
+    WidgetRef ref,
+    String seat,
+  ) async {
+    final result = await showMoneySheet(
+      context,
+      player: _playerOf(seat),
+      balance: view.balances[seat] ?? 0,
+      isPay: true,
+      recent: const [],
+    );
+    if (result == null || !context.mounted) return;
+    final amount = result.amount;
+    final cash = ref.read(roomGameProvider(code)).value?.balances[seat] ?? 0;
+    if (amount <= cash) {
+      await _send(context, ref, EntryDraft.payBank(amount).onBehalfOf(seat));
+      return;
+    }
+    final choice = await showShortfallSheet(
+      context,
+      code: code,
+      amount: amount,
+      forSeat: seat,
+    );
+    if (choice == null || !context.mounted) return;
+    await _send(
+      context,
+      ref,
+      (choice.bankrupt
+              ? EntryDraft.bankrupt(amount)
+              : EntryDraft.payBank(amount, mortgage: choice.mortgage))
+          .onBehalfOf(seat),
+    );
+  }
+
+  Future<void> _bankerGo(BuildContext context, WidgetRef ref, String seat) =>
+      _send(context, ref, EntryDraft.passGo().onBehalfOf(seat));
+
+  /// The banker chooses who gets the banker's seat.
+  Future<void> _bankerPass(BuildContext context, WidgetRef ref) async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'ส่งต่อตำแหน่งนายธนาคารให้',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            for (final seat in view.seats)
+              if (seat != view.mySeat)
+                ListTile(
+                  key: ValueKey('banker-pass-$seat'),
+                  leading: PlayerAvatar(
+                    name: view.nameOf(seat),
+                    color: _color(seat),
+                    size: 28,
+                  ),
+                  title: Text(view.nameOf(seat)),
+                  trailing: view.state.bankrupt.contains(seat)
+                      ? const RoomChip('ออกจากเกม')
+                      : null,
+                  onTap: () => Navigator.pop(context, seat),
+                ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !context.mounted) return;
+    try {
+      await ref.read(roomRepositoryProvider).passBanker(code, chosen);
+    } catch (e) {
+      if (context.mounted) _say(context, roomErrorText(e));
+    }
+  }
+
+  Future<void> _bankerTakeOver(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(roomRepositoryProvider).takeOverBanker(code);
+    } catch (e) {
+      if (context.mounted) _say(context, roomErrorText(e));
+    }
+  }
+
   void _openHistory(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -292,6 +413,8 @@ class _GameBody extends ConsumerWidget {
         if (s != view.mySeat) s,
     ];
     final canPress = view.block == PressBlock.none;
+    // A banker who is out presses for the others but has no seat to give from.
+    final canTransfer = canPress && view.seatActive;
     final offer = ref.watch(undoOfferProvider(code));
     final requests = ref.watch(requestsControllerProvider(code));
     ref.listen(requestsControllerProvider(code), (before, next) {
@@ -312,6 +435,11 @@ class _GameBody extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               children: [
                 _StatusBand(view: view),
+                _BankerBar(
+                  view: view,
+                  onPass: () => _bankerPass(context, ref),
+                  onTakeOver: () => _bankerTakeOver(context, ref),
+                ),
                 if (requests.outgoing.isNotEmpty)
                   _OutgoingBand(
                     code: code,
@@ -385,8 +513,26 @@ class _GameBody extends ConsumerWidget {
                     color: _color(seat),
                     balance: view.balances[seat] ?? 0,
                     out: view.state.bankrupt.contains(seat),
-                    onTap: canPress && !view.state.bankrupt.contains(seat)
+                    onTap: canTransfer && !view.state.bankrupt.contains(seat)
                         ? () => _friend(context, ref, seat)
+                        : null,
+                    onBankerReceive:
+                        view.iAmBanker &&
+                            canPress &&
+                            !view.state.bankrupt.contains(seat)
+                        ? () => _bankerReceive(context, ref, seat)
+                        : null,
+                    onBankerPay:
+                        view.iAmBanker &&
+                            canPress &&
+                            !view.state.bankrupt.contains(seat)
+                        ? () => _bankerPay(context, ref, seat)
+                        : null,
+                    onBankerGo:
+                        view.iAmBanker &&
+                            canPress &&
+                            !view.state.bankrupt.contains(seat)
+                        ? () => _bankerGo(context, ref, seat)
                         : null,
                   ),
                   const SizedBox(height: 6),
@@ -421,9 +567,14 @@ class _GameBody extends ConsumerWidget {
                     code: code,
                     offer: offer,
                     nameOf: view.nameOf,
+                    mySeat: view.mySeat,
                     onSay: (m) => _say(context, m),
                   ),
-                if (!view.isSpectator) ...[
+                // With a banker the bank's buttons are theirs; a banker who is
+                // out has no seat to press for.
+                if (!view.isSpectator &&
+                    (view.bankerSeat == null ||
+                        (view.iAmBanker && view.seatActive))) ...[
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -521,6 +672,9 @@ class _FriendRow extends StatelessWidget {
     required this.balance,
     required this.out,
     required this.onTap,
+    this.onBankerReceive,
+    this.onBankerPay,
+    this.onBankerGo,
   });
 
   final String seat;
@@ -528,6 +682,11 @@ class _FriendRow extends StatelessWidget {
   final Color color;
   final int balance;
   final bool out;
+
+  /// The banker's three buttons for this person; null for anybody else.
+  final VoidCallback? onBankerReceive;
+  final VoidCallback? onBankerPay;
+  final VoidCallback? onBankerGo;
 
   /// Opens the transfer to this person; null when it cannot be done now.
   final VoidCallback? onTap;
@@ -547,28 +706,63 @@ class _FriendRow extends StatelessWidget {
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: tileDecoration(context),
-          child: Row(
+          child: Column(
             children: [
-              PlayerAvatar(name: name, color: color, size: 28),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.titleMedium,
-                ),
+              Row(
+                children: [
+                  PlayerAvatar(name: name, color: color, size: 28),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.titleMedium,
+                    ),
+                  ),
+                  if (out) ...[
+                    const RoomChip('ออกจากเกม'),
+                    const SizedBox(width: 8),
+                  ],
+                  Text(
+                    formatMoney(balance),
+                    style: serifStyle(
+                      text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
               ),
-              if (out) ...[
-                const RoomChip('ออกจากเกม'),
-                const SizedBox(width: 8),
-              ],
-              Text(
-                formatMoney(balance),
-                style: serifStyle(
-                  text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              if (onBankerReceive != null ||
+                  onBankerPay != null ||
+                  onBankerGo != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      for (final (id, label, icon, action) in [
+                        ('receive', 'รับ', LucideIcons.plus, onBankerReceive),
+                        ('pay', 'จ่าย', LucideIcons.minus, onBankerPay),
+                        ('go', 'GO', LucideIcons.flag, onBankerGo),
+                      ]) ...[
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            key: ValueKey('banker-$id-$seat'),
+                            onPressed: action,
+                            icon: Icon(icon, size: 16),
+                            label: Text(label),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 40),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (id != 'go') const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -1014,12 +1208,14 @@ class _UndoBar extends ConsumerStatefulWidget {
     required this.code,
     required this.offer,
     required this.nameOf,
+    required this.mySeat,
     required this.onSay,
   });
 
   final String code;
   final UndoOffer offer;
   final String Function(String seat) nameOf;
+  final String? mySeat;
   final void Function(String message) onSay;
 
   @override
@@ -1046,11 +1242,22 @@ class _UndoBarState extends ConsumerState<_UndoBar> {
 
   String _label(RoomEntry e) {
     final amount = formatMoney(e.amount ?? 0);
+    // The banker's press for somebody else says whose money it was.
+    final other = e.seat == widget.mySeat ? null : widget.nameOf(e.seat);
     return switch (e.kind) {
       EntryKind.transfer => 'โอน $amount ให้${widget.nameOf(e.to ?? '')}แล้ว',
-      EntryKind.receive => 'รับเงิน $amount แล้ว',
-      EntryKind.payBank => 'จ่ายธนาคาร $amount แล้ว',
-      EntryKind.passGo => 'ผ่านจุดเริ่ม +$amount แล้ว',
+      EntryKind.receive =>
+        other == null
+            ? 'รับเงิน $amount แล้ว'
+            : 'รับเงิน $amount ให้$otherแล้ว',
+      EntryKind.payBank =>
+        other == null
+            ? 'จ่ายธนาคาร $amount แล้ว'
+            : 'จ่ายธนาคาร $amount จาก$otherแล้ว',
+      EntryKind.passGo =>
+        other == null
+            ? 'ผ่านจุดเริ่ม +$amount แล้ว'
+            : 'GO ให้$other +$amount แล้ว',
       _ => 'ทำรายการแล้ว',
     };
   }
@@ -1095,6 +1302,109 @@ class _UndoBarState extends ConsumerState<_UndoBar> {
               ),
               child: Text('เลิกทำ $_left'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Who the banker is: for the banker, that they are and the button to hand the
+/// seat on; for the others, that the banker presses the bank's buttons, and,
+/// when nothing has happened for 2 minutes, the button to take the seat over
+/// (the room says no while the banker is still there).
+class _BankerBar extends ConsumerStatefulWidget {
+  const _BankerBar({
+    required this.view,
+    required this.onPass,
+    required this.onTakeOver,
+  });
+
+  final RoomGameView view;
+  final VoidCallback onPass;
+  final VoidCallback onTakeOver;
+
+  @override
+  ConsumerState<_BankerBar> createState() => _BankerBarState();
+}
+
+class _BankerBarState extends ConsumerState<_BankerBar> {
+  static const _quiet = Duration(minutes: 2);
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final view = widget.view;
+    final banker = view.bankerSeat;
+    if (banker == null || view.isSpectator) return const SizedBox.shrink();
+    const color = Color(0xFF3D5AFE);
+    final text = Theme.of(context).textTheme;
+    final mine = view.iAmBanker;
+    final last = view.entries.isEmpty ? null : view.entries.last.at;
+    final quiet =
+        last != null && ref.read(roomClockProvider)().difference(last) > _quiet;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        key: ValueKey(mine ? 'band-banker' : 'band-banker-presses'),
+        padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.landmark, size: 18, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: mine
+                          ? 'คุณเป็นนายธนาคาร'
+                          : 'นายธนาคาร ${view.nameOf(banker)}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    TextSpan(
+                      text: mine
+                          ? (view.seatActive
+                                ? ' กดรับ จ่าย และ GO ให้เพื่อนได้ด้วยปุ่มใต้ชื่อ'
+                                : ' คุณออกจากเกมแล้ว กดรับ จ่าย และ GO ให้เพื่อนได้')
+                          : ' เป็นคนกดรับเงิน จ่ายธนาคาร และ GO ให้',
+                    ),
+                  ],
+                ),
+                style: text.bodySmall,
+              ),
+            ),
+            if (mine)
+              TextButton(
+                key: const ValueKey('banker-pass'),
+                onPressed: widget.onPass,
+                child: const Text('ส่งต่อ'),
+              )
+            else if (quiet)
+              TextButton(
+                key: const ValueKey('banker-takeover'),
+                onPressed: widget.onTakeOver,
+                child: const Text('รับตำแหน่งแทน'),
+              ),
           ],
         ),
       ),
@@ -1210,7 +1520,11 @@ class _HistoryStrip extends StatelessWidget {
     final latest = view.entries.isEmpty ? null : view.entries.last;
     final label = latest == null
         ? null
-        : describeRoomEntry(latest, view.nameOf);
+        : describeRoomEntry(
+            latest,
+            view.nameOf,
+            pressedBy: view.pressedByOther(latest),
+          );
     final line = latest == null
         ? 'ยังไม่มีรายการ'
         : [label!.title, ?label.subtitle].join(' · ');
@@ -1328,7 +1642,11 @@ class _HistorySheetState extends ConsumerState<_HistorySheet> {
                         separatorBuilder: (_, _) => const Divider(height: 1),
                         itemBuilder: (context, i) {
                           final e = entries[i];
-                          final label = describeRoomEntry(e, view!.nameOf);
+                          final label = describeRoomEntry(
+                            e,
+                            view!.nameOf,
+                            pressedBy: view.pressedByOther(e),
+                          );
                           final when = e.at == null
                               ? null
                               : relativeTime(e.at!, now);

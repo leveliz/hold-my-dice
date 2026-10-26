@@ -54,7 +54,7 @@ class UndoOfferController extends Notifier<UndoOffer?> {
       final last = entries.isEmpty ? null : entries.last;
       final offered =
           last != null &&
-          last.seat == view.mySeat &&
+          last.by == view.myUid &&
           last.seq == view.state.seq - 1 &&
           last.seq > baseline &&
           last.at != null &&

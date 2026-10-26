@@ -64,6 +64,27 @@ RoomEntry _bankrupt(int seq, String seat, {String? creditor, int owed = 700}) =>
 void main() {
   IncomingTracker tracker() => IncomingTracker(mySeat: 'p1');
 
+  test(
+    'a press of the banker that was taken back before it was seen is not announced',
+    () {
+      final t = tracker();
+      t.update(const [], _name);
+      final e = RoomEntry(
+        seq: 0,
+        kind: EntryKind.receive,
+        seat: 'p1',
+        by: 'u-p3',
+        at: _t0,
+        cid: 'cid0',
+        from: 'bank',
+        to: 'p1',
+        amount: 300,
+        voided: true,
+      );
+      expect(t.update([e], _name, pressedByOther: (_) => 'มด'), isEmpty);
+    },
+  );
+
   group('a player going out', () {
     test('is announced once, to everybody', () {
       final t = tracker();

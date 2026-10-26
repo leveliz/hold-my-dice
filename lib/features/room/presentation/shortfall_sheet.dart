@@ -20,16 +20,23 @@ class ShortfallResult {
 
 /// Opens the sheet for a payment of [amount] to the bank ([toSeat] null) or to
 /// that seat, which this person cannot cover. Nothing has been charged yet.
+/// The banker opens it for a payment to the bank of another seat, [forSeat].
 Future<ShortfallResult?> showShortfallSheet(
   BuildContext context, {
   required String code,
   required int amount,
   String? toSeat,
+  String? forSeat,
 }) => showModalBottomSheet<ShortfallResult>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  builder: (_) => ShortfallSheet(code: code, amount: amount, toSeat: toSeat),
+  builder: (_) => ShortfallSheet(
+    code: code,
+    amount: amount,
+    toSeat: toSeat,
+    forSeat: forSeat,
+  ),
 );
 
 /// The "not enough money" sheet of a room: mortgage properties until the live
@@ -42,11 +49,15 @@ class ShortfallSheet extends ConsumerStatefulWidget {
     required this.code,
     required this.amount,
     this.toSeat,
+    this.forSeat,
   });
 
   final String code;
   final int amount;
   final String? toSeat;
+
+  /// The seat that pays when it is not this person's own (the banker's press).
+  final String? forSeat;
 
   @override
   ConsumerState<ShortfallSheet> createState() => _ShortfallSheetState();
@@ -122,7 +133,10 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
     final payee = widget.toSeat == null
         ? 'ธนาคาร'
         : view.nameOf(widget.toSeat!);
-    final cash = view.myBalance ?? 0;
+    final forSeat = widget.forSeat;
+    final cash =
+        (forSeat == null ? view.myBalance : view.balances[forSeat]) ?? 0;
+    final payer = forSeat == null ? '' : '${view.nameOf(forSeat)} ';
     final covered = cash >= amount;
     final shortfall = amount - cash;
     final total = covered ? 0 : _mortgages.fold(0, (a, b) => a + b);
@@ -192,7 +206,7 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              'จ่าย$payee ${formatMoney(amount)} · มีอยู่ ${formatMoney(cash)}',
+              '$payerจ่าย$payee ${formatMoney(amount)} · มีอยู่ ${formatMoney(cash)}',
               key: const ValueKey('shortfall-owed'),
               style: text.bodyMedium?.copyWith(color: muted),
             ),
