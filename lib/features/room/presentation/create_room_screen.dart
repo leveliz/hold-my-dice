@@ -154,6 +154,7 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                         ),
                         IconButton(
                           key: const ValueKey('seats-minus'),
+                          tooltip: 'ลดที่นั่ง',
                           onPressed: _maxPlayers > _minSeats
                               ? () => setState(() => _maxPlayers--)
                               : null,
@@ -170,6 +171,7 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                         ),
                         IconButton(
                           key: const ValueKey('seats-plus'),
+                          tooltip: 'เพิ่มที่นั่ง',
                           onPressed: _maxPlayers < _maxSeats
                               ? () => setState(() => _maxPlayers++)
                               : null,

@@ -33,6 +33,9 @@ async function open(p, path) {
   await p.page.waitForSelector('flt-semantics-placeholder', { state: 'attached', timeout: 30000 });
   await p.page.evaluate(() => document.querySelector('flt-semantics-placeholder')?.click());
   await p.page.waitForSelector('flt-semantics', { state: 'attached', timeout: 15000 });
+
+  // The emulator's warning strip would sit on top of the bottom buttons.
+  await p.page.addStyleTag({ content: '.firebase-emulator-warning{display:none!important}' });
 }
 
 const text = (p, t, opts = {}) => p.page.getByText(t, opts).first();
@@ -46,6 +49,9 @@ async function seen(p, t, timeout = 15000) {
   } catch {
     return false;
   }
+}
+async function keys(p, digits) {
+  for (const d of digits) await p.page.getByRole('button', { name: d, exact: true }).first().click();
 }
 async function typeName(p, value) {
   // Typing key by key: Flutter ignores a value that is filled in at once.
@@ -152,12 +158,127 @@ try {
     await button(thief, 'รับเป็นเจ้าของแทน').click();
     check(await seen(thief, 'เริ่มเกม'), 'a member takes the room over from a gone owner');
     await button(thief, 'เริ่มเกม').click();
-    check(await seen(thief, 'เกมเริ่มแล้ว'), 'the new owner starts the game');
+    check(await seen(thief, 'ยอดของฉัน'), 'the new owner starts the game');
   } else {
     // 5. The owner starts the game.
     await button(owner, 'เริ่มเกม').click();
-    check(await seen(owner, 'เกมเริ่มแล้ว'), 'the owner starts the game');
+    check(await seen(owner, 'ยอดของฉัน'), 'the owner starts the game');
   }
+
+  // 6. Playing: eight players and a watcher, at the same time.
+  const reasonText = 'ก'.repeat(50) + '😀'.repeat(5); // exactly 60 UTF-16 units
+  const gone = async (p, t, timeout = 20000) => {
+    try {
+      await p.page.getByText(t).first().waitFor({ state: 'detached', timeout });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const count = (p, t, opts = {}) => p.page.getByText(t, opts).count();
+  const host = await person('host');
+  await open(host, '/room/create');
+  await typeName(host, 'P1');
+  await button(host, 'เพิ่มที่นั่ง').click();
+  await button(host, 'เพิ่มที่นั่ง').click();
+  await button(host, 'ออกตั๋วห้อง').click();
+  await host.page.waitForURL(/\/room\/[A-Z0-9]{6}$/, { timeout: 30000 });
+  const playCode = host.page.url().split('/').pop();
+  const players = [host];
+  for (let k = 2; k <= 8; k++) {
+    const g = await person(`P${k}`);
+    await open(g, `/room/${playCode}`);
+    await seen(g, 'ชวนคุณเข้าห้อง');
+    await typeName(g, `P${k}`);
+    await button(g, 'นั่งโต๊ะ').click();
+    await seen(g, 'ห้องรอ');
+    players.push(g);
+  }
+  const watcher = await person('watcher');
+  await open(watcher, `/room/${playCode}`);
+  await seen(watcher, 'ชวนคุณเข้าห้อง');
+  await typeName(watcher, 'Watcher');
+  await button(watcher, 'ขอดูเฉย ๆ').click();
+  await seen(watcher, 'ห้องรอ');
+  await button(host, 'เริ่มเกม').click();
+  const everyoneIn = await Promise.all([...players, watcher].map((p) => seen(p, p === watcher ? 'คุณเป็นผู้ชม' : 'ยอดของฉัน')));
+  check(everyoneIn.every(Boolean), 'all 8 players and the watcher reach the play screen');
+
+  // 6a. Eight GO presses at the same moment: every one is written once.
+  await Promise.all(players.map((p) => button(p, 'GO', true).click()));
+  // Flutter merges a row's texts into one accessibility node, so the screen is
+  // read as lines of text.
+  const screenText = (p) =>
+    p.page.evaluate(() =>
+      [...document.querySelectorAll('flt-semantics')].map((e) => (e.innerText || e.getAttribute('aria-label') || '').trim()).join('\n'),
+    );
+  let at1700 = 0;
+  for (let i = 0; i < 40 && at1700 < 8; i++) {
+    const lines = (await screenText(host)).split('\n');
+    at1700 = new Set(lines.filter((l) => /^(ยอดของฉัน · )?P\d 1,700$/.test(l))).size;
+    if (at1700 < 8) await sleep(500);
+  }
+  check(at1700 === 8, `eight presses at once all went in (${at1700} of 8 players are at 1,700 on the host screen)`);
+  await host.page.getByText('ทั้งหมด').first().click();
+  check(await seen(host, 'ประวัติทั้งหมด'), 'the host opens the full history');
+  await sleep(1000);
+  const goBy = new Set([...(await screenText(host)).matchAll(/ผ่านจุดเริ่ม (P\d)/g)].map((m) => m[1]));
+  check(goBy.size === 8, `the history holds a GO line for each of the eight players (${goBy.size})`);
+  await host.page.keyboard.press('Escape');
+  await sleep(1800);
+
+  // 6b. A receive with the longest reason (Thai and emoji, 60 units); one unit
+  // more is not accepted.
+  const p2 = players[1];
+  await button(p2, 'รับเงิน').click();
+  await keys(p2, '7');
+  const reasonBox = p2.page.getByRole('textbox').first();
+  await reasonBox.click();
+  await reasonBox.pressSequentially(reasonText + 'ข', { delay: 15 });
+  await button(p2, 'ตกลง').click();
+  await sleep(2500);
+  await host.page.getByText('ทั้งหมด').first().click();
+  await sleep(1000);
+  check((await count(host, reasonText, { exact: false })) >= 1, 'the 60-unit Thai and emoji reason is stored whole');
+  check((await count(host, reasonText + 'ข', { exact: false })) === 0, 'a 61st unit was not accepted');
+  await host.page.keyboard.press('Escape');
+
+  // 6c. Paying more than they hold says so, in words.
+  const p3 = players[2];
+  await button(p3, 'จ่ายธนาคาร').click();
+  await keys(p3, '999999999');
+  await button(p3, 'ตกลง').click();
+  check(await seen(p3, 'เงินไม่พอ', 8000), 'paying more than you hold says "not enough money"');
+  await sleep(4500);
+
+  // 6d. Without a connection the money buttons go off within about 12 seconds,
+  // and come back with the signal.
+  const p4 = players[3];
+  const lostAt = Date.now();
+  await p4.ctx.setOffline(true);
+  const offlineSeen = await seen(p4, 'ออฟไลน์', 25000);
+  const took = (Date.now() - lostAt) / 1000;
+  check(offlineSeen && took < 20, `the offline bar shows (after ${took.toFixed(1)} s)`);
+  check(await button(p4, 'GO', true).isDisabled(), 'the money buttons are off while offline');
+  await p4.ctx.setOffline(false);
+  check(await gone(p4, 'ออฟไลน์', 30000), 'the bar goes away when the signal is back');
+  check(await button(p4, 'GO', true).isEnabled(), 'and the buttons work again');
+
+  // 6e. Reloading the page puts the player back in the game, and the mode
+  // picker offers the way back.
+  const p5 = players[4];
+  await p5.page.reload();
+  await p5.page.waitForSelector('flt-semantics-placeholder', { state: 'attached', timeout: 30000 });
+  await p5.page.evaluate(() => document.querySelector('flt-semantics-placeholder')?.click());
+  check(await seen(p5, 'ยอดของฉัน', 20000), 'a reloaded page is back in the game');
+  await open(p5, '/bank');
+  check(await seen(p5, `กลับเข้าห้อง ${playCode}`, 20000), 'the mode picker offers the way back to the room');
+  await p5.page.getByText(`กลับเข้าห้อง ${playCode}`).first().click();
+  check(await seen(p5, 'ยอดของฉัน', 20000), 'the card leads back to the play screen');
+
+  // 6f. The watcher sees the same history and cannot press.
+  check(await seen(watcher, 'P8'), 'the watcher sees the players');
+  check((await watcher.page.getByRole('button', { name: 'GO', exact: true }).count()) === 0, 'the watcher has no money buttons');
 } finally {
   await browser.close();
 }
