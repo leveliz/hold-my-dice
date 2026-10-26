@@ -130,23 +130,26 @@ class RoomChip extends StatelessWidget {
 
 /// The green "สด" mark: this list updates by itself.
 class LiveMark extends StatelessWidget {
-  const LiveMark({super.key});
+  const LiveMark({super.key, this.color = const Color(0xFF10B981)});
+
+  /// The colour of the dot and the word; light on the coloured header of
+  /// Aurora, where the usual green would vanish.
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    const green = Color(0xFF10B981);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 8,
           height: 8,
-          decoration: const BoxDecoration(color: green, shape: BoxShape.circle),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 5),
         Text(
           'สด',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: green),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color),
         ),
       ],
     );
@@ -392,15 +395,26 @@ class TicketPainter extends CustomPainter {
 
 /// Stops a name at the length the Firestore rules accept (see [cutName]), so
 /// what a person sees typed is what is stored.
-class NameLimitFormatter extends TextInputFormatter {
-  const NameLimitFormatter();
+class NameLimitFormatter extends _CutFormatter {
+  const NameLimitFormatter() : super(cutName);
+}
+
+/// The same for the reason of an entry (see [cutReason]).
+class ReasonLimitFormatter extends _CutFormatter {
+  const ReasonLimitFormatter() : super(cutReason);
+}
+
+class _CutFormatter extends TextInputFormatter {
+  const _CutFormatter(this._cut);
+
+  final String Function(String) _cut;
 
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    final cut = cutName(newValue.text);
+    final cut = _cut(newValue.text);
     if (cut == newValue.text) return newValue;
     final caret = newValue.selection.baseOffset.clamp(0, cut.length);
     return TextEditingValue(

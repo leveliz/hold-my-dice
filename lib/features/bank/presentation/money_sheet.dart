@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/tour/tour_host.dart';
@@ -11,10 +12,22 @@ import 'package:hold_my_dice/features/bank/presentation/transfer_pair.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class MoneyResult {
-  const MoneyResult(this.amount, {this.mortgage = false});
+  const MoneyResult(this.amount, {this.mortgage = false, this.reason});
 
   final int amount;
   final bool mortgage;
+
+  /// Why the money moves; null when the sheet did not ask.
+  final String? reason;
+}
+
+/// Asks for a required reason on the sheet: a text field with quick [chips]
+/// that fill it, and an optional [formatter] that bounds what is typed.
+class ReasonOptions {
+  const ReasonOptions({required this.chips, this.formatter});
+
+  final List<String> chips;
+  final TextInputFormatter? formatter;
 }
 
 /// Opens the amount entry sheet. [isPay] is the "−" flow; the "+" flow lets
@@ -28,6 +41,7 @@ Future<MoneyResult?> showMoneySheet(
   required List<int> recent,
   Player? recipient,
   bool allowMortgage = true,
+  ReasonOptions? reason,
   TourStorage? tourStorage,
 }) {
   return showModalBottomSheet<MoneyResult>(
@@ -41,6 +55,7 @@ Future<MoneyResult?> showMoneySheet(
       recent: recent,
       recipient: recipient,
       allowMortgage: allowMortgage,
+      reason: reason,
       tourStorage: tourStorage,
     ),
   );
@@ -55,6 +70,7 @@ class MoneySheet extends StatefulWidget {
     required this.recent,
     this.recipient,
     this.allowMortgage = true,
+    this.reason,
     this.tourStorage,
   });
 
@@ -64,6 +80,9 @@ class MoneySheet extends StatefulWidget {
   final List<int> recent;
   final Player? recipient;
   final bool allowMortgage;
+
+  /// When given, the sheet will not close with an amount until a reason is typed.
+  final ReasonOptions? reason;
 
   /// Where the first-run tip is remembered; null means no tip.
   final TourStorage? tourStorage;
@@ -77,6 +96,7 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
 
   var _digits = '';
   var _mortgage = false;
+  final _reason = TextEditingController();
 
   final _zeroKey = GlobalKey();
   final _recentKey = GlobalKey();
@@ -111,6 +131,14 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
     }
   }
 
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  bool get _reasonOk => widget.reason == null || _reason.text.trim().isNotEmpty;
+
   int get _amount => _digits.isEmpty ? 0 : int.parse(_digits);
 
   void _type(String s) {
@@ -141,7 +169,7 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
     }
 
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -264,6 +292,34 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
                 ),
               ),
             ],
+            if (widget.reason case final options?) ...[
+              const SizedBox(height: 10),
+              TextField(
+                key: const ValueKey('sheet-reason'),
+                controller: _reason,
+                inputFormatters: [?options.formatter],
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'เหตุผล',
+                  hintText: 'ต้องมีเหตุผลก่อนรับเงินจากธนาคาร',
+                  isDense: true,
+                ),
+              ),
+              if (options.chips.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final c in options.chips)
+                      ActionChip(
+                        key: ValueKey('reason-chip-$c'),
+                        label: Text(c),
+                        onPressed: () => setState(() => _reason.text = c),
+                      ),
+                  ],
+                ),
+              ],
+            ],
             const SizedBox(height: 12),
             GridView.count(
               shrinkWrap: true,
@@ -291,10 +347,16 @@ class _MoneySheetState extends State<MoneySheet> with TourHost<MoneySheet> {
             const SizedBox(height: 12),
             FilledButton.icon(
               key: const ValueKey('sheet-ok'),
-              onPressed: _amount > 0
+              onPressed: _amount > 0 && _reasonOk
                   ? () => Navigator.pop(
                       context,
-                      MoneyResult(_amount, mortgage: _mortgage),
+                      MoneyResult(
+                        _amount,
+                        mortgage: _mortgage,
+                        reason: widget.reason == null
+                            ? null
+                            : _reason.text.trim(),
+                      ),
                     )
                   : null,
               style: FilledButton.styleFrom(

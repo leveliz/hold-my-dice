@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hold_my_dice/core/router.dart';
 import 'package:hold_my_dice/core/theme.dart';
@@ -39,6 +40,7 @@ Future<void> openApp(
   String location, {
   String uid = 'visitor',
   bool enabled = true,
+  List<Override> overrides = const [],
 }) async {
   tester.view.physicalSize = const Size(400, 900);
   tester.view.devicePixelRatio = 1;
@@ -49,6 +51,7 @@ Future<void> openApp(
         authServiceProvider.overrideWithValue(FakeAuthService(uid)),
         roomRepositoryProvider.overrideWithValue(repoOn(store, uid)),
         multiDeviceEnabledProvider.overrideWithValue(enabled),
+        ...overrides,
       ],
       child: MaterialApp.router(
         theme: buildTheme(Brightness.light),

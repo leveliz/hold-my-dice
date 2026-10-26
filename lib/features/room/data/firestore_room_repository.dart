@@ -22,11 +22,6 @@ const _writeTimeout = Duration(seconds: 15);
 /// in the history to other presses.
 const _pressTries = 12;
 
-/// This press found the place it wanted already taken by another one.
-class _LostTheRace implements Exception {
-  const _LostTheRace();
-}
-
 /// Rooms in Cloud Firestore, laid out as firestore.rules expects:
 /// `rooms/{code}` with `seats`, `members`, `presence` and `state` under it.
 class FirestoreRoomRepository implements RoomRepository {
@@ -449,16 +444,29 @@ class FirestoreRoomRepository implements RoomRepository {
 
     for (var attempt = 1; ; attempt++) {
       var triedSeq = -1;
+      // What the attempt found out. An error thrown inside the transaction
+      // does not reach this code as it was thrown (on the web it comes out as
+      // a nameless failure), so the attempt records it and returns.
+      RoomError? refused;
+      var lostTheRace = false;
       try {
         await _db
             .runTransaction<void>((tx) async {
+              refused = null;
+              lostTheRace = false;
               final snap = await tx.get(_state(code));
               final data = snap.data();
-              if (data == null) throw const RoomException(RoomError.notStarted);
+              if (data == null) {
+                refused = RoomError.notStarted;
+                return;
+              }
               final state = RoomState.fromMap(data);
               triedSeq = state.seq;
               final place = _entry(code, state.seq);
-              if ((await tx.get(place)).exists) throw const _LostTheRace();
+              if ((await tx.get(place)).exists) {
+                lostTheRace = true;
+                return;
+              }
               final entry = RoomEntry(
                 seq: state.seq,
                 kind: draft.kind,
@@ -476,7 +484,8 @@ class FirestoreRoomRepository implements RoomRepository {
               );
               final result = Ledger.apply(state.toLedger(meta.settings), entry);
               if (result is Rejected) {
-                throw RoomException(roomErrorOf(result.reason));
+                refused = roomErrorOf(result.reason);
+                return;
               }
               tx.set(place, entry.toMap(FieldValue.serverTimestamp()));
               tx.update(_state(code), {
@@ -488,8 +497,8 @@ class FirestoreRoomRepository implements RoomRepository {
               _writeTimeout,
               onTimeout: () => throw const RoomException(RoomError.unsure),
             );
-        return;
-      } on _LostTheRace {
+        if (refused case final error?) throw RoomException(error);
+        if (!lostTheRace) return;
         if (attempt >= _pressTries) {
           throw const RoomException(RoomError.conflict);
         }

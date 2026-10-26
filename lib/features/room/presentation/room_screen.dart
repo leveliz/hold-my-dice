@@ -12,6 +12,7 @@ import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
+import 'package:hold_my_dice/features/room/presentation/room_game_screen.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -63,7 +64,7 @@ class RoomScreen extends ConsumerWidget {
                       code: code,
                       child: meta.status == RoomStatus.lobby
                           ? _Lobby(meta: meta, me: me)
-                          : const _Playing(),
+                          : RoomGameScreen(code: code),
                     );
                   },
                 );
@@ -163,26 +164,6 @@ class _Message extends StatelessWidget {
                   ],
                 ],
               ),
-      ),
-    );
-  }
-}
-
-/// The game has started; its screen comes with the money slices.
-class _Playing extends StatelessWidget {
-  const _Playing();
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    return Scaffold(
-      key: const ValueKey('room-playing'),
-      appBar: const HelperAppBar(title: Text('เกมเริ่มแล้ว')),
-      body: Center(
-        child: Text(
-          'หน้าเล่นของโหมดหลายเครื่องกำลังจะมา',
-          style: text.bodyLarge,
-        ),
       ),
     );
   }
