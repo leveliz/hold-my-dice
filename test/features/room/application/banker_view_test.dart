@@ -184,6 +184,54 @@ void main() {
       },
     );
 
+    test(
+      'a payment helped by a mortgage says how much was mortgaged',
+      () async {
+        final g = await _game();
+        final c = g.as_('owner');
+        await _settle(c, g.code);
+        final banker = g.repo('u3');
+        await banker.submitEntry(
+          g.code,
+          EntryDraft.payBank(1400).onBehalfOf('p1'),
+        );
+        await _settle(c, g.code);
+        await banker.submitEntry(
+          g.code,
+          EntryDraft.payBank(700, mortgage: 600).onBehalfOf('p1'),
+        );
+        await _settle(c, g.code);
+        expect(c.read(incomingEventsProvider(g.code))?.lines, [
+          'นายธนาคาร มด หักจากคุณ -700 (จำนอง 600)',
+        ]);
+      },
+    );
+
+    test(
+      'being declared bankrupt by the banker is told to the one it happens to',
+      () async {
+        final g = await _game();
+        final c = g.as_('owner');
+        await _settle(c, g.code);
+        await g
+            .repo('u3')
+            .submitEntry(g.code, EntryDraft.bankrupt(2000).onBehalfOf('p1'));
+        await _settle(c, g.code);
+        expect(c.read(incomingEventsProvider(g.code))?.lines, [
+          'นายธนาคาร มด ประกาศให้คุณล้มละลาย',
+        ]);
+      },
+    );
+
+    test('going bankrupt oneself is not told to oneself', () async {
+      final g = await _game();
+      final c = g.as_('owner');
+      await _settle(c, g.code);
+      await g.repo('owner').submitEntry(g.code, EntryDraft.bankrupt(2000));
+      await _settle(c, g.code);
+      expect(c.read(incomingEventsProvider(g.code)), isNull);
+    });
+
     test('a press for somebody else is not told to me', () async {
       final g = await _game();
       final c = g.as_('owner');

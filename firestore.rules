@@ -608,9 +608,11 @@ service cloud.firestore {
           && ownsSeat(code, request.resource.data.bankerSeat)
           && getAfter(presenceDoc(code, request.auth.uid)).data.lastSeen
                == request.time
-          && get(presenceDoc(code,
-               get(seatDoc(code, resource.data.bankerSeat)).data.uid)).data.lastSeen
-               < request.time - duration.value(2, 'm');
+          && (!exists(presenceDoc(code,
+                get(seatDoc(code, resource.data.bankerSeat)).data.uid))
+              || get(presenceDoc(code,
+                   get(seatDoc(code, resource.data.bankerSeat)).data.uid))
+                   .data.lastSeen < request.time - duration.value(2, 'm'));
 
         allow delete: if false;
       }

@@ -2234,6 +2234,12 @@ describe('taking the banker over from one who is gone', () => {
     await staleBeat('u4');
     await assertSucceeds(takeOver('u2', 'p2'));
   });
+
+  it('a banker who has no presence document at all can be replaced at once', async () => {
+    await withBanker()();
+    await assertSucceeds(takeOver('u3', 'p3'));
+    assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p3');
+  });
 });
 
 describe('taking the banker over: what is refused', () => {
@@ -2245,7 +2251,6 @@ describe('taking the banker over: what is refused', () => {
     });
 
   refuse('while the banker was seen less than 2 minutes ago', () => takeOver('u3', 'p3'), { beatAgo: 100 * 1000 });
-  refuse('when the banker has never been seen at all', () => takeOver('u3', 'p3'), { beatAgo: null });
   refuse('without writing their own presence', () => takeOver('u3', 'p3', { beat: false }));
   refuse('for somebody else\'s seat', () => takeOver('u3', 'p2'));
   refuse('by the banker themselves', () => takeOver('u4', 'p4'));

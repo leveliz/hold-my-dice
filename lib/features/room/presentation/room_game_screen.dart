@@ -127,7 +127,11 @@ class _GameBody extends ConsumerWidget {
   ) async {
     // Things may have changed while a sheet was open.
     final now = ref.read(roomGameProvider(code)).value;
-    if (now == null || now.block != PressBlock.none) return;
+    if (now == null) return;
+    if (now.block != PressBlock.none) {
+      if (pressBlockText(now.block) case final why?) _say(context, why);
+      return;
+    }
     final error = await ref
         .read(pressControllerProvider(code).notifier)
         .press(draft);
@@ -264,7 +268,11 @@ class _GameBody extends ConsumerWidget {
     );
     if (result == null || !context.mounted) return;
     final now = ref.read(roomGameProvider(code)).value;
-    if (now == null || now.block != PressBlock.none) return;
+    if (now == null) return;
+    if (now.block != PressBlock.none) {
+      if (pressBlockText(now.block) case final why?) _say(context, why);
+      return;
+    }
     try {
       await ref
           .read(roomRepositoryProvider)

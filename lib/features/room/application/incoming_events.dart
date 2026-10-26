@@ -42,7 +42,9 @@ class IncomingTracker {
       final out = e.kind == EntryKind.bankrupt && e.seat != mySeat;
       final forMe =
           e.kind == EntryKind.transfer && e.to == mySeat && e.seat != mySeat;
-      final bankerName = e.seat == mySeat && _bankKinds.contains(e.kind)
+      final bankerName =
+          e.seat == mySeat &&
+              (_bankKinds.contains(e.kind) || e.kind == EntryKind.bankrupt)
           ? pressedByOther?.call(e)
           : null;
       if (!forMe && !out && bankerName == null) continue;
@@ -65,9 +67,14 @@ class IncomingTracker {
       _announced.add(e.seq);
       if (bankerName != null) {
         final amount = formatMoney(e.amount ?? 0);
+        final mortgage = e.mortgage == null
+            ? ''
+            : ' (จำนอง ${formatMoney(e.mortgage!)})';
         lines.add(switch (e.kind) {
           EntryKind.passGo => 'นายธนาคาร $bankerName กด GO ให้คุณ +$amount',
-          EntryKind.payBank => 'นายธนาคาร $bankerName หักจากคุณ -$amount',
+          EntryKind.payBank =>
+            'นายธนาคาร $bankerName หักจากคุณ -$amount$mortgage',
+          EntryKind.bankrupt => 'นายธนาคาร $bankerName ประกาศให้คุณล้มละลาย',
           _ => 'นายธนาคาร $bankerName ให้คุณ +$amount',
         });
         continue;

@@ -812,6 +812,41 @@ void main() {
     });
   });
 
+  group('a press made under a sheet when the room changed meanwhile', () {
+    testWidgets('says why it was dropped instead of doing nothing', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('press-pay'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '500');
+      store.setOnline(false);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      expect(snackText(tester), 'ออฟไลน์อยู่ ลองใหม่เมื่อมีสัญญาณ');
+      expect(balance(tester), '1,500');
+      await leave(tester);
+    });
+
+    testWidgets('and the same for asking a friend for money', (tester) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(
+        find.descendant(of: key('friend-p2'), matching: find.text('แพร')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-ask'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '300');
+      store.setOnline(false);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      expect(snackText(tester), 'ออฟไลน์อยู่ ลองใหม่เมื่อมีสัญญาณ');
+      await leave(tester);
+    });
+  });
+
   group('a player', () {
     testWidgets('sees their balance, the others and a quiet history', (
       tester,
