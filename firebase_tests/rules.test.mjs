@@ -12,6 +12,7 @@ import {
   Timestamp,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -231,7 +232,9 @@ describe('the room document (meta)', () => {
     await assertFails(updateDoc(room(owner), { status: 'ended' }));
     await assertSucceeds(updateDoc(room(owner), { status: 'playing' }));
     await assertFails(updateDoc(room(owner), { status: 'lobby' }));
-    await assertSucceeds(updateDoc(room(owner), { status: 'ended' }));
+    // Ending goes with the state and the time of the server (see "ending a game").
+    await assertFails(updateDoc(room(owner), { status: 'ended' }));
+    await admin((db) => updateDoc(room(db), { status: 'ended' }));
     await assertFails(updateDoc(room(owner), { status: 'playing' }));
   });
 
@@ -248,7 +251,7 @@ describe('the room document (meta)', () => {
     await assertFails(updateDoc(room(owner), { settings: settings({ maxPlayers: 8 }) }));
     await assertFails(updateDoc(room(owner), { ownerUid: 'u2' }));
     await assertFails(updateDoc(room(owner), { v: 2 }));
-    await assertSucceeds(updateDoc(room(owner), { status: 'ended' }));
+    await assertFails(updateDoc(room(owner), { status: 'ended' }));
   });
 
   it('the owner may change settings while in the lobby', async () => {
@@ -2350,6 +2353,130 @@ describe('deleting a room: what is refused', () => {
     await admin((db) => setDoc(reqDoc(db), requestData()));
     return deleteDoc(reqDoc(as('owner')));
   }, () => seedPlaying());
+});
+
+// ---- 7g: ending a game
+
+const TEN = 10 * 60 * 1000;
+/** The room and its state move to ended in one batch, as the app does. */
+function endBatch(uid, { roomOver = {}, stateOver = {}, skipRoom = false, skipState = false } = {}) {
+  const db = as(uid);
+  const batch = writeBatch(db);
+  if (!skipRoom) batch.update(room(db), { status: 'ended', endedAt: serverTimestamp(), ...roomOver });
+  if (!skipState) batch.update(stateDoc(db), { status: 'ended', ...stateOver });
+  return batch.commit();
+}
+const withBankerState = { stateOver: { bankrupt: ['p4'], bankerSeat: 'p4' }, balances: { ...BASE, p4: 0 } };
+
+describe('ending a game: what is accepted', () => {
+  it('the owner ends it, at once', async () => {
+    await seedPlaying();
+    await assertSucceeds(endBatch('owner'));
+    const r = (await adminGet(room)).data();
+    assert.equal(r.status, 'ended');
+    assert.ok(r.endedAt);
+    assert.equal((await adminGet(stateDoc)).data().status, 'ended');
+    assert.equal((await adminGet(stateDoc)).data().seq, 0, 'the counter does not move');
+  });
+
+  it('the banker ends it, at once', async () => {
+    await seedPlaying(withBankerState);
+    await staleBeat('owner', 30 * 1000);
+    await assertSucceeds(endBatch('u4'));
+  });
+
+  it('a player ends it when the owner and the banker were last seen over 10 minutes ago', async () => {
+    await seedPlaying(withBankerState);
+    await staleBeat('owner', TEN + 30 * 1000);
+    await staleBeat('u4', TEN + 30 * 1000);
+    await assertSucceeds(endBatch('u2'));
+  });
+
+  it('a player ends it when owner and banker have no presence document at all', async () => {
+    await seedPlaying(withBankerState);
+    await assertSucceeds(endBatch('u3'));
+  });
+
+  it('without a banker only the owner has to be gone', async () => {
+    await seedPlaying();
+    await staleBeat('owner', TEN + 30 * 1000);
+    await assertSucceeds(endBatch('u2'));
+  });
+});
+
+describe('ending a game: what is refused', () => {
+  const refuse = (title, run, setup = () => seedPlaying()) =>
+    it(title, async () => {
+      await setup();
+      await assertFails(run());
+    });
+
+  refuse('the room alone, with no state, by the owner', () => endBatch('owner', { skipState: true }));
+  refuse('the state alone, by the owner', () => endBatch('owner', { skipRoom: true }));
+  refuse('the room alone by the banker', () => endBatch('u4', { skipState: true }), () => seedPlaying(withBankerState));
+  refuse('the state alone by a stale-owner player', () => endBatch('u2', { skipRoom: true }), async () => {
+    await seedPlaying();
+    await staleBeat('owner', TEN + 30 * 1000);
+  });
+  refuse('an end time that is not the time of the server', () => endBatch('owner', { roomOver: { endedAt: Timestamp.fromMillis(1) } }));
+  refuse('no end time', () => endBatch('owner', { roomOver: { endedAt: deleteField() } }));
+  refuse('the settings changing with it', () => endBatch('owner', { roomOver: { settings: settings({ startingCash: 1 }) } }));
+  refuse('the balances changing with it', () => endBatch('owner', { stateOver: { balances: { ...BASE, p1: 9999 } } }));
+  refuse('the counter moving with it', () => endBatch('owner', { stateOver: { seq: 1 } }));
+  refuse('a player while the owner was seen 9 minutes ago', () => endBatch('u2'), async () => {
+    await seedPlaying();
+    await staleBeat('owner', 9 * 60 * 1000);
+  });
+  refuse('a player while the banker was seen 9 minutes ago (the owner is gone)', () => endBatch('u2'), async () => {
+    await seedPlaying(withBankerState);
+    await staleBeat('owner', TEN + 30 * 1000);
+    await staleBeat('u4', 9 * 60 * 1000);
+  });
+  refuse('a player while the owner is fresh and the banker gone', () => endBatch('u2'), async () => {
+    await seedPlaying(withBankerState);
+    await staleBeat('owner', 60 * 1000);
+    await staleBeat('u4', TEN + 30 * 1000);
+  });
+  refuse('a watcher', () => endBatch('s1'), async () => {
+    await seedPlaying();
+    await admin((db) => setDoc(member(db, 's1'), memberData('ดู', { role: 'spectator', seat: null })));
+  });
+  refuse('a stranger', () => endBatch('stranger'), async () => {
+    await seedPlaying();
+    await staleBeat('owner', TEN + 30 * 1000);
+  });
+  refuse('somebody who is not signed in', () => {
+    const db = anonymous();
+    const batch = writeBatch(db);
+    batch.update(room(db), { status: 'ended', endedAt: serverTimestamp() });
+    batch.update(stateDoc(db), { status: 'ended' });
+    return batch.commit();
+  });
+  refuse('a game that has not started', () => endBatch('owner', { skipState: true }), () => seedRoom());
+  refuse('the old way: the owner changing only the status, with no end time', () =>
+    updateDoc(room(as('owner')), { status: 'ended' }));
+
+  refuse('a member whose seat has been taken over by somebody else', () => endBatch('ghost'), async () => {
+    await seedPlaying();
+    await admin((db) => setDoc(member(db, 'ghost'), memberData('ผี', { seat: 'p2' })));
+  });
+
+  describe('once it has ended', () => {
+    const ended = async () => {
+      await seedPlaying();
+      await admin(async (db) => {
+        await updateDoc(room(db), { status: 'ended', endedAt: Timestamp.now() });
+        await updateDoc(stateDoc(db), { status: 'ended' });
+      });
+    };
+    refuse('a receive', () => put('owner', receive('p1', 100)), ended);
+    refuse('a payment to the bank', () => put('owner', payBank('p1', 100)), ended);
+    refuse('a transfer', () => put('owner', transfer('p1', 'p2', 100)), ended);
+    refuse('the game going back to playing', () => updateDoc(room(as('owner')), { status: 'playing' }), ended);
+    refuse('ending it again', () => endBatch('owner'), ended);
+    refuse('moving the end time of the room alone', () => updateDoc(room(as('owner')), { status: 'ended', endedAt: serverTimestamp() }), ended);
+    refuse('a new member', () => setDoc(member(as('late'), 'late'), memberData('สาย', { seat: null, role: 'spectator' })), ended);
+  });
 });
 
 describe('the rules agree with the Ledger', () => {

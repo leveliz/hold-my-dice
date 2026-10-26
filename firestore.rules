@@ -45,6 +45,30 @@ service cloud.firestore {
         && room.status == 'lobby';
     }
 
+    // Whether a person who writes the end of a game may do it: the owner, the
+    // banker, or a player with a seat once both have been gone for 10 minutes
+    // (no presence document counts as gone). The room's own data is [room].
+    function mayEndGame(code, room) {
+      let state = get(statePath(code)).data;
+      let me = get(memberDoc(code, request.auth.uid)).data;
+      return signedIn()
+        && (room.ownerUid == request.auth.uid
+            || (state.bankerSeat != null && ownsSeat(code, state.bankerSeat))
+            || (me.role == 'player'
+                && me.seat is string
+                && ownsSeat(code, me.seat)
+                && presenceGone(code, room.ownerUid)
+                && (state.bankerSeat == null
+                    || presenceGone(code,
+                         get(seatDoc(code, state.bankerSeat)).data.uid))));
+    }
+
+    function presenceGone(code, uid) {
+      return !exists(presenceDoc(code, uid))
+        || get(presenceDoc(code, uid)).data.lastSeen
+             < request.time - duration.value(10, 'm');
+    }
+
     function isMember(code) {
       return signedIn() && exists(memberDoc(code, request.auth.uid));
     }
@@ -420,8 +444,18 @@ service cloud.firestore {
                 .hasOnly(['status', 'settings', 'hasPassword', 'passwordHash'])
               && validSettings(request.resource.data.settings)
               && validPassword(request.resource.data)
-            : request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['status']));
+            : false);
+
+      // Ending a game: the room and its state go to ended in one batch (each
+      // rule looks at the other with getAfter), with the time of the server.
+      allow update: if signedIn()
+        && resource.data.status == 'playing'
+        && request.resource.data.status == 'ended'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'endedAt'])
+        && request.resource.data.endedAt == request.time
+        && getAfter(statePath(code)).data.status == 'ended'
+        && mayEndGame(code, resource.data);
 
       // A member takes over a lobby whose owner has not been seen for 2
       // minutes: only ownerUid changes, and it becomes the member's own uid.
@@ -579,6 +613,18 @@ service cloud.firestore {
           && request.resource.data.seq is int
           && request.resource.data.seq == resource.data.seq + 1
           && existsAfter(entryPath(code, string(resource.data.seq)));
+
+        // Ending a game: only the status of the state changes, together with
+        // the room (its rule above checks who may).
+        allow update: if signedIn()
+          && docId == 'current'
+          && resource.data.status == 'playing'
+          && request.resource.data.status == 'ended'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status'])
+          && get(roomDoc(code)).data.status == 'playing'
+          && getAfter(roomDoc(code)).data.status == 'ended'
+          && mayEndGame(code, get(roomDoc(code)).data);
 
         // Taking back the latest entry gives the balances back and nothing
         // else: the counter stays, and that entry must be undone in the same
