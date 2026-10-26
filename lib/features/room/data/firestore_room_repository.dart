@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:hold_my_dice/features/bank/domain/transaction.dart' as bank;
 import 'package:hold_my_dice/features/room/application/connection_status.dart';
 import 'package:hold_my_dice/features/room/application/room_code.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
@@ -456,6 +455,9 @@ class FirestoreRoomRepository implements RoomRepository {
         (toSeat == null || toSeat == seat)) {
       throw const RoomException(RoomError.invalidParties);
     }
+    if (draft.kind == EntryKind.bankrupt && draft.creditorSeat == seat) {
+      throw const RoomException(RoomError.invalidParties);
+    }
 
     // The place this press last tried to take. The SDK runs the transaction
     // again after an error it takes for retryable, even one that came after
@@ -497,7 +499,7 @@ class FirestoreRoomRepository implements RoomRepository {
               final mine = paid == null
                   ? null
                   : (await tx.get(_entry(code, paid))).data();
-              if (entryIsMine(mine, draft.cid, seat)) {
+              if (entryIsMine(mine, draft.cid, uid)) {
                 alreadyIn = true;
               } else {
                 refused = RoomError.alreadyPaid;
@@ -514,11 +516,18 @@ class FirestoreRoomRepository implements RoomRepository {
             refused = RoomError.invalidParties;
             return;
           }
+          final creditor = draft.creditorSeat;
+          if (draft.kind == EntryKind.bankrupt &&
+              creditor != null &&
+              !state.toLedger(meta.settings).isActive(creditor)) {
+            refused = RoomError.creditorOut;
+            return;
+          }
           triedSeq = state.seq;
           final earlier = lastPlace;
           if (earlier != null && earlier != state.seq) {
             final mine = await tx.get(_entry(code, earlier));
-            if (entryIsMine(mine.data(), draft.cid, seat)) {
+            if (entryIsMine(mine.data(), draft.cid, uid)) {
               alreadyIn = true;
               return;
             }
@@ -528,35 +537,31 @@ class FirestoreRoomRepository implements RoomRepository {
             lostTheRace = true;
             return;
           }
-          final entry = RoomEntry(
+          final ledger = state.toLedger(meta.settings);
+          final entry = entryOfDraft(
+            draft,
             seq: state.seq,
-            kind: draft.kind,
             seat: seat,
-            by: uid,
-            cid: draft.cid,
-            from:
-                draft.kind == EntryKind.payBank ||
-                    draft.kind == EntryKind.transfer
-                ? seat
-                : bank.Transaction.bank,
-            to: draft.kind == EntryKind.payBank
-                ? bank.Transaction.bank
-                : draft.kind == EntryKind.transfer
-                ? toSeat
-                : seat,
-            amount: amount,
+            uid: uid,
+            goAmount: meta.settings.goAmount,
             reason: reason,
+            cash: ledger.balances[seat] ?? 0,
           );
-          final result = Ledger.apply(state.toLedger(meta.settings), entry);
+          final result = Ledger.apply(ledger, entry);
           if (result is Rejected) {
             refused = roomErrorOf(result.reason);
             return;
           }
           lastPlace = state.seq;
+          final after = (result as Applied).state;
           tx.set(place, entry.toMap(FieldValue.serverTimestamp()));
           tx.update(_state(code), {
             'seq': state.seq + 1,
-            'balances': (result as Applied).state.balances,
+            'balances': after.balances,
+            if (draft.kind == EntryKind.bankrupt) ...{
+              'bankrupt': after.bankrupt,
+              'bankerSeat': after.bankerSeat,
+            },
           });
           if (requestId != null) {
             tx.update(_request(code, requestId), {
@@ -717,7 +722,12 @@ class FirestoreRoomRepository implements RoomRepository {
   }
 
   @override
-  Future<void> payRequest(String code, String id, {required String cid}) async {
+  Future<void> payRequest(
+    String code,
+    String id, {
+    required String cid,
+    int? mortgage,
+  }) async {
     final raw = (await _guard(
       () => _request(code, id).get(),
       RoomError.notAMember,
@@ -730,6 +740,7 @@ class FirestoreRoomRepository implements RoomRepository {
         req.toSeat,
         req.amount,
         reason: requestReason,
+        mortgage: mortgage,
         cid: cid,
       ),
       requestId: id,

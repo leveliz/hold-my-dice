@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:hold_my_dice/features/bank/domain/transaction.dart';
 import 'package:hold_my_dice/features/room/application/room_code.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
@@ -398,7 +397,7 @@ class FakeRoomRepository implements RoomRepository {
       throw const RoomException(RoomError.notAPlayer);
     }
     // The same press sent again is the same press.
-    if (room.entries.any((e) => e.cid == draft.cid && e.seat == seat)) return;
+    if (room.entries.any((e) => e.cid == draft.cid && e.by == uid)) return;
 
     final reason = storedReason(draft);
     final ledger = state.toLedger(room.settings);
@@ -407,25 +406,22 @@ class FakeRoomRepository implements RoomRepository {
         (toSeat == null || toSeat == seat || !ledger.isActive(toSeat))) {
       throw const RoomException(RoomError.invalidParties);
     }
-    final entry = RoomEntry(
+    final creditor = draft.creditorSeat;
+    if (draft.kind == EntryKind.bankrupt && creditor != null) {
+      if (creditor == seat) throw const RoomException(RoomError.invalidParties);
+      if (!ledger.isActive(creditor)) {
+        throw const RoomException(RoomError.creditorOut);
+      }
+    }
+    final entry = entryOfDraft(
+      draft,
       seq: state.seq,
-      kind: draft.kind,
       seat: seat,
-      by: uid,
-      at: _store.now(),
-      cid: draft.cid,
-      from: draft.kind == EntryKind.payBank || draft.kind == EntryKind.transfer
-          ? seat
-          : Transaction.bank,
-      to: draft.kind == EntryKind.payBank
-          ? Transaction.bank
-          : draft.kind == EntryKind.transfer
-          ? toSeat
-          : seat,
-      amount: draft.kind == EntryKind.passGo
-          ? room.settings.goAmount
-          : draft.amount,
+      uid: uid,
+      goAmount: room.settings.goAmount,
       reason: reason,
+      cash: ledger.balances[seat] ?? 0,
+      at: _store.now(),
     );
     final result = Ledger.apply(ledger, entry);
     if (result is Rejected) {
@@ -433,13 +429,14 @@ class FakeRoomRepository implements RoomRepository {
     }
     room.entries.add(entry);
     room.entryFeed.set(List.unmodifiable(room.entries));
+    final after = (result as Applied).state;
     room.state.set(
       RoomState(
         seq: state.seq + 1,
         seats: state.seats,
-        balances: (result as Applied).state.balances,
-        bankrupt: state.bankrupt,
-        bankerSeat: state.bankerSeat,
+        balances: after.balances,
+        bankrupt: after.bankrupt,
+        bankerSeat: after.bankerSeat,
         status: state.status,
       ),
     );
@@ -577,7 +574,12 @@ class FakeRoomRepository implements RoomRepository {
   }
 
   @override
-  Future<void> payRequest(String code, String id, {required String cid}) async {
+  Future<void> payRequest(
+    String code,
+    String id, {
+    required String cid,
+    int? mortgage,
+  }) async {
     final (room, seat, _) = await _asPlayerOfGame(code);
     final r = _requestOrGone(room, id);
     if (r.status == RequestStatus.paid) {
@@ -596,7 +598,13 @@ class FakeRoomRepository implements RoomRepository {
     if (seat != r.fromSeat) throw const RoomException(RoomError.notAPlayer);
     await submitEntry(
       code,
-      EntryDraft.transfer(r.toSeat, r.amount, reason: requestReason, cid: cid),
+      EntryDraft.transfer(
+        r.toSeat,
+        r.amount,
+        reason: requestReason,
+        mortgage: mortgage,
+        cid: cid,
+      ),
     );
     final entry = room.entries.firstWhere((e) => e.cid == cid);
     _setStatus(room, r, RequestStatus.paid, paidSeq: entry.seq);

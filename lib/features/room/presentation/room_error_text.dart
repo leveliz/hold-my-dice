@@ -26,6 +26,11 @@ String roomErrorText(Object error) {
     RoomError.bankEmpty => 'ธนาคารมีเงินไม่พอ',
     RoomError.reasonRequired => 'ใส่เหตุผลก่อนรับเงินจากธนาคาร',
     RoomError.invalidAmount => 'จำนวนเงินต้องเป็นเลขเต็ม 1 ถึง 999,999,999',
+    RoomError.invalidMortgage =>
+      'จำนองไม่ถูกต้อง: ต้องจำเป็น พอจ่ายส่วนที่ขาด และเหลือไม่เกิน 1 ใน 5 ของเงินเริ่มต้น',
+    RoomError.invalidBankrupt =>
+      'ล้มละลายไม่ได้ ถ้าเงินที่มีพอจ่าย หรือหนี้เกิน 10 เท่าของเงินเริ่มต้น',
+    RoomError.creditorOut => 'คนที่เป็นหนี้ออกจากเกมไปแล้ว',
     RoomError.conflict => 'มีคนกดพร้อมกันหลายคน ลองอีกครั้ง',
     RoomError.unsure => 'ไม่แน่ใจว่าบันทึกแล้วหรือยัง ดูประวัติก่อนกดอีกครั้ง',
     RoomError.quotaExhausted => 'บริการเต็มวันนี้ ลองใหม่พรุ่งนี้',

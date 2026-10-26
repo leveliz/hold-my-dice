@@ -506,6 +506,304 @@ void roomRepositoryContract(RoomHarness Function() create) {
         );
       });
 
+      group('a mortgage with a payment and bankruptcy', () {
+        /// p1 has 100 left after paying 1,400 to the bank.
+        Future<String> poor(
+          RoomHarness h, {
+          RoomSettings settings = _settings,
+          List<String> others = const ['u2'],
+        }) async {
+          final code = await started(h, settings: settings, others: others);
+          await h.repoFor('owner').submitEntry(code, EntryDraft.payBank(1400));
+          return code;
+        }
+
+        const limited = RoomSettings(
+          startingCash: 1500,
+          goAmount: 200,
+          maxPlayers: 4,
+          bankLimit: 5000,
+        );
+
+        test('a payment to the bank helped by a mortgage', () async {
+          final h = create();
+          final code = await poor(h);
+          await h
+              .repoFor('owner')
+              .submitEntry(code, EntryDraft.payBank(700, mortgage: 600));
+          final s = await state(h, code);
+          expect(s.balances['p1'], 0);
+          expect(s.seq, 2);
+          final e = (await history(h, code)).last;
+          expect(e.kind, EntryKind.payBank);
+          expect(e.amount, 700);
+          expect(e.mortgage, 600);
+        });
+
+        test(
+          'a transfer helped by a mortgage pays the receiver in full',
+          () async {
+            final h = create();
+            final code = await poor(h);
+            await h
+                .repoFor('owner')
+                .submitEntry(
+                  code,
+                  EntryDraft.transfer('p2', 700, mortgage: 650),
+                );
+            final s = await state(h, code);
+            expect(s.balances['p1'], 50);
+            expect(s.balances['p2'], 2200);
+          },
+        );
+
+        test(
+          'the bank with a limit pays the mortgage and takes the payment',
+          () async {
+            final h = create();
+            final code = await poor(h, settings: limited);
+            await h
+                .repoFor('owner')
+                .submitEntry(code, EntryDraft.payBank(700, mortgage: 600));
+            expect(
+              (await state(h, code)).balances['bank'],
+              5000 + 1400 - 600 + 700,
+            );
+          },
+        );
+
+        test('it is taken back like any other entry', () async {
+          final h = create();
+          final code = await poor(h, settings: limited);
+          final before = (await state(h, code)).balances;
+          await h
+              .repoFor('owner')
+              .submitEntry(code, EntryDraft.transfer('p2', 700, mortgage: 650));
+          await h.repoFor('owner').undoEntry(code, 1);
+          expect((await state(h, code)).balances, before);
+        });
+
+        group('is refused, and writes nothing', () {
+          Future<void> refused(
+            Future<void> Function(RoomHarness h, String code) press,
+            RoomError error,
+          ) async {
+            final h = create();
+            final code = await poor(h);
+            await expectLater(press(h, code), _throws(error));
+            expect((await history(h, code)).length, 1);
+            expect((await state(h, code)).seq, 1);
+          }
+
+          test('when the cash covers the payment', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u2')
+                  .submitEntry(c, EntryDraft.payBank(700, mortgage: 100)),
+              RoomError.invalidMortgage,
+            );
+          });
+
+          test('when more is left over than a fifth of the starting cash', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('owner')
+                  .submitEntry(c, EntryDraft.payBank(700, mortgage: 901)),
+              RoomError.invalidMortgage,
+            );
+          });
+
+          test('when it does not cover what is missing', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('owner')
+                  .submitEntry(c, EntryDraft.payBank(700, mortgage: 599)),
+              RoomError.insufficientFunds,
+            );
+          });
+
+          test('on a transfer to somebody who is out', () async {
+            final h = create();
+            final code = await poor(h, others: const ['u2', 'u3']);
+            await h.repoFor('u2').submitEntry(code, EntryDraft.payBank(1450));
+            await h.repoFor('u2').submitEntry(code, EntryDraft.bankrupt(1000));
+            await expectLater(
+              h
+                  .repoFor('owner')
+                  .submitEntry(
+                    code,
+                    EntryDraft.transfer('p2', 700, mortgage: 650),
+                  ),
+              _throws(RoomError.invalidParties),
+            );
+          });
+        });
+
+        test(
+          'bankruptcy owing a player: the player is paid in full, the seat is out, it is the banker',
+          () async {
+            final h = create();
+            final code = await poor(h);
+            await h
+                .repoFor('owner')
+                .submitEntry(
+                  code,
+                  EntryDraft.bankrupt(500, creditorSeat: 'p2'),
+                );
+            final s = await state(h, code);
+            expect(s.balances['p1'], 0);
+            expect(s.balances['p2'], 2000);
+            expect(s.bankrupt, ['p1']);
+            expect(s.bankerSeat, 'p1');
+            expect(s.seq, 2);
+            final e = (await history(h, code)).last;
+            expect(e.kind, EntryKind.bankrupt);
+            expect(e.bankrupt!.cash, 100);
+            expect(e.bankrupt!.owed, 500);
+            expect(e.bankrupt!.creditorSeat, 'p2');
+            expect(e.amount, isNull);
+          },
+        );
+
+        test(
+          'bankruptcy owing the bank: the cash goes back to the bank',
+          () async {
+            final h = create();
+            final code = await poor(h, settings: limited);
+            await h
+                .repoFor('owner')
+                .submitEntry(code, EntryDraft.bankrupt(500));
+            final s = await state(h, code);
+            expect(s.balances['bank'], 5000 + 1400 + 100);
+            expect(s.balances['p1'], 0);
+          },
+        );
+
+        test('a seat that is out can press nothing and gets nothing', () async {
+          final h = create();
+          final code = await poor(h);
+          await h.repoFor('owner').submitEntry(code, EntryDraft.bankrupt(500));
+          await expectLater(
+            h.repoFor('owner').submitEntry(code, EntryDraft.passGo()),
+            _throws(RoomError.notAPlayer),
+          );
+          await expectLater(
+            h.repoFor('u2').submitEntry(code, EntryDraft.transfer('p1', 10)),
+            _throws(RoomError.invalidParties),
+          );
+        });
+
+        test('the second to go out does not take the banker over', () async {
+          final h = create();
+          final code = await started(h, others: const ['u2', 'u3']);
+          await h.repoFor('u2').submitEntry(code, EntryDraft.payBank(1400));
+          await h.repoFor('owner').submitEntry(code, EntryDraft.payBank(1450));
+          await h
+              .repoFor('u2')
+              .submitEntry(code, EntryDraft.bankrupt(500, creditorSeat: 'p3'));
+          await h
+              .repoFor('owner')
+              .submitEntry(code, EntryDraft.bankrupt(500, creditorSeat: 'p3'));
+          final s = await state(h, code);
+          expect(s.bankrupt, ['p2', 'p1']);
+          expect(s.bankerSeat, 'p2');
+        });
+
+        group('is refused, and writes nothing (bankruptcy)', () {
+          Future<void> refused(
+            Future<void> Function(RoomHarness h, String code) press,
+            RoomError error,
+          ) async {
+            final h = create();
+            final code = await poor(h, others: const ['u2', 'u3']);
+            await h.repoFor('u3').submitEntry(code, EntryDraft.payBank(1450));
+            await h.repoFor('u3').submitEntry(code, EntryDraft.bankrupt(1000));
+            final seq = (await state(h, code)).seq;
+            await expectLater(press(h, code), _throws(error));
+            expect((await state(h, code)).seq, seq);
+            expect((await state(h, code)).bankrupt, ['p3']);
+          }
+
+          test('when the cash pays the debt', () {
+            return refused(
+              (h, c) =>
+                  h.repoFor('u2').submitEntry(c, EntryDraft.bankrupt(1500)),
+              RoomError.invalidBankrupt,
+            );
+          });
+
+          test('when the debt is over ten times the starting cash', () {
+            return refused(
+              (h, c) =>
+                  h.repoFor('u2').submitEntry(c, EntryDraft.bankrupt(15001)),
+              RoomError.invalidBankrupt,
+            );
+          });
+
+          test('owing yourself', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u2')
+                  .submitEntry(
+                    c,
+                    EntryDraft.bankrupt(2000, creditorSeat: 'p2'),
+                  ),
+              RoomError.invalidParties,
+            );
+          });
+
+          test('owing somebody who is out', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u2')
+                  .submitEntry(
+                    c,
+                    EntryDraft.bankrupt(2000, creditorSeat: 'p3'),
+                  ),
+              RoomError.creditorOut,
+            );
+          });
+
+          test('by somebody who is out', () {
+            return refused(
+              (h, c) =>
+                  h.repoFor('u3').submitEntry(c, EntryDraft.bankrupt(2000)),
+              RoomError.notAPlayer,
+            );
+          });
+        });
+
+        test('a bankruptcy is not taken back', () async {
+          final h = create();
+          final code = await poor(h);
+          await h.repoFor('owner').submitEntry(code, EntryDraft.bankrupt(500));
+          await expectLater(
+            h.repoFor('owner').undoEntry(code, 1),
+            _throws(RoomError.tooLate),
+          );
+          expect((await state(h, code)).bankrupt, ['p1']);
+        });
+
+        test('a request is paid with a mortgage', () async {
+          final h = create();
+          final code = await poor(h);
+          await h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 700);
+          await h
+              .repoFor('owner')
+              .payRequest(
+                code,
+                'p2_p1',
+                cid: 'cid-for-request-1',
+                mortgage: 650,
+              );
+          final s = await state(h, code);
+          expect(s.balances['p1'], 50);
+          expect(s.balances['p2'], 2200);
+          final r = (await h.repoFor('owner').watchRequests(code).first).single;
+          expect(r.status, RequestStatus.paid);
+        });
+      });
+
       group('requests to pay', () {
         Future<List<RoomRequest>> requests(
           RoomHarness h,

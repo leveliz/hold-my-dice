@@ -60,8 +60,15 @@ void main() {
       );
     });
 
-    test('what no press can cause is just an unknown error', () {
-      expect(roomErrorOf(LedgerRejection.invalidBankrupt), RoomError.unknown);
+    test('a mortgage or a bankruptcy that does not hold has its own names', () {
+      expect(
+        roomErrorOf(LedgerRejection.invalidMortgage),
+        RoomError.invalidMortgage,
+      );
+      expect(
+        roomErrorOf(LedgerRejection.invalidBankrupt),
+        RoomError.invalidBankrupt,
+      );
     });
 
     test('money that cannot go to that person, and an undo that cannot be', () {

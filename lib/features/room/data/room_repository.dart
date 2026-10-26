@@ -1,3 +1,4 @@
+import 'package:hold_my_dice/features/bank/domain/transaction.dart' as bank;
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/ledger.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
@@ -31,6 +32,17 @@ enum RoomError {
 
   /// The amount is not a whole number from 1 to 999,999,999.
   invalidAmount,
+
+  /// A mortgage that is not needed, does not cover what is missing, or leaves
+  /// more over than a fifth of the starting cash.
+  invalidMortgage,
+
+  /// A bankruptcy of a person who can pay the debt, or of a debt over ten
+  /// times the starting cash.
+  invalidBankrupt,
+
+  /// The person owed in a bankruptcy is out of the game.
+  creditorOut,
 
   /// Other presses kept getting in first and the press was given up.
   conflict,
@@ -85,7 +97,8 @@ RoomError roomErrorOf(LedgerRejection rejection) => switch (rejection) {
   LedgerRejection.invalidAmount => RoomError.invalidAmount,
   LedgerRejection.invalidParties => RoomError.invalidParties,
   LedgerRejection.notUndoable => RoomError.tooLate,
-  _ => RoomError.unknown,
+  LedgerRejection.invalidMortgage => RoomError.invalidMortgage,
+  LedgerRejection.invalidBankrupt => RoomError.invalidBankrupt,
 };
 
 class RoomException implements Exception {
@@ -115,10 +128,60 @@ class UnsureException extends RoomException {
   final Future<void> settled;
 }
 
-/// Whether the stored entry [data] is the press with code [cid] made from
-/// [seat]. The same press must never be written twice.
-bool entryIsMine(Map<String, Object?>? data, String cid, String seat) =>
-    data != null && data['cid'] == cid && data['seat'] == seat;
+/// Whether the stored entry [data] is the press with code [cid] made by the
+/// person [uid] (not by seat: a banker presses for other seats). The same
+/// press must never be written twice.
+bool entryIsMine(Map<String, Object?>? data, String cid, String uid) =>
+    data != null && data['cid'] == cid && data['by'] == uid;
+
+/// The entry a [draft] becomes when pressed by [uid] for [seat], as the next
+/// line [seq]. [cash] is what the seat holds now (the facts of a bankruptcy).
+RoomEntry entryOfDraft(
+  EntryDraft draft, {
+  required int seq,
+  required String seat,
+  required String uid,
+  required int goAmount,
+  required String? reason,
+  required int cash,
+  DateTime? at,
+}) {
+  if (draft.kind == EntryKind.bankrupt) {
+    return RoomEntry(
+      seq: seq,
+      kind: draft.kind,
+      seat: seat,
+      by: uid,
+      at: at,
+      cid: draft.cid,
+      bankrupt: BankruptInfo(
+        seat: seat,
+        creditorSeat: draft.creditorSeat,
+        cash: cash,
+        owed: draft.owed!,
+      ),
+    );
+  }
+  final pays =
+      draft.kind == EntryKind.payBank || draft.kind == EntryKind.transfer;
+  return RoomEntry(
+    seq: seq,
+    kind: draft.kind,
+    seat: seat,
+    by: uid,
+    at: at,
+    cid: draft.cid,
+    from: pays ? seat : bank.Transaction.bank,
+    to: draft.kind == EntryKind.payBank
+        ? bank.Transaction.bank
+        : draft.kind == EntryKind.transfer
+        ? draft.toSeat
+        : seat,
+    amount: draft.kind == EntryKind.passGo ? goAmount : draft.amount,
+    mortgage: draft.mortgage,
+    reason: reason,
+  );
+}
 
 /// Who the person using this device is. Anonymous: the same uid comes back
 /// after a reload as long as the browser or phone keeps its storage.
@@ -212,7 +275,12 @@ abstract class RoomRepository {
   /// paid, in one go. Paying again with the same code does nothing more;
   /// another code on a paid request is [RoomError.alreadyPaid]; a request
   /// that is cancelled, ran out or is missing is [RoomError.requestGone].
-  Future<void> payRequest(String code, String id, {required String cid});
+  Future<void> payRequest(
+    String code,
+    String id, {
+    required String cid,
+    int? mortgage,
+  });
 
   /// Every request of the room (also the closed ones), live.
   Stream<List<RoomRequest>> watchRequests(String code);

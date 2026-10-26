@@ -30,9 +30,14 @@ class _HoldPay extends FakeRoomRepository {
   final Completer<void> gate;
 
   @override
-  Future<void> payRequest(String code, String id, {required String cid}) async {
+  Future<void> payRequest(
+    String code,
+    String id, {
+    required String cid,
+    int? mortgage,
+  }) async {
     await gate.future;
-    return super.payRequest(code, id, cid: cid);
+    return super.payRequest(code, id, cid: cid, mortgage: mortgage);
   }
 }
 
