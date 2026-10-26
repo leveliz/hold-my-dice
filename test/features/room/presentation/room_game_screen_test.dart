@@ -462,6 +462,14 @@ void main() {
         );
         expect(key('undo-bar'), findsOneWidget);
         expect(find.text('GO ให้ต้น +200 แล้ว'), findsOneWidget);
+        for (final k in [
+          'banker-receive-p1',
+          'banker-pay-p1',
+          'banker-go-p1',
+        ]) {
+          expect(key(k), findsOneWidget, reason: '$k stays in its place');
+          expect(enabled(tester, k), isFalse, reason: '$k rests after a press');
+        }
         await tester.tap(key('undo-button'));
         await tester.pumpAndSettle();
         expect(

@@ -516,22 +516,15 @@ class _GameBody extends ConsumerWidget {
                     onTap: canTransfer && !view.state.bankrupt.contains(seat)
                         ? () => _friend(context, ref, seat)
                         : null,
-                    onBankerReceive:
-                        view.iAmBanker &&
-                            canPress &&
-                            !view.state.bankrupt.contains(seat)
+                    bankerActions:
+                        view.iAmBanker && !view.state.bankrupt.contains(seat),
+                    onBankerReceive: canPress
                         ? () => _bankerReceive(context, ref, seat)
                         : null,
-                    onBankerPay:
-                        view.iAmBanker &&
-                            canPress &&
-                            !view.state.bankrupt.contains(seat)
+                    onBankerPay: canPress
                         ? () => _bankerPay(context, ref, seat)
                         : null,
-                    onBankerGo:
-                        view.iAmBanker &&
-                            canPress &&
-                            !view.state.bankrupt.contains(seat)
+                    onBankerGo: canPress
                         ? () => _bankerGo(context, ref, seat)
                         : null,
                   ),
@@ -672,6 +665,7 @@ class _FriendRow extends StatelessWidget {
     required this.balance,
     required this.out,
     required this.onTap,
+    this.bankerActions = false,
     this.onBankerReceive,
     this.onBankerPay,
     this.onBankerGo,
@@ -683,7 +677,9 @@ class _FriendRow extends StatelessWidget {
   final int balance;
   final bool out;
 
-  /// The banker's three buttons for this person; null for anybody else.
+  /// Whether the banker's three buttons for this person are shown; they are
+  /// off (and stay in their place) while a press is resting or on its way.
+  final bool bankerActions;
   final VoidCallback? onBankerReceive;
   final VoidCallback? onBankerPay;
   final VoidCallback? onBankerGo;
@@ -732,9 +728,7 @@ class _FriendRow extends StatelessWidget {
                   ),
                 ],
               ),
-              if (onBankerReceive != null ||
-                  onBankerPay != null ||
-                  onBankerGo != null)
+              if (bankerActions)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Row(
