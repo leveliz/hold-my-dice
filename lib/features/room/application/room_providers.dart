@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
+import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 
 /// Who this device is. Tests get a made-up person; `productionOverrides`
@@ -46,6 +47,22 @@ final roomSeatsProvider = FutureProvider.autoDispose
     .family<List<Seat?>, String>(
       (ref, code) => ref.watch(roomRepositoryProvider).readSeats(code),
     );
+
+/// The balances and progress of the game; null until it starts. Members only.
+final roomStateProvider = StreamProvider.autoDispose.family<RoomState?, String>(
+  (ref, code) => ref.watch(roomRepositoryProvider).watchState(code),
+);
+
+/// The history of the game, oldest first, live. Members only.
+final roomEntriesProvider = StreamProvider.autoDispose
+    .family<List<RoomEntry>, String>(
+      (ref, code) => ref.watch(roomRepositoryProvider).watchEntries(code),
+    );
+
+/// Whether this device can reach the service.
+final roomOnlineProvider = StreamProvider.autoDispose.family<bool, String>(
+  (ref, code) => ref.watch(roomRepositoryProvider).watchOnline(code),
+);
 
 /// The link a friend opens to join: on the web the page's own address, in the
 /// installed app the public site.
