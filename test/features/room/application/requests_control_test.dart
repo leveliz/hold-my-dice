@@ -8,6 +8,7 @@ import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
+import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
@@ -189,6 +190,27 @@ void main() {
       },
     );
   });
+
+  _inWorld(
+    'a request of somebody who went out is not offered, nor waited for',
+    (async, w) {
+      w.ask('u3', 'p1', 300);
+      w.ask('owner', 'p2', 200);
+      expect(w.now.incoming.map((p) => p.request.id), ['p3_p1']);
+      expect(w.now.outgoing.map((p) => p.request.id), ['p1_p2']);
+      w.run(() => w.repo('u3').submitEntry(w.code, EntryDraft.bankrupt(2000)));
+      async.elapse(const Duration(milliseconds: 1));
+      expect(w.now.incoming, isEmpty);
+      w.run(() => w.repo('u2').submitEntry(w.code, EntryDraft.bankrupt(2000)));
+      async.elapse(const Duration(milliseconds: 1));
+      expect(w.now.outgoing, isEmpty);
+      expect(
+        w.now.notice,
+        isNull,
+        reason: 'it did not "run out", the asked left',
+      );
+    },
+  );
 
   _inWorld('nothing is asked at first', (async, w) {
     async.flushMicrotasks();

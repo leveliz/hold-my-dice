@@ -145,6 +145,28 @@ void main() {
       expect(c.read(undoOfferProvider(g.code)), isNull);
     });
 
+    test('a bankruptcy is not offered to be taken back', () async {
+      final g = await _game();
+      final c = g.as_('owner');
+      await _settle(c, g.code);
+      await g.repo('owner').submitEntry(g.code, EntryDraft.bankrupt(2000));
+      await _settle(c, g.code);
+      expect(c.read(undoOfferProvider(g.code)), isNull);
+    });
+
+    test('a payment helped by a mortgage is offered like any other', () async {
+      final g = await _game();
+      final c = g.as_('owner');
+      await _settle(c, g.code);
+      await g.repo('owner').submitEntry(g.code, EntryDraft.payBank(1400));
+      await _settle(c, g.code);
+      await g
+          .repo('owner')
+          .submitEntry(g.code, EntryDraft.payBank(700, mortgage: 600));
+      await _settle(c, g.code);
+      expect(c.read(undoOfferProvider(g.code))?.entry.mortgage, 600);
+    });
+
     test("somebody else's press is not offered to me", () async {
       final g = await _game();
       final c = g.as_('owner');

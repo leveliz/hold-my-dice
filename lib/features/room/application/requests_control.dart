@@ -73,6 +73,7 @@ class RequestsController extends Notifier<RequestsState> {
   Map<String, RoomRequest>? _lastOutgoing;
   List<RoomRequest> _all = const [];
   String? _seat;
+  List<String> _out = const [];
   var _notices = 0;
 
   static String _key(RoomRequest r) =>
@@ -91,13 +92,17 @@ class RequestsController extends Notifier<RequestsState> {
     });
     ref.listen(roomGameProvider(code), (_, next) {
       final seat = next.value?.mySeat;
-      if (seat != _seat) {
+      final out = next.value?.state.bankrupt ?? const <String>[];
+      if (seat != _seat || out.length != _out.length) {
         _seat = seat;
+        _out = out;
         _look();
       }
     });
     _all = ref.read(roomRequestsProvider(code)).value ?? const [];
-    _seat = ref.read(roomGameProvider(code)).value?.mySeat;
+    final view = ref.read(roomGameProvider(code)).value;
+    _seat = view?.mySeat;
+    _out = view?.state.bankrupt ?? const [];
     return _compute();
   }
 
@@ -155,8 +160,15 @@ class RequestsController extends Notifier<RequestsState> {
       });
     }
 
+    // A request is dropped when either person is out of the game: it cannot be
+    // paid, and it did not run out.
+    bool involvesOut(RoomRequest r) =>
+        _out.contains(r.fromSeat) || _out.contains(r.toSeat);
     bool live(RoomRequest r) =>
-        r.isOpen && r.createdAt != null && !_expired.contains(_key(r));
+        r.isOpen &&
+        r.createdAt != null &&
+        !_expired.contains(_key(r)) &&
+        !involvesOut(r);
     List<PendingRequest> pending(bool Function(RoomRequest) mine) {
       final out = [
         for (final r in _all)
@@ -180,6 +192,7 @@ class RequestsController extends Notifier<RequestsState> {
         }
         final current = _all.where((r) => r.id == old.id).firstOrNull;
         if (current == null || _key(current) != _key(old)) continue;
+        if (involvesOut(current)) continue;
         if (current.status == RequestStatus.cancelled) {
           lines.add('คำขอถูกยกเลิก');
         } else if (current.isOpen) {

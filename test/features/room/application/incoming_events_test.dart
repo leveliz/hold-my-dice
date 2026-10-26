@@ -45,8 +45,53 @@ RoomEntry _goOf(int seq, String seat) => RoomEntry(
   reason: goReason,
 );
 
+RoomEntry _bankrupt(int seq, String seat, {String? creditor, int owed = 700}) =>
+    RoomEntry(
+      seq: seq,
+      kind: EntryKind.bankrupt,
+      seat: seat,
+      by: 'u-$seat',
+      at: _t0.add(Duration(seconds: seq * 5)),
+      cid: 'cid$seq',
+      bankrupt: BankruptInfo(
+        seat: seat,
+        creditorSeat: creditor,
+        cash: 100,
+        owed: owed,
+      ),
+    );
+
 void main() {
   IncomingTracker tracker() => IncomingTracker(mySeat: 'p1');
+
+  group('a player going out', () {
+    test('is announced once, to everybody', () {
+      final t = tracker();
+      t.update(const [], _name);
+      final entries = [_bankrupt(0, 'p2', creditor: 'p3')];
+      expect(t.update(entries, _name), ['แพร ล้มละลาย']);
+      expect(t.update(entries, _name), isEmpty);
+    });
+
+    test('says so to the one who is paid', () {
+      final t = tracker();
+      t.update(const [], _name);
+      expect(t.update([_bankrupt(0, 'p2', creditor: 'p1', owed: 700)], _name), [
+        'แพร ล้มละลาย คุณได้รับ +700',
+      ]);
+    });
+
+    test('is not announced when it was already in the history', () {
+      final t = tracker();
+      expect(t.update([_bankrupt(0, 'p2')], _name), isEmpty);
+    });
+
+    test('is not told to the one who went out', () {
+      final t = tracker();
+      t.update(const [], _name);
+      expect(t.update([_bankrupt(0, 'p1')], _name), isEmpty);
+    });
+  });
 
   test(
     'what is already in the history when the screen opens is not announced',

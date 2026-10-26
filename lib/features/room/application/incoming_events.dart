@@ -9,8 +9,9 @@ import 'package:hold_my_dice/features/room/domain/room_request.dart';
 const _newsAge = Duration(seconds: 60);
 
 /// Finds, in the history as it changes, what the person should be told: money
-/// that was transferred to them, and such a transfer being taken back. It does
-/// not tell what was there when the screen opened, and tells each thing once.
+/// that was transferred to them, such a transfer being taken back, and another
+/// player going out of the game. It does not tell what was there when the
+/// screen opened, and tells each thing once.
 class IncomingTracker {
   IncomingTracker({required this.mySeat});
 
@@ -35,12 +36,13 @@ class IncomingTracker {
     final newestAt = entries.isEmpty ? null : entries.last.at;
     final lines = <String>[];
     for (final e in entries) {
+      final out = e.kind == EntryKind.bankrupt && e.seat != mySeat;
       final forMe =
           e.kind == EntryKind.transfer && e.to == mySeat && e.seat != mySeat;
-      if (!forMe) continue;
+      if (!forMe && !out) continue;
       final who = nameOf(e.seat);
       final amount = formatMoney(e.amount ?? 0);
-      if (e.voided) {
+      if (e.voided && forMe) {
         if (_announced.contains(e.seq) && _cancelled.add(e.seq)) {
           lines.add('$who ยกเลิกการโอน $amount');
         }
@@ -54,6 +56,15 @@ class IncomingTracker {
         continue;
       }
       _announced.add(e.seq);
+      if (out) {
+        final info = e.bankrupt;
+        lines.add(
+          info != null && info.creditorSeat == mySeat
+              ? '$who ล้มละลาย คุณได้รับ +${formatMoney(info.owed)}'
+              : '$who ล้มละลาย',
+        );
+        continue;
+      }
       lines.add(
         e.reason == requestReason
             ? '$who จ่ายตามที่เรียกเก็บ +$amount'

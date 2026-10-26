@@ -111,13 +111,16 @@ class PressController extends Notifier<PressState> {
 
   /// Pays the request to pay [id] and gives the error to show, or null when
   /// it went through. Each try has its own press code, so a try whose answer
-  /// was lost is found in the history and not paid twice.
-  Future<RoomError?> payRequest(String id) async {
+  /// was lost is found in the history and not paid twice. [mortgage] is what
+  /// is raised by mortgage to be able to pay.
+  Future<RoomError?> payRequest(String id, {int? mortgage}) async {
     if (state.sending || state.cooling || state.unsureCid != null) return null;
     final cid = newPressCode();
     return _run(
       cid,
-      () => ref.read(roomRepositoryProvider).payRequest(code, id, cid: cid),
+      () => ref
+          .read(roomRepositoryProvider)
+          .payRequest(code, id, cid: cid, mortgage: mortgage),
     );
   }
 

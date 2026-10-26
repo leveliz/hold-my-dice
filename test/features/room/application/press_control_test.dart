@@ -479,6 +479,24 @@ void main() {
         expect(w.press.unsureCid, isNull, reason: 'the entry shows as undone');
       });
 
+      _inWorld('a request can be paid with a mortgage', (async, w) {
+        expect(w.pressNow(EntryDraft.payBank(1400)), isNull);
+        async.elapse(const Duration(seconds: 2));
+        w.finish(
+          FakeRoomRepository(
+            w.store,
+            FakeAuthService('u2'),
+          ).requestMoney(w.code, fromSeat: 'p1', amount: 700),
+        );
+        expect(
+          w.finish(w.controller.payRequest('p2_p1', mortgage: 650)),
+          isNull,
+        );
+        final entries = w.container.read(roomEntriesProvider(w.code)).value!;
+        expect(entries.last.amount, 700);
+        expect(entries.last.mortgage, 650);
+      });
+
       _inWorld('a request can be paid, and the buttons rest after it', (
         async,
         w,
