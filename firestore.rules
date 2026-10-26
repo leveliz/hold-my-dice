@@ -131,9 +131,24 @@ service cloud.firestore {
             : !('bank' in after));
     }
 
+    // What a transfer does to the balances: [from] gives [amount], [to] gets
+    // it, the bank (when the room has one) stays as it is, nothing else moves.
+    function balancesTransfer(before, after, from, to, amount) {
+      return before is map && after is map
+        && after.size() == before.size()
+        && after.diff(before).affectedKeys().hasOnly([from, to])
+        && after[from] is int && after[from] >= 0
+        && after[from] == before[from] - amount
+        && after[to] is int && after[to] >= 0
+        && after[to] == before[to] + amount
+        && ('bank' in before
+            ? 'bank' in after && after.bank == before.bank
+            : !('bank' in after));
+    }
+
     // A line of the history, written in the same transaction as the new state.
-    // The first slice has three kinds: receive from the bank (with a reason),
-    // pass GO, and pay the bank.
+    // Four kinds: receive from the bank (with a reason), pass GO, pay the bank
+    // and transfer to another player.
     function validEntry(code, entryId, d) {
       let state = get(statePath(code)).data;
       let stateAfter = getAfter(statePath(code)).data;
@@ -167,11 +182,44 @@ service cloud.firestore {
               && d.reason == 'ผ่านจุดเริ่ม'
               && balancesMove(state.balances, stateAfter.balances, d.seat,
                               d.amount)
+            : d.kind == 'transfer'
+            ? d.from == d.seat
+              && d.to is string && d.to != d.seat
+              && d.to in state.seats && !(d.to in state.bankrupt)
+              && (d.reason == null || validReason(d.reason))
+              && balancesTransfer(state.balances, stateAfter.balances, d.seat,
+                                  d.to, d.amount)
             : d.kind == 'payBank'
               && d.from == d.seat && d.to == 'bank'
               && (d.reason == null || validReason(d.reason))
               && balancesMove(state.balances, stateAfter.balances, d.seat,
                               -d.amount));
+    }
+
+    // Taking back an entry: the latest of the whole game, the person's own,
+    // within 6.5 seconds of the server's time. Only `voided` changes, and the
+    // balances go back in the same batch (checked here through getAfter).
+    function validVoid(code, entryId, old, d) {
+      let state = get(statePath(code)).data;
+      let stateAfter = getAfter(statePath(code)).data;
+      return signedIn()
+        && get(roomDoc(code)).data.status == 'playing'
+        && d.diff(old).affectedKeys().hasOnly(['voided'])
+        && old.voided == false && d.voided == true
+        && old.kind in ['receive', 'passGo', 'payBank', 'transfer']
+        && old.by == request.auth.uid
+        && get(seatDoc(code, old.seat)).data.uid == request.auth.uid
+        && entryId == string(state.seq - 1)
+        && request.time < old.at + duration.value(6500, 'ms')
+        && stateAfter.seq == state.seq
+        && (old.kind == 'transfer'
+            ? balancesTransfer(state.balances, stateAfter.balances, old.to,
+                               old.seat, old.amount)
+            : old.kind == 'payBank'
+            ? balancesMove(state.balances, stateAfter.balances, old.seat,
+                           old.amount)
+            : balancesMove(state.balances, stateAfter.balances, old.seat,
+                           -old.amount));
     }
 
     // ---- rooms/{code} --------------------------------------------------
@@ -354,16 +402,33 @@ service cloud.firestore {
           && request.resource.data.seq == resource.data.seq + 1
           && existsAfter(entryPath(code, string(resource.data.seq)));
 
+        // Taking back the latest entry gives the balances back and nothing
+        // else: the counter stays, and that entry must be undone in the same
+        // batch (its own rule checks the numbers).
+        allow update: if signedIn()
+          && docId == 'current'
+          && get(roomDoc(code)).data.status == 'playing'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['balances'])
+          && request.resource.data.seq == resource.data.seq
+          && resource.data.seq > 0
+          && get(entryPath(code, string(resource.data.seq - 1))).data.voided
+               == false
+          && getAfter(entryPath(code, string(resource.data.seq - 1))).data.voided
+               == true;
+
         allow delete: if false;
       }
 
       // ---- entries -----------------------------------------------------
-      // The history of the game, one line per press, written once and never
-      // changed (undoing comes with a later slice and its own rule).
+      // The history of the game, one line per press, written once. The only
+      // change allowed is taking back the latest one (validVoid).
       match /entries/{entryId} {
         allow read: if isMember(code);
         allow create: if validEntry(code, entryId, request.resource.data);
-        allow update, delete: if false;
+        allow update: if validVoid(code, entryId, resource.data,
+                                   request.resource.data);
+        allow delete: if false;
       }
     }
   }

@@ -1248,7 +1248,8 @@ describe('entries: what is refused', () => {
     refuse('a payment of a kind that does not exist', () => put('owner', payBank('p1', 100), { entry: { kind: 'gift' } }));
     refuse('a payment in the shape of a transfer', () => put('owner', payBank('p1', 100), { entry: { kind: 'transfer' } }));
     refuse('a press code that is not text', () => put('owner', receive('p1', 100), { entry: { cid: 12345678 } }));
-    refuse('a kind this slice does not have: transfer', () => put('owner', { entry: { seat: 'p1', kind: 'transfer', from: 'p1', to: 'p2', amount: 100, reason: null }, balances: { ...BASE, p1: 1400, p2: 1600 } }));
+    refuse('a kind this slice does not have: mortgage', () => put('owner', { entry: { seat: 'p1', kind: 'mortgage', from: 'bank', to: 'p1', amount: 100, reason: 'ค่าเช่า' }, balances: { ...BASE, p1: 1600 } }));
+    refuse('a kind this slice does not have: bankrupt', () => put('owner', { entry: { seat: 'p1', kind: 'bankrupt', from: null, to: null, amount: 100, reason: null }, balances: BASE }));
     refuse('a kind that does not exist', () => put('owner', receive('p1', 100), { entry: { kind: 'gift' } }));
     refuse('a receive that does not come from the bank', () => put('owner', receive('p1', 100), { entry: { from: 'p2' } }));
     refuse('a receive that goes to another seat', () => put('owner', receive('p1', 100), { entry: { to: 'p2' } }));
@@ -1324,6 +1325,217 @@ describe('the state moves only with its entry', () => {
   });
 });
 
+// ---- transfers and taking back an entry
+
+/** A transfer of [amount] from seat [from] to seat [to], from the books [base]. */
+function transfer(from = 'p1', to = 'p2', amount = 100, base = BASE) {
+  return {
+    entry: { seat: from, kind: 'transfer', from, to, amount, reason: null },
+    balances: { ...base, [from]: base[from] - amount, [to]: base[to] + amount },
+  };
+}
+
+describe('transfers: what is accepted', () => {
+  it('one player gives another some money', async () => {
+    await seedPlaying();
+    await assertSucceeds(put('owner', transfer('p1', 'p2', 700)));
+    const state = (await adminGet(stateDoc)).data();
+    assert.deepEqual(state.balances, { ...BASE, p1: 800, p2: 2200 });
+  });
+
+  it('every player can give to every other player', async () => {
+    await seedPlaying();
+    let seq = 0;
+    let base = { ...BASE };
+    for (const [from, uid] of Object.entries(uidOfSeat)) {
+      for (const to of Object.keys(uidOfSeat).filter((t) => t !== from)) {
+        const s = transfer(from, to, 10, base);
+        await assertSucceeds(put(uid, s, { entry: { seq }, id: seq, seqAfter: seq + 1 }), `${from} to ${to}`);
+        base = s.balances;
+        seq++;
+      }
+    }
+  });
+
+  it('a transfer may spend everything, may be the largest amount, may say why', async () => {
+    await seedPlaying({ balances: { p1: 999999999, p2: 1, p3: 1500, p4: 1500 } });
+    await assertSucceeds(
+      put('owner', transfer('p1', 'p2', 999999999, { p1: 999999999, p2: 1, p3: 1500, p4: 1500 }), {
+        entry: { reason: 'ตามคำขอเรียกเก็บ' },
+      }),
+    );
+  });
+
+  it('in a room with a bank limit the bank does not move', async () => {
+    const base = { ...BASE, bank: 5000 };
+    await seedPlaying({ settingsOver: { bankLimit: 5000 }, balances: base });
+    await assertSucceeds(put('owner', transfer('p1', 'p2', 100, base)));
+  });
+});
+
+describe('transfers: what is refused', () => {
+  const refuse = (title, run, setup) =>
+    it(title, async () => {
+      await (setup ?? seedPlaying)();
+      await assertFails(run());
+    });
+  const base = BASE;
+
+  refuse('to yourself', () => put('owner', transfer('p1', 'p1', 100)));
+  refuse('to the bank', () => put('owner', { entry: { seat: 'p1', kind: 'transfer', from: 'p1', to: 'bank', amount: 100, reason: null }, balances: { ...base, p1: 1400 } }));
+  refuse('to a seat that is not in the game', () => put('owner', { entry: { seat: 'p1', kind: 'transfer', from: 'p1', to: 'p9', amount: 100, reason: null }, balances: { ...base, p1: 1400, p9: 100 } }));
+  refuse('with no one to give to', () => put('owner', transfer('p1', 'p2', 100), { entry: { to: null } }));
+  refuse('to a player who is out', () => put('owner', transfer('p1', 'p2', 100)), () => seedPlaying({ stateOver: { bankrupt: ['p2'] } }));
+  refuse('from a player who is out', () => put('owner', transfer('p1', 'p2', 100)), () => seedPlaying({ stateOver: { bankrupt: ['p1'] } }));
+  refuse('more than the giver has', () => put('owner', transfer('p1', 'p2', 1501)));
+  refuse('with the money going to somebody else', () => put('owner', transfer('p1', 'p2', 100), { balances: { ...base, p1: 1400, p3: 1600 } }));
+  refuse('with the receiver getting too much', () => put('owner', transfer('p1', 'p2', 100), { balances: { ...base, p1: 1400, p2: 1601 } }));
+  refuse('with a third seat moving as well', () => put('owner', transfer('p1', 'p2', 100), { balances: { ...base, p1: 1400, p2: 1600, p3: 1501 } }));
+  refuse('with the giver paying too little', () => put('owner', transfer('p1', 'p2', 100), { balances: { ...base, p1: 1450, p2: 1600 } }));
+  refuse('when the giver is not the one who presses', () => put('u2', transfer('p1', 'p2', 100)));
+  refuse('when from is not the pressing seat', () => put('owner', transfer('p1', 'p2', 100), { entry: { from: 'p3' } }));
+  refuse('with a reason that is only spaces', () => put('owner', transfer('p1', 'p2', 100), { entry: { reason: '   ' } }));
+  refuse('an amount of 0', () => put('owner', transfer('p1', 'p2', 0)));
+  refuse('a fractional amount', () => put('owner', transfer('p1', 'p2', 10.5)));
+  refuse('moving the bank', () => put('owner', transfer('p1', 'p2', 100, { ...base, bank: 5000 }), { balances: { ...base, p1: 1400, p2: 1600, bank: 5100 } }), () => seedPlaying({ settingsOver: { bankLimit: 5000 }, balances: { ...base, bank: 5000 } }));
+});
+
+/**
+ * A game with one press already in (past the rules): [s] describes it, the
+ * state is what it left, and the entry is dated [at] by the server clock.
+ */
+async function seedOnePress(s, { at = Timestamp.now(), seedOver = {}, entryOver = {}, extra = false } = {}) {
+  await seedPlaying(seedOver);
+  await admin(async (db) => {
+    await setDoc(entryDoc(db, 0), entryData({ seq: 0, by: uidOfSeat[s.entry.seat], at, ...s.entry, ...entryOver }));
+    await setDoc(stateDoc(db), stateData({ seats: ['p1', 'p2', 'p3', 'p4'], seq: 1, balances: s.balances, ...(seedOver.stateOver ?? {}) }));
+    if (extra) {
+      // a later press by somebody else, so entry 0 is no longer the latest
+      const later = receive('p4', 10, s.balances);
+      await setDoc(entryDoc(db, 1), entryData({ seq: 1, by: 'u4', at: Timestamp.now(), ...later.entry }));
+      await setDoc(stateDoc(db), stateData({ seats: ['p1', 'p2', 'p3', 'p4'], seq: 2, balances: later.balances }));
+    }
+  });
+}
+
+/** Takes entry [id] back and gives the balances back, in one batch. */
+function takeBack(uid, { id = 0, entry = {}, balances = BASE, stateExtra = {}, skipEntry = false, skipState = false } = {}) {
+  const db = as(uid);
+  const batch = writeBatch(db);
+  if (!skipEntry) batch.update(entryDoc(db, id), { voided: true, ...entry });
+  if (!skipState) batch.update(stateDoc(db), { balances, ...stateExtra });
+  return batch.commit();
+}
+
+describe('taking back an entry: what is accepted', () => {
+  it('a receive, a pass over GO, a payment and a transfer, each by its owner', async () => {
+    const cases = [
+      [receive('p1', 300), 'owner'],
+      [passGo('p1'), 'owner'],
+      [payBank('p1', 500), 'owner'],
+      [transfer('p1', 'p2', 700), 'owner'],
+      [receive('p3', 300), 'u3'],
+    ];
+    for (const [s, uid] of cases) {
+      await env.clearFirestore();
+      await seedOnePress(s);
+      await assertSucceeds(takeBack(uid), `${s.entry.kind} by ${uid}`);
+      const e = (await adminGet((db) => entryDoc(db, 0))).data();
+      assert.equal(e.voided, true);
+      const state = (await adminGet(stateDoc)).data();
+      assert.equal(state.seq, 1, 'the counter does not move');
+      assert.deepEqual(state.balances, BASE);
+    }
+  });
+
+  it('in a room with a bank limit the bank gets its share back', async () => {
+    const base = { ...BASE, bank: 5000 };
+    const s = receive('p1', 300, base);
+    await seedOnePress(s, { seedOver: { settingsOver: { bankLimit: 5000 }, balances: base } });
+    await assertSucceeds(takeBack('owner', { balances: base }));
+  });
+
+  it('after taking back, the next press goes in as the entry after it', async () => {
+    await seedOnePress(receive('p1', 300));
+    await assertSucceeds(takeBack('owner'));
+    const next = receive('p2', 50);
+    await assertSucceeds(put('u2', next, { entry: { seq: 1 }, id: 1, seqAfter: 2 }));
+    const entries = [(await adminGet((db) => entryDoc(db, 0))).data(), (await adminGet((db) => entryDoc(db, 1))).data()];
+    assert.deepEqual(entries.map((e) => e.voided), [true, false]);
+  });
+
+  it('just inside the 6.5 seconds', async () => {
+    await seedOnePress(receive('p1', 300), { at: Timestamp.fromMillis(Date.now() - 4000) });
+    await assertSucceeds(takeBack('owner'));
+  });
+});
+
+describe('taking back an entry: what is refused', () => {
+  const refuse = (title, setup, run) =>
+    it(title, async () => {
+      await setup();
+      await assertFails(run());
+    });
+  const one = (s = receive('p1', 300), opts = {}) => () => seedOnePress(s, opts);
+
+  refuse('somebody else\'s entry', one(), () => takeBack('u2'));
+  refuse('by a stranger', one(), () => takeBack('stranger'));
+  refuse('an entry that is not the latest', one(receive('p1', 300), { extra: true }), () => takeBack('owner', { balances: { ...BASE, p4: 1510 } }));
+  refuse('after 6.5 seconds', one(receive('p1', 300), { at: Timestamp.fromMillis(Date.now() - 9000) }), () => takeBack('owner'));
+  refuse('an entry already taken back', one(receive('p1', 300), { entryOver: { voided: true } }), () => takeBack('owner'));
+  refuse('when the game is not being played', one(receive('p1', 300), { seedOver: {} }), async () => {
+    await admin((db) => updateDoc(room(db), { status: 'ended' }));
+    return takeBack('owner');
+  });
+  refuse('a kind that is not taken back here (mortgage)', one({ entry: { seat: 'p1', kind: 'mortgage', from: 'bank', to: 'p1', amount: 300, reason: 'x' }, balances: { ...BASE, p1: 1800 } }), () => takeBack('owner'));
+  refuse('changing the amount at the same time', one(), () => takeBack('owner', { entry: { amount: 1 } }));
+  refuse('changing who pressed at the same time', one(), () => takeBack('owner', { entry: { by: 'u2' } }));
+  refuse('taking it back without giving the balances back', one(), () => takeBack('owner', { balances: { ...BASE, p1: 1800 } }));
+  refuse('giving back too little', one(), () => takeBack('owner', { balances: { ...BASE, p1: 1510 } }));
+  refuse('giving back to somebody else', one(), () => takeBack('owner', { balances: { ...BASE, p1: 1500, p2: 1300 } }));
+  refuse('giving back so that a balance goes below zero', one(payBank('p1', 1500)), () => takeBack('owner', { balances: { ...BASE, p1: 3000 } }));
+  refuse('a transfer whose receiver no longer holds the money', one(transfer('p1', 'p2', 700), { seedOver: { stateOver: {} } }), async () => {
+    await admin((db) => updateDoc(stateDoc(db), { balances: { ...BASE, p1: 800, p2: 100 } }));
+    return takeBack('owner');
+  });
+  refuse('moving the counter', one(), () => takeBack('owner', { stateExtra: { seq: 0 } }));
+  refuse('changing something else of the state', one(), () => takeBack('owner', { stateExtra: { bankrupt: ['p2'] } }));
+  for (const stateExtra of [{ status: 'ended' }, { seats: ['p1'] }, { bankerSeat: 'p1' }, { v: 2 }]) {
+    refuse(`changing ${Object.keys(stateExtra)[0]} of the state at the same time`, one(), () => takeBack('owner', { stateExtra }));
+  }
+  refuse('the state alone, without taking the entry back', one(), () => takeBack('owner', { skipEntry: true }));
+  refuse('the entry alone, without the balances', one(), () => takeBack('owner', { skipState: true }));
+  refuse('deleting an entry', one(), () => deleteDoc(entryDoc(as('owner'), 0)));
+});
+
+describe('taking back and pressing at the same time', () => {
+  it('a press and a take-back for the same moment: only one of them can go in', async () => {
+    await seedOnePress(receive('p1', 300));
+    const results = await Promise.allSettled([
+      takeBack('owner'),
+      put('u2', receive('p2', 50, { ...BASE, p1: 1800 }), { entry: { seq: 1 }, id: 1, seqAfter: 2 }),
+    ]);
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    assert.equal(ok, 1, JSON.stringify(results.map((r) => r.status)));
+    const state = (await adminGet(stateDoc)).data();
+    const e0 = (await adminGet((db) => entryDoc(db, 0))).data();
+    if (e0.voided) {
+      assert.equal(state.seq, 1);
+      assert.deepEqual(state.balances, BASE);
+    } else {
+      assert.equal(state.seq, 2);
+      assert.deepEqual(state.balances, { ...BASE, p1: 1800, p2: 1550 });
+    }
+  });
+
+  it('the same entry taken back from two places: one wins', async () => {
+    await seedOnePress(receive('p1', 300));
+    const results = await Promise.allSettled([takeBack('owner'), takeBack('owner')]);
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+    assert.deepEqual((await adminGet(stateDoc)).data().balances, BASE);
+  });
+});
+
 describe('who reads the entries', () => {
   async function onePress() {
     await seedPlaying();
@@ -1350,47 +1562,53 @@ describe('who reads the entries', () => {
 describe('the rules agree with the Ledger', () => {
   const cases = JSON.parse(readFileSync('parity_cases.json', 'utf8'));
 
-  /** What one press does to the books, written out the plain way. */
+  /** What one press (or taking one back) does to the books, the plain way. */
   function natural(c) {
     const after = { ...c.balances };
-    const delta = c.kind === 'payBank' ? -c.amount : c.amount;
+    const sign = c.op === 'undo' ? -1 : 1;
+    if (c.kind === 'transfer') {
+      after[c.seat] = (after[c.seat] ?? 0) - sign * c.amount;
+      after[c.to] = (after[c.to] ?? 0) + sign * c.amount;
+      return after;
+    }
+    const delta = sign * (c.kind === 'payBank' ? -c.amount : c.amount);
     after[c.seat] += delta;
     if ('bank' in after) after.bank -= delta;
     return after;
   }
 
-  it(`accepts and refuses ${cases.length} made-up presses exactly as the Ledger does`, async () => {
+  const entryOf = (c) => ({
+    seat: c.seat,
+    kind: c.kind,
+    from: c.kind === 'payBank' || c.kind === 'transfer' ? c.seat : 'bank',
+    to: c.kind === 'payBank' ? 'bank' : c.kind === 'transfer' ? c.to : c.seat,
+    amount: c.amount,
+    reason: c.kind === 'receive' ? 'ค่าเช่า' : c.kind === 'passGo' ? 'ผ่านจุดเริ่ม' : null,
+  });
+
+  it(`accepts and refuses ${cases.length} made-up presses and take-backs exactly as the Ledger does`, async () => {
     await seedPlaying();
     const disagreements = [];
     for (const [i, c] of cases.entries()) {
+      const seats = ['p1', 'p2', 'p3', 'p4'];
       await admin(async (db) => {
         await deleteDoc(entryDoc(db, 0));
-        await setDoc(
-          stateDoc(db),
-          stateData({ seats: ['p1', 'p2', 'p3', 'p4'], balances: c.balances, bankrupt: c.bankrupt }),
-        );
+        await setDoc(stateDoc(db), stateData({ seats, seq: c.op === 'undo' ? 1 : 0, balances: c.balances, bankrupt: c.bankrupt }));
+        if (c.op === 'undo') {
+          await setDoc(entryDoc(db, 0), entryData({ seq: 0, by: uidOfSeat[c.seat], at: Timestamp.now(), ...entryOf(c) }));
+        }
       });
       const after = natural(c);
       if (c.accepted) assert.deepEqual(after, c.after, `case ${i}: the plain formula and the Ledger agree`);
-      const s = {
-        entry: {
-          seat: c.seat,
-          kind: c.kind,
-          from: c.kind === 'payBank' ? c.seat : 'bank',
-          to: c.kind === 'payBank' ? 'bank' : c.seat,
-          amount: c.amount,
-          reason: c.kind === 'receive' ? 'ค่าเช่า' : c.kind === 'passGo' ? 'ผ่านจุดเริ่ม' : null,
-        },
-        balances: after,
-      };
       let accepted = true;
       try {
-        await put(uidOfSeat[c.seat], s);
+        if (c.op === 'undo') await takeBack(uidOfSeat[c.seat], { balances: after });
+        else await put(uidOfSeat[c.seat], { entry: entryOf(c), balances: after });
       } catch {
         accepted = false;
       }
       if (accepted !== c.accepted) {
-        disagreements.push(`case ${i}: ${c.kind} ${c.amount} by ${c.seat} on ${JSON.stringify(c.balances)}: Ledger ${c.accepted}, rules ${accepted}`);
+        disagreements.push(`case ${i}: ${c.op} ${c.kind} ${c.amount} by ${c.seat}${c.to ? ' to ' + c.to : ''} on ${JSON.stringify(c.balances)} out ${JSON.stringify(c.bankrupt)}: Ledger ${c.accepted}, rules ${accepted}`);
       }
     }
     assert.deepEqual(disagreements, []);

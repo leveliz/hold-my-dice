@@ -20,7 +20,7 @@ List<Map<String, Object?>> _cases() {
   final random = Random(7);
   int pick(List<int> values) => values[random.nextInt(values.length)];
   final cases = <Map<String, Object?>>[];
-  for (var i = 0; i < 400; i++) {
+  for (var i = 0; i < 600; i++) {
     final balances = {
       for (final s in _seats)
         s: pick([0, 1, 100, 1500, 3000, random.nextInt(4000)]),
@@ -31,10 +31,12 @@ List<Map<String, Object?>> _cases() {
     final bankrupt = random.nextInt(7) == 0
         ? [_seats[random.nextInt(_seats.length)]]
         : <String>[];
-    final kind = EntryKind.values[[0, 2, 3][random.nextInt(3)]];
+    final undo = random.nextInt(4) == 0;
+    // receive, passGo, payBank, transfer
+    final kind = EntryKind.values[[0, 2, 3, 4][random.nextInt(4)]];
     final seat = _seats[random.nextInt(_seats.length)];
     final held = balances[seat]!;
-    final amount = kind == EntryKind.passGo
+    final amount = kind == EntryKind.passGo && !undo
         ? _goAmount
         : pick([
             0,
@@ -47,28 +49,42 @@ List<Map<String, Object?>> _cases() {
             1000000000,
             1 + random.nextInt(3000),
           ]);
+    // Who gets a transfer: mostly another player; a taking back only ever
+    // names another player of the game.
+    final others = _seats.where((s) => s != seat).toList();
+    final to = kind != EntryKind.transfer
+        ? null
+        : undo || random.nextInt(8) != 0
+        ? others[random.nextInt(others.length)]
+        : pick([0, 1, 2]) == 0
+        ? seat
+        : 'bank';
     final entry = RoomEntry(
       seq: 0,
       kind: kind,
       seat: seat,
-      from: kind == EntryKind.payBank ? seat : 'bank',
-      to: kind == EntryKind.payBank ? 'bank' : seat,
+      from: kind == EntryKind.payBank || kind == EntryKind.transfer
+          ? seat
+          : 'bank',
+      to: kind == EntryKind.payBank ? 'bank' : (to ?? seat),
       amount: amount,
     );
-    final result = Ledger.apply(
-      LedgerState(
-        balances: balances,
-        bankrupt: bankrupt,
-        bankerSeat: null,
-        startingCash: 1500,
-      ),
-      entry,
+    final state = LedgerState(
+      balances: balances,
+      bankrupt: bankrupt,
+      bankerSeat: null,
+      startingCash: 1500,
     );
+    final result = undo
+        ? Ledger.undo(state, entry)
+        : Ledger.apply(state, entry);
     cases.add({
+      'op': undo ? 'undo' : 'press',
       'balances': balances,
       'bankrupt': bankrupt,
       'kind': kind.name,
       'seat': seat,
+      'to': ?to,
       'amount': amount,
       'accepted': result is Applied,
       'after': result is Applied ? result.state.balances : null,
@@ -92,24 +108,40 @@ void main() {
     );
   });
 
-  test('the cases cover both answers and every kind', () {
+  test('the cases cover both answers, every kind and taking back', () {
     final cases = _cases();
     expect(cases.where((c) => c['accepted'] == true).length, greaterThan(100));
     expect(cases.where((c) => c['accepted'] == false).length, greaterThan(100));
-    for (final kind in ['receive', 'passGo', 'payBank']) {
-      expect(
-        cases.where((c) => c['kind'] == kind && c['accepted'] == true),
-        isNotEmpty,
-      );
-      expect(
-        cases.where((c) => c['kind'] == kind && c['accepted'] == false),
-        isNotEmpty,
-      );
+    for (final op in ['press', 'undo']) {
+      for (final kind in ['receive', 'passGo', 'payBank', 'transfer']) {
+        for (final accepted in [true, false]) {
+          expect(
+            cases.where(
+              (c) =>
+                  c['op'] == op &&
+                  c['kind'] == kind &&
+                  c['accepted'] == accepted,
+            ),
+            isNotEmpty,
+            reason: '$op $kind accepted=$accepted',
+          );
+        }
+      }
     }
     expect(
       cases.where((c) => (c['balances']! as Map).containsKey('bank')),
       isNotEmpty,
     );
     expect(cases.where((c) => (c['bankrupt']! as List).isNotEmpty), isNotEmpty);
+    // A transfer to oneself or to the bank is among the refused ones.
+    expect(
+      cases.where(
+        (c) =>
+            c['kind'] == 'transfer' &&
+            c['op'] == 'press' &&
+            (c['to'] == c['seat'] || c['to'] == 'bank'),
+      ),
+      isNotEmpty,
+    );
   });
 }
