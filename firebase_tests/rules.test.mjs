@@ -2061,6 +2061,113 @@ describe('taking back a payment with a mortgage', () => {
   });
 });
 
+// ---- 7e: the banker presses the bank's buttons for the others
+
+// p4 went out first and is the banker; u4 is the person at p4.
+const OUT4 = { ...BASE, p4: 0 };
+const BANKED = { stateOver: { bankrupt: ['p4'], bankerSeat: 'p4' }, balances: OUT4 };
+const withBanker = (over = {}) => () => seedPlaying({ ...BANKED, ...over });
+const POOR_OUT4 = { ...OUT4, p3: 400 };
+const noReason = { entry: { reason: null } };
+
+describe('a banker: what is accepted', () => {
+  it('presses a receive for another seat, with or without a reason', async () => {
+    await withBanker()();
+    await assertSucceeds(put('u4', receive('p1', 300, OUT4), noReason));
+    const b = { ...OUT4, p1: 1800 };
+    await assertSucceeds(put('u4', receive('p2', 100, b), { entry: { seq: 1 }, id: 1, seqAfter: 2 }));
+    assert.equal((await adminGet(stateDoc)).data().balances.p2, 1600);
+    const e = (await adminGet((db) => entryDoc(db, 0))).data();
+    assert.equal(e.by, 'u4');
+    assert.equal(e.seat, 'p1');
+  });
+
+  it('presses a pass over GO and a payment for another seat', async () => {
+    await withBanker()();
+    await assertSucceeds(put('u4', passGo('p2', OUT4)));
+    await assertSucceeds(
+      put('u4', payBank('p3', 500, { ...OUT4, p2: 1700 }), { entry: { seq: 1 }, id: 1, seqAfter: 2 }),
+    );
+  });
+
+  it('presses a payment helped by a mortgage for a seat that cannot pay', async () => {
+    await withBanker({ balances: POOR_OUT4 })();
+    await assertSucceeds(put('u4', mortgagePay('p3', 'bank', 700, 360, POOR_OUT4)));
+    assert.equal((await adminGet(stateDoc)).data().balances.p3, 60);
+  });
+
+  it('with a bank limit the bank moves as for any press', async () => {
+    const base = { ...OUT4, bank: 5000 };
+    await withBanker({ settingsOver: { bankLimit: 5000 }, balances: base })();
+    await assertSucceeds(put('u4', receive('p1', 300, base), noReason));
+    assert.equal((await adminGet(stateDoc)).data().balances.bank, 4700);
+  });
+
+  it('declares a seat bankrupt when it owes the bank, and stays the banker', async () => {
+    await withBanker()();
+    await assertSucceeds(goOut('u4', bankrupt('p2', null, 2000, OUT4, ['p4'], 'p4')));
+    const state = (await adminGet(stateDoc)).data();
+    assert.deepEqual(state.bankrupt, ['p4', 'p2']);
+    assert.equal(state.bankerSeat, 'p4');
+  });
+
+  it('a player still goes bankrupt on their own, owing a player', async () => {
+    await withBanker()();
+    await assertSucceeds(goOut('u2', bankrupt('p2', 'p3', 2000, OUT4, ['p4'], 'p4')));
+  });
+
+  it('a player still gives a friend money on their own', async () => {
+    await withBanker()();
+    await assertSucceeds(put('u2', transfer('p2', 'p3', 100, OUT4)));
+  });
+
+  it('takes back what the banker pressed, within the time', async () => {
+    await seedOnePress(receive('p1', 300, OUT4), {
+      seedOver: BANKED,
+      entryOver: { by: 'u4' },
+    });
+    await assertSucceeds(takeBack('u4', { balances: OUT4 }));
+  });
+
+  it('a banker who is still playing presses for their own seat with a reason, and for others without', async () => {
+    await seedPlaying({ stateOver: { bankerSeat: 'p1' } });
+    await assertSucceeds(put('owner', receive('p1', 100)));
+    await assertSucceeds(put('owner', receive('p2', 100, { ...BASE, p1: 1600 }), { entry: { seq: 1, reason: null }, id: 1, seqAfter: 2 }));
+  });
+});
+
+describe('a banker: what is refused', () => {
+  const refuse = (title, run, setup = withBanker()) =>
+    it(title, async () => {
+      await setup();
+      await assertFails(run());
+    });
+
+  refuse('a player pressing a receive for their own seat', () => put('u2', receive('p2', 100, OUT4)));
+  refuse('a player pressing a pass over GO for their own seat', () => put('u2', passGo('p2', OUT4)));
+  refuse('a player paying the bank for their own seat', () => put('u2', payBank('p2', 100, OUT4)));
+  refuse('a player pressing for somebody else', () => put('u2', receive('p1', 100, OUT4), noReason));
+  refuse('the banker pressing a transfer for somebody else', () => put('u4', transfer('p1', 'p2', 100, OUT4)));
+  refuse('the banker pressing a transfer of their own, out as they are', () => put('u4', transfer('p4', 'p2', 100, OUT4)));
+  refuse('the banker pressing for a seat that is out', () => put('u4', receive('p4', 100, OUT4), noReason));
+  refuse('the banker pressing for a seat that is not in the game', () => put('u4', receive('p9', 100, OUT4), noReason));
+  refuse('a receive with a reason that is only spaces', () => put('u4', receive('p1', 100, OUT4), { entry: { reason: '   ' } }));
+  refuse('the banker declaring a seat bankrupt when it owes a player', () => goOut('u4', bankrupt('p2', 'p3', 2000, OUT4, ['p4'], 'p4')));
+  refuse('somebody else declaring a seat bankrupt', () => goOut('u3', bankrupt('p2', null, 2000, OUT4, ['p4'], 'p4')));
+  refuse('a transfer helped by a mortgage, which is a bank action', () => put('u2', mortgagePay('p2', 'p3', 700, 360, { ...OUT4, p2: 400 })), withBanker({ balances: { ...OUT4, p2: 400 } }));
+  refuse('pressing in the name of somebody else', () => put('u2', receive('p1', 100, OUT4), { entry: { by: 'u4' }, noReason }));
+  refuse('a banker whose press says it was made by another person', () => put('u4', receive('p1', 100, OUT4), { entry: { by: 'u2', reason: null } }));
+  refuse('a banker who is not the person at the banker seat any more', () => put('owner', receive('p2', 100, OUT4), noReason));
+  refuse('a player taking back what the banker pressed', () => takeBack('u2', { balances: OUT4 }), () =>
+    seedOnePress(receive('p2', 300, OUT4), { seedOver: BANKED, entryOver: { by: 'u4' } }));
+  refuse('the person pressed for taking back what the banker pressed', () => takeBack('u1', { balances: OUT4 }), () =>
+    seedOnePress(receive('p1', 300, OUT4), { seedOver: BANKED, entryOver: { by: 'u4' } }));
+  refuse('somebody else as banker taking it back', () => takeBack('u3', { balances: OUT4 }), () =>
+    seedOnePress(receive('p1', 300, OUT4), { seedOver: BANKED, entryOver: { by: 'u4' } }));
+  refuse('a banker who is still playing pressing a receive for their own seat with no reason', () => put('owner', receive('p1', 100), noReason), () =>
+    seedPlaying({ stateOver: { bankerSeat: 'p1' } }));
+});
+
 describe('the rules agree with the Ledger', () => {
   const cases = JSON.parse(readFileSync('parity_cases.json', 'utf8'));
 

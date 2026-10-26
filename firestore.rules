@@ -162,6 +162,29 @@ service cloud.firestore {
         && (!('bank' in state.balances) || state.balances.bank >= d.mortgage);
     }
 
+    function ownsSeat(code, seat) {
+      return get(seatDoc(code, seat)).data.uid == request.auth.uid;
+    }
+
+    // Who may write the entry [d] for d.seat. Without a banker, the person at
+    // the seat. With a banker, the bank's buttons (receive, GO, pay the bank,
+    // and so a payment helped by a mortgage) are the banker's alone, for any
+    // seat that is in the game; a bankruptcy owed to the bank may be declared
+    // by the banker too; everything else (a transfer, a bankruptcy owed to a
+    // player) stays with the person at the seat, and a mortgage on a transfer
+    // is a bank action, so it is not for a player any more.
+    function pressAllowed(code, state, d) {
+      return state.bankerSeat == null
+        ? ownsSeat(code, d.seat)
+        : d.kind in ['receive', 'passGo', 'payBank']
+        ? ownsSeat(code, state.bankerSeat)
+        : d.kind == 'bankrupt'
+        ? ownsSeat(code, d.seat)
+          || (d.bankrupt is map && d.bankrupt.get('creditorSeat', null) == null
+              && ownsSeat(code, state.bankerSeat))
+        : ownsSeat(code, d.seat) && !('mortgage' in d);
+    }
+
     // The bankruptcy of d.seat: the facts are the real ones, the debtor ends at
     // 0 and the creditor (a player, or the bank) is paid as the ledger pays
     // them, the seat goes on the list of those who are out and the first one
@@ -229,8 +252,8 @@ service cloud.firestore {
         && room.status == 'playing'
         && d.by == request.auth.uid
         && d.seat is string && d.seat.matches('p[1-8]')
-        && get(seatDoc(code, d.seat)).data.uid == request.auth.uid
         && d.seat in state.seats && !(d.seat in state.bankrupt)
+        && pressAllowed(code, state, d)
         && d.at == request.time
         && d.voided == false
         && d.cid is string && d.cid.size() >= 8 && d.cid.size() <= 40
@@ -241,7 +264,9 @@ service cloud.firestore {
               && (d.kind == 'receive'
                   ? !('mortgage' in d)
                     && d.from == 'bank' && d.to == d.seat
-                    && validReason(d.reason)
+                    && (d.reason == null
+                        ? state.bankerSeat != null && d.seat != state.bankerSeat
+                        : validReason(d.reason))
                     && balancesMove(state.balances, stateAfter.balances,
                                     d.seat, d.amount)
                   : d.kind == 'passGo'
@@ -287,7 +312,10 @@ service cloud.firestore {
         && old.kind in ['receive', 'passGo', 'payBank', 'transfer']
         && !(old.kind == 'transfer' && old.reason == 'ตามคำขอเรียกเก็บ')
         && old.by == request.auth.uid
-        && get(seatDoc(code, old.seat)).data.uid == request.auth.uid
+        && (ownsSeat(code, old.seat)
+            || (state.bankerSeat != null
+                && old.kind in ['receive', 'passGo', 'payBank']
+                && ownsSeat(code, state.bankerSeat)))
         && entryId == string(state.seq - 1)
         && request.time < old.at + duration.value(6500, 'ms')
         && stateAfter.seq == state.seq
