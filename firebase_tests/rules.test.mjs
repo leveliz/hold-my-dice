@@ -2168,6 +2168,83 @@ describe('a banker: what is refused', () => {
     seedPlaying({ stateOver: { bankerSeat: 'p1' } }));
 });
 
+// ---- 7e: handing the banker's seat on, and taking it over from a banker who is gone
+
+const passBanker = (uid, to, extra = {}) => updateDoc(stateDoc(as(uid)), { bankerSeat: to, ...extra });
+const takeOver = (uid, to, { beat = true, extra = {} } = {}) => {
+  const db = as(uid);
+  const batch = writeBatch(db);
+  batch.update(stateDoc(db), { bankerSeat: to, ...extra });
+  if (beat) batch.set(presence(db, uid), { lastSeen: serverTimestamp() });
+  return batch.commit();
+};
+
+describe('handing the banker on', () => {
+  it('the banker gives it to another seat of the game, and that person presses next', async () => {
+    await withBanker()();
+    await assertSucceeds(passBanker('u4', 'p1'));
+    assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p1');
+    await assertSucceeds(put('owner', receive('p2', 100, OUT4), { entry: { reason: null } }));
+    await assertFails(put('u4', receive('p2', 100, { ...OUT4, p2: 1600 }), { entry: { seq: 1, reason: null }, id: 1, seqAfter: 2 }));
+  });
+
+  it('a seat that is out may be given it too', async () => {
+    await seedPlaying({ ...BANKED, stateOver: { bankrupt: ['p4', 'p3'], bankerSeat: 'p4' } });
+    await assertSucceeds(passBanker('u4', 'p3'));
+  });
+});
+
+describe('handing the banker on: what is refused', () => {
+  const refuse = (title, run, setup = withBanker()) =>
+    it(title, async () => {
+      await setup();
+      await assertFails(run());
+    });
+
+  refuse('by somebody who is not the banker', () => passBanker('u2', 'p2'));
+  refuse('to the banker itself, which changes nothing', () => passBanker('u4', 'p4'));
+  refuse('to nobody', () => passBanker('u4', null));
+  refuse('to a seat that is not in the game', () => passBanker('u4', 'p9'));
+  refuse('to something that is not a seat', () => passBanker('u4', 7));
+  refuse('with another thing of the state changing too', () => passBanker('u4', 'p1', { balances: { ...OUT4, p1: 1600 } }));
+  refuse('with the counter moving', () => passBanker('u4', 'p1', { seq: 1 }));
+  refuse('when there is no banker yet', () => passBanker('owner', 'p1'), () => seedPlaying());
+  refuse('by a stranger', () => passBanker('stranger', 'p1'));
+});
+
+describe('taking the banker over from one who is gone', () => {
+  it('a player takes it after 2 minutes, with their own presence written in the same batch', async () => {
+    await withBanker()();
+    await staleBeat('u4');
+    await assertSucceeds(takeOver('u3', 'p3'));
+    assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p3');
+  });
+
+  it('a seat that is out can take it too', async () => {
+    await seedPlaying({ ...BANKED, stateOver: { bankrupt: ['p4', 'p2'], bankerSeat: 'p4' } });
+    await staleBeat('u4');
+    await assertSucceeds(takeOver('u2', 'p2'));
+  });
+});
+
+describe('taking the banker over: what is refused', () => {
+  const refuse = (title, run, { beatAgo = 3 * 60 * 1000, setup = withBanker() } = {}) =>
+    it(title, async () => {
+      await setup();
+      if (beatAgo !== null) await staleBeat('u4', beatAgo);
+      await assertFails(run());
+    });
+
+  refuse('while the banker was seen less than 2 minutes ago', () => takeOver('u3', 'p3'), { beatAgo: 100 * 1000 });
+  refuse('when the banker has never been seen at all', () => takeOver('u3', 'p3'), { beatAgo: null });
+  refuse('without writing their own presence', () => takeOver('u3', 'p3', { beat: false }));
+  refuse('for somebody else\'s seat', () => takeOver('u3', 'p2'));
+  refuse('by the banker themselves', () => takeOver('u4', 'p4'));
+  refuse('by a stranger', () => takeOver('stranger', 'p3'));
+  refuse('with another thing of the state changing too', () => takeOver('u3', 'p3', { extra: { balances: { ...OUT4, p3: 1600 } } }));
+  refuse('when there is no banker', () => takeOver('u3', 'p3'), { beatAgo: null, setup: () => seedPlaying() });
+});
+
 describe('the rules agree with the Ledger', () => {
   const cases = JSON.parse(readFileSync('parity_cases.json', 'utf8'));
 

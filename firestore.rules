@@ -577,6 +577,39 @@ service cloud.firestore {
           && getAfter(entryPath(code, string(resource.data.seq - 1))).data.voided
                == true;
 
+        // Handing the banker's seat on: only that, by the person at the banker
+        // seat, to another seat of the game.
+        allow update: if signedIn()
+          && docId == 'current'
+          && get(roomDoc(code)).data.status == 'playing'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['bankerSeat'])
+          && resource.data.bankerSeat != null
+          && ownsSeat(code, resource.data.bankerSeat)
+          && request.resource.data.bankerSeat is string
+          && request.resource.data.bankerSeat != resource.data.bankerSeat
+          && request.resource.data.bankerSeat in resource.data.seats;
+
+        // Taking the banker's seat over from a banker who has not been seen for
+        // 2 minutes: only that, to the taker's own seat, with the taker's own
+        // presence written in the same batch (a person who is not there cannot
+        // take it).
+        allow update: if signedIn()
+          && docId == 'current'
+          && get(roomDoc(code)).data.status == 'playing'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['bankerSeat'])
+          && resource.data.bankerSeat != null
+          && request.resource.data.bankerSeat is string
+          && request.resource.data.bankerSeat != resource.data.bankerSeat
+          && request.resource.data.bankerSeat in resource.data.seats
+          && ownsSeat(code, request.resource.data.bankerSeat)
+          && getAfter(presenceDoc(code, request.auth.uid)).data.lastSeen
+               == request.time
+          && get(presenceDoc(code,
+               get(seatDoc(code, resource.data.bankerSeat)).data.uid)).data.lastSeen
+               < request.time - duration.value(2, 'm');
+
         allow delete: if false;
       }
 
