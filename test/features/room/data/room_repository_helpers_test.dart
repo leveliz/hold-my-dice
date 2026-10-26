@@ -39,6 +39,20 @@ void main() {
       }
     });
 
+    test(
+      'a receive pressed by the banker for another seat needs no reason',
+      () {
+        expect(
+          storedReason(EntryDraft.receive(1, null).onBehalfOf('p2')),
+          isNull,
+        );
+        expect(
+          storedReason(EntryDraft.receive(1, ' ค่าเช่า ').onBehalfOf('p2')),
+          'ค่าเช่า',
+        );
+      },
+    );
+
     test('a payment without anything to say has no reason', () {
       expect(storedReason(EntryDraft.payBank(1)), isNull);
       expect(storedReason(EntryDraft.payBank(1, reason: '   ')), isNull);

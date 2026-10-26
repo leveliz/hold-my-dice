@@ -442,8 +442,8 @@ class FirestoreRoomRepository implements RoomRepository {
     }
     final me = await readMyMember(code);
     if (me == null) throw const RoomException(RoomError.notAMember);
-    final seat = me.seat;
-    if (me.role != MemberRole.player || seat == null) {
+    final mySeat = me.seat;
+    if (me.role != MemberRole.player || mySeat == null) {
       throw const RoomException(RoomError.notAPlayer);
     }
     final reason = storedReason(draft);
@@ -452,10 +452,10 @@ class FirestoreRoomRepository implements RoomRepository {
         : draft.amount;
     final toSeat = draft.toSeat;
     if (draft.kind == EntryKind.transfer &&
-        (toSeat == null || toSeat == seat)) {
+        (toSeat == null || toSeat == mySeat)) {
       throw const RoomException(RoomError.invalidParties);
     }
-    if (draft.kind == EntryKind.bankrupt && draft.creditorSeat == seat) {
+    if (draft.kind == EntryKind.bankrupt && draft.creditorSeat == mySeat) {
       throw const RoomException(RoomError.invalidParties);
     }
 
@@ -484,6 +484,16 @@ class FirestoreRoomRepository implements RoomRepository {
             return;
           }
           final state = RoomState.fromMap(data);
+          final target = pressTarget(
+            draft,
+            mySeat: mySeat,
+            bankerSeat: state.bankerSeat,
+          );
+          if (target.error case final error?) {
+            refused = error;
+            return;
+          }
+          final seat = target.seat!;
           if (requestId != null) {
             final raw = (await tx.get(_request(code, requestId))).data();
             final req = raw == null ? null : _requestOf(requestId, raw);
@@ -766,6 +776,63 @@ class FirestoreRoomRepository implements RoomRepository {
       }),
       RoomError.notAMember,
     );
+  }
+
+  @override
+  Future<void> passBanker(String code, String toSeat) async {
+    await _auth.ensureSignedIn();
+    final me = await readMyMember(code);
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final state = await _readState(code);
+    if (me.seat == null || state.bankerSeat != me.seat) {
+      throw const RoomException(RoomError.notBanker);
+    }
+    if (toSeat == me.seat || !state.seats.contains(toSeat)) {
+      throw const RoomException(RoomError.invalidParties);
+    }
+    await _guard(
+      () => _state(code).update({'bankerSeat': toSeat}),
+      RoomError.notBanker,
+    );
+  }
+
+  @override
+  Future<void> takeOverBanker(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final me = await readMyMember(code);
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final seat = me.seat;
+    if (me.role != MemberRole.player || seat == null) {
+      throw const RoomException(RoomError.notAPlayer);
+    }
+    final state = await _readState(code);
+    if (state.bankerSeat == null) {
+      throw const RoomException(RoomError.notBanker);
+    }
+    if (state.bankerSeat == seat) {
+      throw const RoomException(RoomError.invalidParties);
+    }
+    // The rules read the banker's presence and refuse unless it is over 2
+    // minutes old; the taker's own presence goes in the same batch.
+    await _guard(
+      () =>
+          (_db.batch()
+                ..update(_state(code), {'bankerSeat': seat})
+                ..set(_presence(code, uid), {
+                  'lastSeen': FieldValue.serverTimestamp(),
+                }))
+              .commit(),
+      RoomError.bankerStillActive,
+    );
+  }
+
+  Future<RoomState> _readState(String code) async {
+    final data = (await _guard(
+      () => _state(code).get(),
+      RoomError.notStarted,
+    )).data();
+    if (data == null) throw const RoomException(RoomError.notStarted);
+    return RoomState.fromMap(data);
   }
 
   @override

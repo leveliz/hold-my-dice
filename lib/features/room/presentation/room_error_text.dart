@@ -31,6 +31,11 @@ String roomErrorText(Object error) {
     RoomError.invalidBankrupt =>
       'ล้มละลายไม่ได้ ถ้าเงินที่มีพอจ่าย หรือหนี้เกิน 10 เท่าของเงินเริ่มต้น',
     RoomError.creditorOut => 'คนที่เป็นหนี้ออกจากเกมไปแล้ว',
+    RoomError.bankerPresses =>
+      'ตอนนี้นายธนาคารเป็นคนกดรับเงิน จ่ายธนาคาร และ GO',
+    RoomError.notBanker =>
+      'เฉพาะนายธนาคารที่กดแทนคนอื่นได้ และกดแทนได้เฉพาะเรื่องเงินจากธนาคาร',
+    RoomError.bankerStillActive => 'นายธนาคารยังออนไลน์อยู่',
     RoomError.conflict => 'มีคนกดพร้อมกันหลายคน ลองอีกครั้ง',
     RoomError.unsure => 'ไม่แน่ใจว่าบันทึกแล้วหรือยัง ดูประวัติก่อนกดอีกครั้ง',
     RoomError.quotaExhausted => 'บริการเต็มวันนี้ ลองใหม่พรุ่งนี้',

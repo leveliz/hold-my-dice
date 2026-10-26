@@ -44,6 +44,16 @@ enum RoomError {
   /// The person owed in a bankruptcy is out of the game.
   creditorOut,
 
+  /// A banker is in the game: the bank's buttons are theirs alone.
+  bankerPresses,
+
+  /// Only the banker can do this (press for others, hand the seat on), and
+  /// only for the bank's buttons.
+  notBanker,
+
+  /// The banker was seen less than 2 minutes ago: the seat cannot be taken.
+  bankerStillActive,
+
   /// Other presses kept getting in first and the press was given up.
   conflict,
 
@@ -83,10 +93,44 @@ String? storedReason(EntryDraft draft) {
   if (draft.kind == EntryKind.passGo) return goReason;
   final text = cutReason((draft.reason ?? '').trim()).trim();
   if (text.isNotEmpty) return text;
-  if (draft.kind == EntryKind.receive) {
+  // The banker pressing for somebody else needs no reason.
+  if (draft.kind == EntryKind.receive && draft.forSeat == null) {
     throw const RoomException(RoomError.reasonRequired);
   }
   return null;
+}
+
+/// The seat a press is for, or the refusal. A person presses for their own
+/// seat; with a banker in the game the bank's buttons (receive, GO, pay the
+/// bank, and a payment helped by a mortgage) are the banker's alone, and the
+/// banker presses them (and declares a bankruptcy owed to the bank) for any
+/// seat with [EntryDraft.onBehalfOf].
+({String? seat, RoomError? error}) pressTarget(
+  EntryDraft draft, {
+  required String mySeat,
+  required String? bankerSeat,
+}) {
+  final bankKind =
+      draft.kind == EntryKind.receive ||
+      draft.kind == EntryKind.passGo ||
+      draft.kind == EntryKind.payBank;
+  final forOther = draft.forSeat != null && draft.forSeat != mySeat;
+  if (forOther) {
+    final allowed =
+        bankerSeat != null &&
+        mySeat == bankerSeat &&
+        (bankKind ||
+            (draft.kind == EntryKind.bankrupt && draft.creditorSeat == null));
+    return allowed
+        ? (seat: draft.forSeat, error: null)
+        : (seat: null, error: RoomError.notBanker);
+  }
+  final bankAction =
+      bankKind || (draft.kind == EntryKind.transfer && draft.mortgage != null);
+  if (bankerSeat != null && bankAction && mySeat != bankerSeat) {
+    return (seat: null, error: RoomError.bankerPresses);
+  }
+  return (seat: mySeat, error: null);
 }
 
 /// What a refusal by the money rules is called to the person.
@@ -256,6 +300,16 @@ abstract class RoomRepository {
   /// [RoomError.tooLate] when something came after it, it is not theirs, or
   /// the time is up.
   Future<void> undoEntry(String code, int seq);
+
+  /// The banker hands the banker's seat on to the seat [toSeat] of the game.
+  /// [RoomError.notBanker] for anybody else, [RoomError.invalidParties] for a
+  /// seat that is not another seat of the game.
+  Future<void> passBanker(String code, String toSeat);
+
+  /// A person with a seat takes the banker's seat over from a banker who has
+  /// not been seen for 2 minutes ([RoomError.bankerStillActive] otherwise).
+  /// Their own presence is written with it.
+  Future<void> takeOverBanker(String code);
 
   /// Asks the person at [fromSeat] to pay [amount] to this person. Each pair
   /// has room for one request: asking while the last one is open (and not

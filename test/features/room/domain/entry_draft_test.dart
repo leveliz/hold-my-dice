@@ -60,6 +60,34 @@ void main() {
       expect(EntryDraft.payBank(1).owed, isNull);
     });
 
+    test(
+      'a press is made for the pressing seat unless the banker presses for another',
+      () {
+        expect(EntryDraft.passGo().forSeat, isNull);
+        final d = EntryDraft.payBank(
+          700,
+          mortgage: 360,
+          cid: 'abc',
+        ).onBehalfOf('p3');
+        expect(d.forSeat, 'p3');
+        expect(d.kind, EntryKind.payBank);
+        expect(d.amount, 700);
+        expect(d.mortgage, 360);
+        expect(
+          d.cid,
+          'abc',
+          reason: 'the same press, so a repeat is told apart',
+        );
+        final out = EntryDraft.bankrupt(500, cid: 'x1').onBehalfOf('p2');
+        expect(out.forSeat, 'p2');
+        expect(out.owed, 500);
+        expect(out.creditorSeat, isNull);
+        final original = EntryDraft.receive(10, 'a');
+        original.onBehalfOf('p2');
+        expect(original.forSeat, isNull, reason: 'a copy, not a change');
+      },
+    );
+
     test('the other drafts have no one to give the money to', () {
       expect(EntryDraft.receive(1, 'a').toSeat, isNull);
       expect(EntryDraft.passGo().toSeat, isNull);

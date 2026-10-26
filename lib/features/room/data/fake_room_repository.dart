@@ -392,18 +392,25 @@ class FakeRoomRepository implements RoomRepository {
     if (room.status != RoomStatus.playing || state == null) {
       throw const RoomException(RoomError.notStarted);
     }
-    final seat = me.seat;
-    if (me.role != MemberRole.player || seat == null) {
+    final mySeat = me.seat;
+    if (me.role != MemberRole.player || mySeat == null) {
       throw const RoomException(RoomError.notAPlayer);
     }
     // The same press sent again is the same press.
     if (room.entries.any((e) => e.cid == draft.cid && e.by == uid)) return;
+    final target = pressTarget(
+      draft,
+      mySeat: mySeat,
+      bankerSeat: state.bankerSeat,
+    );
+    if (target.error case final error?) throw RoomException(error);
+    final seat = target.seat!;
 
     final reason = storedReason(draft);
     final ledger = state.toLedger(room.settings);
     final toSeat = draft.toSeat;
     if (draft.kind == EntryKind.transfer &&
-        (toSeat == null || toSeat == seat || !ledger.isActive(toSeat))) {
+        (toSeat == null || toSeat == mySeat || !ledger.isActive(toSeat))) {
       throw const RoomException(RoomError.invalidParties);
     }
     final creditor = draft.creditorSeat;
@@ -478,6 +485,49 @@ class FakeRoomRepository implements RoomRepository {
         balances: (result as Applied).state.balances,
         bankrupt: state.bankrupt,
         bankerSeat: state.bankerSeat,
+        status: state.status,
+      ),
+    );
+  }
+
+  @override
+  Future<void> passBanker(String code, String toSeat) async {
+    final (room, seat, state) = await _asPlayerOfGame(code);
+    if (state.bankerSeat == null || state.bankerSeat != seat) {
+      throw const RoomException(RoomError.notBanker);
+    }
+    if (toSeat == seat || !state.seats.contains(toSeat)) {
+      throw const RoomException(RoomError.invalidParties);
+    }
+    _setBanker(room, state, toSeat);
+  }
+
+  @override
+  Future<void> takeOverBanker(String code) async {
+    final (room, seat, state) = await _asPlayerOfGame(code);
+    final banker = state.bankerSeat;
+    if (banker == null) throw const RoomException(RoomError.notBanker);
+    if (banker == seat) throw const RoomException(RoomError.invalidParties);
+    final bankerUid = room.memberByUid.values
+        .where((m) => m.seat == banker)
+        .map((m) => m.uid)
+        .firstOrNull;
+    final seen = bankerUid == null ? null : room.presence[bankerUid];
+    if (seen == null || _store.now().difference(seen) < _seatIsStaleAfter) {
+      throw const RoomException(RoomError.bankerStillActive);
+    }
+    room.presence[await _auth.ensureSignedIn()] = _store.now();
+    _setBanker(room, state, seat);
+  }
+
+  void _setBanker(_Room room, RoomState state, String seat) {
+    room.state.set(
+      RoomState(
+        seq: state.seq,
+        seats: state.seats,
+        balances: state.balances,
+        bankrupt: state.bankrupt,
+        bankerSeat: seat,
         status: state.status,
       ),
     );

@@ -77,6 +77,7 @@ class EntryDraft {
        reason = null,
        toSeat = null,
        mortgage = null,
+       forSeat = null,
        cid = cid ?? _newCode(random);
 
   const EntryDraft._(
@@ -87,7 +88,23 @@ class EntryDraft {
     this.toSeat,
     this.mortgage,
   ]) : creditorSeat = null,
-       owed = null;
+       owed = null,
+       forSeat = null;
+
+  EntryDraft._copy(EntryDraft d, this.forSeat)
+    : kind = d.kind,
+      amount = d.amount,
+      reason = d.reason,
+      cid = d.cid,
+      toSeat = d.toSeat,
+      mortgage = d.mortgage,
+      owed = d.owed,
+      creditorSeat = d.creditorSeat;
+
+  /// The same press, made by the banker for the seat [seat] (the one whose
+  /// balance changes; another seat than the banker's own). It keeps the press
+  /// code.
+  EntryDraft onBehalfOf(String seat) => EntryDraft._copy(this, seat);
 
   final EntryKind kind;
   final int? amount;
@@ -103,4 +120,8 @@ class EntryDraft {
   /// Of a bankruptcy: the debt, and who is owed (null: the bank).
   final int? owed;
   final String? creditorSeat;
+
+  /// The seat the banker presses for; null when the person presses for their
+  /// own seat.
+  final String? forSeat;
 }

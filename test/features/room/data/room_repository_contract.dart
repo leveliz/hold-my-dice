@@ -630,10 +630,7 @@ void roomRepositoryContract(RoomHarness Function() create) {
             await expectLater(
               h
                   .repoFor('owner')
-                  .submitEntry(
-                    code,
-                    EntryDraft.transfer('p2', 700, mortgage: 650),
-                  ),
+                  .submitEntry(code, EntryDraft.transfer('p2', 50)),
               _throws(RoomError.invalidParties),
             );
           });
@@ -801,6 +798,346 @@ void roomRepositoryContract(RoomHarness Function() create) {
           expect(s.balances['p2'], 2200);
           final r = (await h.repoFor('owner').watchRequests(code).first).single;
           expect(r.status, RequestStatus.paid);
+        });
+      });
+
+      group('the banker', () {
+        /// Three players; p3 goes out first and is the banker.
+        Future<String> withBanker(RoomHarness h) async {
+          final code = await started(h, others: const ['u2', 'u3']);
+          await h.repoFor('u3').submitEntry(code, EntryDraft.payBank(1400));
+          await h.repoFor('u3').submitEntry(code, EntryDraft.bankrupt(500));
+          return code;
+        }
+
+        EntryDraft forP1(EntryDraft d) => d.onBehalfOf('p1');
+
+        test(
+          'the first to go out is the banker, and presses for the others',
+          () async {
+            final h = create();
+            final code = await withBanker(h);
+            expect((await state(h, code)).bankerSeat, 'p3');
+            final banker = h.repoFor('u3');
+            await banker.submitEntry(
+              code,
+              forP1(EntryDraft.receive(300, null)),
+            );
+            await banker.submitEntry(
+              code,
+              EntryDraft.passGo().onBehalfOf('p2'),
+            );
+            await banker.submitEntry(code, forP1(EntryDraft.payBank(100)));
+            final s = await state(h, code);
+            expect(s.balances['p1'], 1700);
+            expect(s.balances['p2'], 1700);
+            final e = (await history(
+              h,
+              code,
+            )).where((e) => e.by == 'u3' && e.kind == EntryKind.receive).single;
+            expect(
+              e.seat,
+              'p1',
+              reason: 'the seat is the one whose money moved',
+            );
+            expect(e.reason, isNull);
+          },
+        );
+
+        test(
+          'a payment helped by a mortgage is pressed for the one who cannot pay',
+          () async {
+            final h = create();
+            final code = await withBanker(h);
+            await h
+                .repoFor('u3')
+                .submitEntry(code, forP1(EntryDraft.payBank(1400)));
+            await h
+                .repoFor('u3')
+                .submitEntry(
+                  code,
+                  forP1(EntryDraft.payBank(700, mortgage: 600)),
+                );
+            expect((await state(h, code)).balances['p1'], 0);
+          },
+        );
+
+        test(
+          'a bankruptcy owed to the bank is declared by the banker, who stays the banker',
+          () async {
+            final h = create();
+            final code = await withBanker(h);
+            await h
+                .repoFor('u3')
+                .submitEntry(code, EntryDraft.bankrupt(2000).onBehalfOf('p2'));
+            final s = await state(h, code);
+            expect(s.bankrupt, ['p3', 'p2']);
+            expect(s.bankerSeat, 'p3');
+            expect(s.balances['p2'], 0);
+          },
+        );
+
+        test('what the banker pressed is taken back by the banker', () async {
+          final h = create();
+          final code = await withBanker(h);
+          await h
+              .repoFor('u3')
+              .submitEntry(code, forP1(EntryDraft.receive(300, null)));
+          final seq = (await state(h, code)).seq - 1;
+          await h.repoFor('u3').undoEntry(code, seq);
+          expect((await state(h, code)).balances['p1'], 1500);
+        });
+
+        test(
+          'a press of the banker that is sent again is written once',
+          () async {
+            final h = create();
+            final code = await withBanker(h);
+            final d = forP1(EntryDraft.receive(300, null));
+            await h.repoFor('u3').submitEntry(code, d);
+            await h.repoFor('u3').submitEntry(code, d);
+            expect((await state(h, code)).balances['p1'], 1800);
+          },
+        );
+
+        group('is refused, and writes nothing', () {
+          Future<void> refused(
+            Future<void> Function(RoomHarness h, String code) press,
+            RoomError error,
+          ) async {
+            final h = create();
+            final code = await withBanker(h);
+            final seq = (await state(h, code)).seq;
+            await expectLater(press(h, code), _throws(error));
+            expect((await state(h, code)).seq, seq);
+          }
+
+          test(
+            'a player pressing the bank\'s buttons for their own seat',
+            () async {
+              for (final d in [
+                EntryDraft.receive(10, 'x'),
+                EntryDraft.passGo(),
+                EntryDraft.payBank(10),
+              ]) {
+                await refused(
+                  (h, c) => h.repoFor('u2').submitEntry(c, d),
+                  RoomError.bankerPresses,
+                );
+              }
+            },
+          );
+
+          test('a payment of a player helped by a mortgage', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u2')
+                  .submitEntry(
+                    c,
+                    EntryDraft.transfer('p1', 2000, mortgage: 600),
+                  ),
+              RoomError.bankerPresses,
+            );
+          });
+
+          test('a player pressing for somebody else', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u2')
+                  .submitEntry(c, forP1(EntryDraft.receive(10, null))),
+              RoomError.notBanker,
+            );
+          });
+
+          test('the banker pressing a transfer for somebody else', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u3')
+                  .submitEntry(
+                    c,
+                    EntryDraft.transfer('p2', 10).onBehalfOf('p1'),
+                  ),
+              RoomError.notBanker,
+            );
+          });
+
+          test('the banker declaring a bankruptcy owed to a player', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u3')
+                  .submitEntry(
+                    c,
+                    EntryDraft.bankrupt(
+                      2000,
+                      creditorSeat: 'p1',
+                    ).onBehalfOf('p2'),
+                  ),
+              RoomError.notBanker,
+            );
+          });
+
+          test('the banker pressing for a seat that is out', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u3')
+                  .submitEntry(c, EntryDraft.passGo().onBehalfOf('p3')),
+              RoomError.notAPlayer,
+            );
+          });
+
+          test('the banker pressing for a seat that is not in the game', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('u3')
+                  .submitEntry(c, EntryDraft.passGo().onBehalfOf('p8')),
+              RoomError.notAPlayer,
+            );
+          });
+        });
+
+        test(
+          'a player can still give a friend money, and ask for it',
+          () async {
+            final h = create();
+            final code = await withBanker(h);
+            await h
+                .repoFor('u2')
+                .submitEntry(code, EntryDraft.transfer('p1', 100));
+            expect((await state(h, code)).balances['p1'], 1600);
+          },
+        );
+
+        group('handing it on', () {
+          test('to another seat, who presses next', () async {
+            final h = create();
+            final code = await withBanker(h);
+            await h.repoFor('u3').passBanker(code, 'p1');
+            expect((await state(h, code)).bankerSeat, 'p1');
+            await h
+                .repoFor('owner')
+                .submitEntry(code, EntryDraft.passGo().onBehalfOf('p2'));
+            await expectLater(
+              h
+                  .repoFor('u3')
+                  .submitEntry(code, EntryDraft.passGo().onBehalfOf('p2')),
+              _throws(RoomError.notBanker),
+            );
+          });
+
+          test(
+            'the new banker, still playing, presses for their own seat with a reason',
+            () async {
+              final h = create();
+              final code = await withBanker(h);
+              await h.repoFor('u3').passBanker(code, 'p1');
+              await expectLater(
+                h
+                    .repoFor('owner')
+                    .submitEntry(code, EntryDraft.receive(10, null)),
+                _throws(RoomError.reasonRequired),
+              );
+              await h
+                  .repoFor('owner')
+                  .submitEntry(code, EntryDraft.receive(10, 'ขาย'));
+              expect((await state(h, code)).balances['p1'], 1510);
+            },
+          );
+
+          test('only the banker, only to another seat of the game', () async {
+            final h = create();
+            final code = await withBanker(h);
+            await expectLater(
+              h.repoFor('u2').passBanker(code, 'p1'),
+              _throws(RoomError.notBanker),
+            );
+            await expectLater(
+              h.repoFor('u3').passBanker(code, 'p3'),
+              _throws(RoomError.invalidParties),
+            );
+            await expectLater(
+              h.repoFor('u3').passBanker(code, 'p8'),
+              _throws(RoomError.invalidParties),
+            );
+            expect((await state(h, code)).bankerSeat, 'p3');
+          });
+
+          test(
+            'there is nothing to hand on before somebody goes out',
+            () async {
+              final h = create();
+              final code = await started(h, others: const ['u2']);
+              await expectLater(
+                h.repoFor('owner').passBanker(code, 'p2'),
+                _throws(RoomError.notBanker),
+              );
+            },
+          );
+        });
+
+        group('taking it over', () {
+          test(
+            'from a banker not seen for 2 minutes, which also counts the taker as seen',
+            () async {
+              final h = create();
+              final code = await withBanker(h);
+              await h.repoFor('u3').heartbeat(code);
+              await h.advance(const Duration(minutes: 3));
+              final before = await h.lastSeen(code, 'u2');
+              await h.repoFor('u2').takeOverBanker(code);
+              expect((await state(h, code)).bankerSeat, 'p2');
+              expect((await h.lastSeen(code, 'u2'))!.isAfter(before!), isTrue);
+            },
+          );
+
+          test(
+            'is refused while the banker was seen less than 2 minutes ago',
+            () async {
+              final h = create();
+              final code = await withBanker(h);
+              await h.repoFor('u3').heartbeat(code);
+              await h.advance(const Duration(seconds: 90));
+              await expectLater(
+                h.repoFor('u2').takeOverBanker(code),
+                _throws(RoomError.bankerStillActive),
+              );
+              expect((await state(h, code)).bankerSeat, 'p3');
+            },
+          );
+
+          test(
+            'is refused for the banker, a watcher and somebody who is not in the room',
+            () async {
+              final h = create();
+              final code = await withBanker(h);
+              await h.repoFor('u3').heartbeat(code);
+              await h.advance(const Duration(minutes: 3));
+              await expectLater(
+                h.repoFor('u3').takeOverBanker(code),
+                _throws(RoomError.invalidParties),
+              );
+              await h
+                  .repoFor('s1')
+                  .joinAsSpectator(code: code, name: 'ดู', color: 3);
+              await expectLater(
+                h.repoFor('s1').takeOverBanker(code),
+                _throws(RoomError.notAPlayer),
+              );
+              await expectLater(
+                h.repoFor('stranger').takeOverBanker(code),
+                _throws(RoomError.notAMember),
+              );
+            },
+          );
+
+          test('is refused when there is no banker', () async {
+            final h = create();
+            final code = await started(h, others: const ['u2']);
+            await h.advance(const Duration(minutes: 3));
+            await expectLater(
+              h.repoFor('u2').takeOverBanker(code),
+              _throws(RoomError.notBanker),
+            );
+          });
         });
       });
 
