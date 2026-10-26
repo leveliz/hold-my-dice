@@ -16,10 +16,19 @@ EntryLabel describeRoomEntry(
     EntryKind.receive => 'รับจากธนาคาร $who +$amount',
     EntryKind.payBank => 'จ่ายธนาคาร $who -$amount',
     EntryKind.transfer => 'โอน $who → ${nameOf(entry.to ?? '')} $amount',
+    EntryKind.bankrupt => 'ล้มละลาย $who',
     // Kinds of a later version of the app: shown, not understood.
     _ => 'รายการที่แอพนี้ยังไม่รู้จัก',
   };
   final reason = entry.kind == EntryKind.passGo ? null : entry.reason;
-  final notes = [?reason, if (entry.voided) 'ยกเลิกแล้ว'];
+  final mortgage = entry.mortgage;
+  final info = entry.bankrupt;
+  final notes = [
+    ?reason,
+    if (mortgage != null) 'จำนอง ${formatMoney(mortgage)}',
+    if (info != null)
+      'หนี้ ${formatMoney(info.owed)} ให้${info.creditorSeat == null ? 'ธนาคาร' : ' ${nameOf(info.creditorSeat!)}'}',
+    if (entry.voided) 'ยกเลิกแล้ว',
+  ];
   return EntryLabel(title, notes.isEmpty ? null : notes.join(' · '));
 }

@@ -37,6 +37,29 @@ void main() {
       expect(EntryDraft.transfer('p2', 200, reason: 'x').reason, 'x');
     });
 
+    test('a payment or a transfer may carry what is raised by mortgage', () {
+      expect(EntryDraft.payBank(700, mortgage: 360).mortgage, 360);
+      expect(EntryDraft.transfer('p2', 700, mortgage: 360).mortgage, 360);
+      expect(EntryDraft.payBank(700).mortgage, isNull);
+      expect(EntryDraft.transfer('p2', 700).mortgage, isNull);
+      expect(EntryDraft.receive(1, 'a').mortgage, isNull);
+    });
+
+    test('a bankruptcy names the debt and who is owed, and has no amount', () {
+      final toFriend = EntryDraft.bankrupt(700, creditorSeat: 'p3');
+      expect(toFriend.kind, EntryKind.bankrupt);
+      expect(toFriend.owed, 700);
+      expect(toFriend.creditorSeat, 'p3');
+      expect(toFriend.amount, isNull);
+      expect(toFriend.toSeat, isNull);
+      expect(toFriend.reason, isNull);
+      expect(toFriend.cid.length, 20);
+      final toBank = EntryDraft.bankrupt(700, cid: 'abc');
+      expect(toBank.creditorSeat, isNull);
+      expect(toBank.cid, 'abc');
+      expect(EntryDraft.payBank(1).owed, isNull);
+    });
+
     test('the other drafts have no one to give the money to', () {
       expect(EntryDraft.receive(1, 'a').toSeat, isNull);
       expect(EntryDraft.passGo().toSeat, isNull);

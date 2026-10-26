@@ -30,14 +30,29 @@ class EntryDraft {
   EntryDraft.passGo({String? cid, Random? random})
     : this._(EntryKind.passGo, null, null, cid ?? _newCode(random));
 
-  EntryDraft.payBank(int amount, {String? reason, String? cid, Random? random})
-    : this._(EntryKind.payBank, amount, reason, cid ?? _newCode(random));
+  /// [mortgage]: what the person raises by mortgage in the same press, when
+  /// the cash does not cover [amount].
+  EntryDraft.payBank(
+    int amount, {
+    String? reason,
+    int? mortgage,
+    String? cid,
+    Random? random,
+  }) : this._(
+         EntryKind.payBank,
+         amount,
+         reason,
+         cid ?? _newCode(random),
+         null,
+         mortgage,
+       );
 
   /// Money from the person who presses to the person at [toSeat].
   EntryDraft.transfer(
     String toSeat,
     int amount, {
     String? reason,
+    int? mortgage,
     String? cid,
     Random? random,
   }) : this._(
@@ -46,7 +61,24 @@ class EntryDraft {
          reason,
          cid ?? _newCode(random),
          toSeat,
+         mortgage,
        );
+
+  /// The person goes out of the game because they cannot pay [owed] to the
+  /// seat [creditorSeat] (the bank when null). What they hold at that moment
+  /// is read when the press is made, not here.
+  EntryDraft.bankrupt(
+    int owed, {
+    this.creditorSeat,
+    String? cid,
+    Random? random,
+  }) : kind = EntryKind.bankrupt,
+       owed = owed,
+       amount = null,
+       reason = null,
+       toSeat = null,
+       mortgage = null,
+       cid = cid ?? _newCode(random);
 
   const EntryDraft._(
     this.kind,
@@ -54,7 +86,9 @@ class EntryDraft {
     this.reason,
     this.cid, [
     this.toSeat,
-  ]);
+    this.mortgage,
+  ]) : creditorSeat = null,
+       owed = null;
 
   final EntryKind kind;
   final int? amount;
@@ -63,4 +97,11 @@ class EntryDraft {
 
   /// Who gets the money; only a transfer has one.
   final String? toSeat;
+
+  /// What is raised by mortgage to make the payment; null for none.
+  final int? mortgage;
+
+  /// Of a bankruptcy: the debt, and who is owed (null: the bank).
+  final int? owed;
+  final String? creditorSeat;
 }

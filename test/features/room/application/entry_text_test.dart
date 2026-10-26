@@ -57,6 +57,46 @@ void main() {
       );
     });
 
+    test('a payment with a mortgage says how much was mortgaged', () {
+      final label = describeRoomEntry(
+        RoomEntry(
+          seq: 0,
+          kind: EntryKind.payBank,
+          seat: 'p2',
+          from: 'p2',
+          to: 'bank',
+          amount: 700,
+          mortgage: 1360,
+          reason: 'ภาษี',
+          voided: true,
+        ),
+        _name,
+      );
+      expect(label.title, 'จ่ายธนาคาร แพร -700');
+      expect(label.subtitle, 'ภาษี · จำนอง 1,360 · ยกเลิกแล้ว');
+    });
+
+    test('a bankruptcy names who went out and who is owed', () {
+      RoomEntry out(String? creditor) => RoomEntry(
+        seq: 0,
+        kind: EntryKind.bankrupt,
+        seat: 'p2',
+        bankrupt: BankruptInfo(
+          seat: 'p2',
+          creditorSeat: creditor,
+          cash: 400,
+          owed: 1700,
+        ),
+      );
+      final toFriend = describeRoomEntry(out('p1'), _name);
+      expect(toFriend.title, 'ล้มละลาย แพร');
+      expect(toFriend.subtitle, 'หนี้ 1,700 ให้ ต้น');
+      expect(
+        describeRoomEntry(out(null), _name).subtitle,
+        'หนี้ 1,700 ให้ธนาคาร',
+      );
+    });
+
     test('a transfer names both people and the amount', () {
       final label = describeRoomEntry(
         RoomEntry(

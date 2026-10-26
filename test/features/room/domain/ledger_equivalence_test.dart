@@ -14,6 +14,81 @@ void main() {
       _playOneGame(seed);
     }
   });
+
+  test('a payment with a mortgage in one entry agrees with GameState', () {
+    var taken = 0;
+    for (var seed = 0; seed < 500; seed++) {
+      _playMortgageGame(seed, () => taken++);
+    }
+    expect(taken, greaterThan(300));
+  });
+}
+
+/// The same payment with a mortgage as ONE entry: whenever the ledger takes
+/// it, [GameState.payWithMortgage] takes it too and both end with the same
+/// balances (the ledger also refuses some that GameState would allow).
+void _playMortgageGame(int seed, void Function() applied) {
+  final random = Random(seed);
+  final seats = ['p1', 'p2', 'p3'];
+  const startingCash = 1500;
+  var game = GameState.start(
+    players: [for (final s in seats) Player(id: s, name: s, color: 0)],
+    startingCash: startingCash,
+    goAmount: 200,
+  );
+  var ledger = Ledger.initial(seats, startingCash);
+  for (var step = 0; step < 30 && !game.isOver; step++) {
+    final who = seats[random.nextInt(3)];
+    final cash = game.balanceOf(who);
+    final amount = cash + 1 + random.nextInt(600);
+    final payee = random.nextBool()
+        ? 'bank'
+        : seats.firstWhere((s) => s != who);
+    final mortgage = amount - cash + random.nextInt(500);
+    final moved = Ledger.apply(
+      ledger,
+      RoomEntry(
+        seq: 0,
+        kind: payee == 'bank' ? EntryKind.payBank : EntryKind.transfer,
+        seat: who,
+        from: who,
+        to: payee,
+        amount: amount,
+        mortgage: mortgage,
+      ),
+    );
+    if (moved is! Applied) {
+      // Give the seat some money so the next presses are not all refused.
+      game = game.receiveFromBank(who, 400);
+      ledger = _ok(
+        Ledger.apply(
+          ledger,
+          RoomEntry(
+            seq: 0,
+            kind: EntryKind.receive,
+            seat: who,
+            from: 'bank',
+            to: who,
+            amount: 400,
+          ),
+        ),
+      );
+      continue;
+    }
+    final result = game.payWithMortgage(
+      payerId: who,
+      payeeId: payee,
+      amount: amount,
+      mortgages: [mortgage],
+    );
+    expect(result, isA<Paid>(), reason: 'seed $seed, step $step');
+    game = (result as Paid).state;
+    ledger = moved.state;
+    applied();
+    for (final s in seats) {
+      expect(ledger.balances[s], game.balanceOf(s), reason: 'seed $seed, $s');
+    }
+  }
 }
 
 void _playOneGame(int seed) {
