@@ -11,6 +11,9 @@ import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 const _seatIsStaleAfter = Duration(minutes: 2);
 
+/// How long after the end a player (not the owner) may take the room down.
+const _closeAfter = Duration(minutes: 5);
+
 /// Always the same person; what tests use instead of Firebase Auth.
 class FakeAuthService implements AuthService {
   FakeAuthService(this.uid);
@@ -59,6 +62,7 @@ class _Room {
   final String? passwordHash;
   var status = RoomStatus.lobby;
   DateTime? endedAt;
+  String? nextCode;
   final seats = <String, Seat>{};
   final memberByUid = <String, Member>{};
   final presence = <String, DateTime>{};
@@ -79,6 +83,7 @@ class _Room {
     settings: settings,
     hasPassword: passwordHash != null,
     endedAt: endedAt,
+    nextCode: nextCode,
   );
 
   void publishMeta() => meta.set(metaNow);
@@ -435,6 +440,57 @@ class FakeRoomRepository implements RoomRepository {
       ),
     );
     room.publishMeta();
+  }
+
+  @override
+  Future<void> closeRoom(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final room = _store._rooms[code];
+    if (room == null) return;
+    final me = room.memberByUid[uid];
+    if (me == null && room.ownerUid != uid) {
+      throw const RoomException(RoomError.notAMember);
+    }
+    if (room.status != RoomStatus.ended) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final since = _store.now().difference(room.endedAt!);
+    final seated =
+        me != null && me.role == MemberRole.player && me.seat != null;
+    if (room.ownerUid != uid && !(seated && since > _closeAfter)) {
+      throw const RoomException(RoomError.notAllowed);
+    }
+    _store._rooms.remove(code);
+    room.meta.set(null);
+    room.state.set(null);
+    room.members.set(const []);
+    room.entryFeed.set(const []);
+    room.requestFeed.set(const []);
+  }
+
+  @override
+  Future<RoomMeta> playAgain(String code, {String? password}) async {
+    final uid = await _auth.ensureSignedIn();
+    final room = _roomAny(code);
+    if (room.ownerUid != uid) throw const RoomException(RoomError.notOwner);
+    if (room.status != RoomStatus.ended) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final next = room.nextCode == null ? null : _store._rooms[room.nextCode];
+    if (next != null && next.status == RoomStatus.lobby) return next.metaNow;
+    if (room.passwordHash != null && (password == null || password.isEmpty)) {
+      throw const RoomException(RoomError.wrongPassword);
+    }
+    final me = room.memberByUid[uid]!;
+    final made = await createRoom(
+      settings: room.settings,
+      password: password,
+      name: me.name,
+      color: me.color,
+    );
+    room.nextCode = made.code;
+    room.publishMeta();
+    return made;
   }
 
   @override

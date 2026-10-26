@@ -1722,6 +1722,251 @@ void roomRepositoryContract(RoomHarness Function() create) {
       );
     });
 
+    group('closing a game that ended', () {
+      /// Three players, played a little, ended by the owner.
+      Future<String> ended(RoomHarness h) async {
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await _join(h, meta.code, 'u3');
+        await h.repoFor('owner').startGame(meta.code);
+        await h.repoFor('owner').submitEntry(meta.code, EntryDraft.passGo());
+        await h.repoFor('u2').submitEntry(meta.code, EntryDraft.passGo());
+        await h.repoFor('owner').endGame(meta.code);
+        return meta.code;
+      }
+
+      test('the owner takes it down at once: nobody can find it', () async {
+        final h = create();
+        final code = await ended(h);
+        await h.repoFor('owner').closeRoom(code);
+        for (final uid in ['owner', 'u2', 'u3', 'stranger']) {
+          expect(
+            await h.repoFor(uid).watchMeta(code).first,
+            isNull,
+            reason: uid,
+          );
+        }
+        await expectLater(
+          h.repoFor('u2').readSeats(code),
+          _throws(RoomError.roomNotFound),
+        );
+        await expectLater(
+          h.repoFor('u2').readMyMember(code),
+          _throws(RoomError.roomNotFound),
+        );
+      });
+
+      test('somebody who is watching the summary is told it is gone', () async {
+        final h = create();
+        final code = await ended(h);
+        final seen = <RoomMeta?>[];
+        final sub = h.repoFor('u2').watchMeta(code).listen(seen.add);
+        addTearDown(sub.cancel);
+        await Future<void>.delayed(Duration.zero);
+        expect(seen.last?.status, RoomStatus.ended);
+        await h.repoFor('owner').closeRoom(code);
+        await Future<void>.delayed(Duration.zero);
+        expect(seen.last, isNull);
+      });
+
+      test(
+        'a player cannot before 5 minutes have gone by, and can after',
+        () async {
+          final h = create();
+          final code = await ended(h);
+          await h.advance(const Duration(minutes: 4));
+          await expectLater(
+            h.repoFor('u2').closeRoom(code),
+            _throws(RoomError.notAllowed),
+          );
+          expect(
+            (await h.repoFor('u2').watchMeta(code).first)?.status,
+            RoomStatus.ended,
+          );
+          await h.advance(const Duration(minutes: 2));
+          await h.repoFor('u2').closeRoom(code);
+          expect(await h.repoFor('owner').watchMeta(code).first, isNull);
+        },
+      );
+
+      test('the banker has no more right than another player', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.repoFor('owner').startGame(meta.code);
+        await h.repoFor('u2').submitEntry(meta.code, EntryDraft.bankrupt(2000));
+        await h.repoFor('owner').endGame(meta.code);
+        await expectLater(
+          h.repoFor('u2').closeRoom(meta.code),
+          _throws(RoomError.notAllowed),
+        );
+      });
+
+      test('a watcher cannot, even long after the end', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h
+            .repoFor('s1')
+            .joinAsSpectator(code: meta.code, name: 'ดู', color: 3);
+        await h.repoFor('owner').startGame(meta.code);
+        await h.repoFor('owner').endGame(meta.code);
+        await h.advance(const Duration(hours: 1));
+        await expectLater(
+          h.repoFor('s1').closeRoom(meta.code),
+          _throws(RoomError.notAllowed),
+        );
+      });
+
+      test('a stranger is no member, and a lobby has not ended', () async {
+        final h = create();
+        final code = await ended(h);
+        await h.advance(const Duration(hours: 1));
+        await expectLater(
+          h.repoFor('stranger').closeRoom(code),
+          _throws(RoomError.notAMember),
+        );
+        final lobby = await _create(h, uid: 'owner2');
+        await expectLater(
+          h.repoFor('owner2').closeRoom(lobby.code),
+          _throws(RoomError.notStarted),
+        );
+      });
+
+      test(
+        'a game that is still played cannot be closed, not by its owner',
+        () async {
+          final h = create();
+          final meta = await _create(h);
+          await _join(h, meta.code, 'u2');
+          await h.repoFor('owner').startGame(meta.code);
+          await expectLater(
+            h.repoFor('owner').closeRoom(meta.code),
+            _throws(RoomError.notStarted),
+          );
+        },
+      );
+
+      test('closing what is gone is fine', () async {
+        final h = create();
+        final code = await ended(h);
+        await h.repoFor('owner').closeRoom(code);
+        await h.repoFor('owner').closeRoom(code);
+        await h.repoFor('u2').closeRoom(code);
+      });
+    });
+
+    group('playing again', () {
+      Future<String> ended(RoomHarness h, {String? password}) async {
+        final meta = await _create(h, password: password);
+        await _join(h, meta.code, 'u2', password: password);
+        await h.repoFor('owner').startGame(meta.code);
+        await h.repoFor('owner').endGame(meta.code);
+        return meta.code;
+      }
+
+      test(
+        'the owner opens a lobby with the same settings, and sits there',
+        () async {
+          final h = create();
+          final code = await ended(h);
+          final next = await h.repoFor('owner').playAgain(code);
+          expect(next.code, isNot(code));
+          expect(next.status, RoomStatus.lobby);
+          expect(next.ownerUid, 'owner');
+          expect(next.settings.startingCash, 1500);
+          expect(next.settings.maxPlayers, 4);
+          final me = await h.repoFor('owner').readMyMember(next.code);
+          expect(me?.name, 'เจ้าของ');
+          expect(me?.seat, 'p1');
+        },
+      );
+
+      test('everybody in the old room is told where it is', () async {
+        final h = create();
+        final code = await ended(h);
+        final next = await h.repoFor('owner').playAgain(code);
+        for (final uid in ['owner', 'u2']) {
+          final meta = await h.repoFor(uid).watchMeta(code).first;
+          expect(meta?.nextCode, next.code, reason: uid);
+        }
+        await _join(h, next.code, 'u2');
+        expect((await h.repoFor('u2').readMyMember(next.code))?.seat, 'p2');
+      });
+
+      test('asking again gives the same room', () async {
+        final h = create();
+        final code = await ended(h);
+        final a = await h.repoFor('owner').playAgain(code);
+        final b = await h.repoFor('owner').playAgain(code);
+        expect(b.code, a.code);
+      });
+
+      test('when that lobby has been taken down, it opens another', () async {
+        final h = create();
+        final code = await ended(h);
+        final a = await h.repoFor('owner').playAgain(code);
+        await h.repoFor('owner').deleteRoom(a.code);
+        final b = await h.repoFor('owner').playAgain(code);
+        expect(b.code, isNot(a.code));
+        expect((await h.repoFor('u2').watchMeta(code).first)?.nextCode, b.code);
+      });
+
+      test('when that room has started, the next try opens another', () async {
+        final h = create();
+        final code = await ended(h);
+        final a = await h.repoFor('owner').playAgain(code);
+        await _join(h, a.code, 'u2');
+        await h.repoFor('owner').startGame(a.code);
+        final b = await h.repoFor('owner').playAgain(code);
+        expect(b.code, isNot(a.code));
+        expect(b.status, RoomStatus.lobby);
+      });
+
+      test('only the owner, and only of a game that ended', () async {
+        final h = create();
+        final code = await ended(h);
+        await expectLater(
+          h.repoFor('u2').playAgain(code),
+          _throws(RoomError.notOwner),
+        );
+        final lobby = await _create(h, uid: 'owner2');
+        await expectLater(
+          h.repoFor('owner2').playAgain(lobby.code),
+          _throws(RoomError.notStarted),
+        );
+      });
+
+      test('a room with a password needs it again, and keeps it', () async {
+        final h = create();
+        final code = await ended(h, password: 'secret');
+        await expectLater(
+          h.repoFor('owner').playAgain(code),
+          _throws(RoomError.wrongPassword),
+        );
+        final next = await h
+            .repoFor('owner')
+            .playAgain(code, password: 'newone');
+        expect(next.hasPassword, isTrue);
+        await expectLater(
+          _join(h, next.code, 'u2', password: 'secret'),
+          _throws(RoomError.wrongPassword),
+        );
+        await _join(h, next.code, 'u2', password: 'newone');
+      });
+
+      test('taking the old room down leaves the new one alone', () async {
+        final h = create();
+        final code = await ended(h);
+        final next = await h.repoFor('owner').playAgain(code);
+        await h.repoFor('owner').closeRoom(code);
+        expect(
+          (await h.repoFor('u2').watchMeta(next.code).first)?.status,
+          RoomStatus.lobby,
+        );
+      });
+    });
+
     group('deleting a room that has not started', () {
       test('the owner takes it down: nobody can find it any more', () async {
         final h = create();

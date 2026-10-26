@@ -60,6 +60,7 @@ class RoomMeta {
     required this.settings,
     required this.hasPassword,
     this.endedAt,
+    this.nextCode,
   });
 
   final String code;
@@ -71,6 +72,9 @@ class RoomMeta {
   /// When the game ended, by the room's clock; null before it ends (and for a
   /// write still on its way).
   final DateTime? endedAt;
+
+  /// The code of the room the owner opened for the next game, once they did.
+  final String? nextCode;
 }
 
 /// Who sits at a seat. [id] is `p1` to `p8`.

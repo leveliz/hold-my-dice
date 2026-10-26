@@ -304,6 +304,21 @@ abstract class RoomRepository {
   /// otherwise). Ending what already ended does nothing.
   Future<void> endGame(String code);
 
+  /// Takes a game that ended down for everybody: its entries, requests and
+  /// state, then the seats, members and presence, then the room. Allowed for
+  /// the owner at any time and for a player once 5 minutes have gone by since
+  /// the end ([RoomError.notAllowed] otherwise, [RoomError.notStarted] for a
+  /// game that has not ended). A room that is already gone is fine, and a call
+  /// after a break carries on where the last one stopped.
+  Future<void> closeRoom(String code);
+
+  /// The owner of a game that ended opens a lobby with the same settings (and
+  /// [password], which a room with a password must be given again: the room
+  /// only keeps a proof of it), sits there, and leaves its code in the old
+  /// room for the others to follow. Asking again while that lobby is there
+  /// gives the same room. [RoomError.notOwner] for anybody else.
+  Future<RoomMeta> playAgain(String code, {String? password});
+
   /// Writes what the person pressed, for their own seat, as the next line of
   /// the history and the matching change of the balances. Refused with a
   /// [RoomException] (nothing is written) when it cannot be done.

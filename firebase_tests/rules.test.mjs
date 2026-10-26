@@ -2540,6 +2540,18 @@ describe('closing a game that ended: what is accepted', () => {
     assert.equal((await adminGet(room)).exists(), false);
   });
 
+  it('a player deletes 400 entries in one batch (the size the app uses)', async () => {
+    await seedEnded();
+    await admin(async (db) => {
+      for (let i = 1; i < 400; i++) await setDoc(entryDoc(db, i), entryData({ seq: i }));
+    });
+    const db = as('u2');
+    const batch = writeBatch(db);
+    for (let i = 0; i < 400; i++) batch.delete(entryDoc(db, i));
+    await assertSucceeds(batch.commit());
+    assert.equal((await adminGet((d) => entryDoc(d, 399))).exists(), false);
+  });
+
   it('the banker has no more right than another player', async () => {
     await seedEnded(FIVE + 30 * 1000, { stateOver: { bankerSeat: 'p4', bankrupt: ['p4'], balances: { ...BASE, p4: 0 } } });
     await assertSucceeds(closeFirst(as('u4'), 'u4'));
@@ -2616,12 +2628,13 @@ describe('the next game: nextCode on a game that ended', () => {
   refuse('a code that is not a string', () => point('owner', 123456));
   refuse('another field with it', () => point('owner', NEXT, { status: 'lobby' }));
   refuse('a game that is still played', () => point('owner'), { ended: false });
-  it('a second time', async () => {
+  it('again, when the first room is gone', async () => {
     await seedEnded(10 * 1000);
     await seedNext();
     await seedNext2();
     await assertSucceeds(point('owner'));
-    await assertFails(point('owner', 'NEW235'));
+    await assertSucceeds(point('owner', 'NEW235'));
+    assert.equal((await adminGet(room)).data().nextCode, 'NEW235');
   });
   async function seedNext2() {
     await admin((db) => setDoc(room(db, 'NEW235'), metaData({ createdAt: Timestamp.now() })));

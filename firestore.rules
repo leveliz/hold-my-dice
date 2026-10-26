@@ -493,11 +493,11 @@ service cloud.firestore {
       allow delete: if mayCloseRoom(code, resource.data);
 
       // The owner of a game that ended says where the next one is: the code of
-      // a room of theirs that is still a lobby, once.
+      // a room of theirs that is still a lobby (they can say it again when that
+      // room is gone).
       allow update: if signedIn()
         && resource.data.status == 'ended'
         && resource.data.ownerUid == request.auth.uid
-        && !('nextCode' in resource.data)
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['nextCode'])
         && request.resource.data.nextCode is string

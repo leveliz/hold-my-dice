@@ -90,6 +90,7 @@ class FirestoreRoomRepository implements RoomRepository {
         final Timestamp t => t.toDate(),
         _ => null,
       },
+      nextCode: d['nextCode'] as String?,
       settings: RoomSettings(
         startingCash: s['startingCash'] as int,
         goAmount: s['goAmount'] as int,
@@ -424,6 +425,106 @@ class FirestoreRoomRepository implements RoomRepository {
       if (now.status == RoomStatus.ended) return;
       throw const RoomException(RoomError.notAllowed);
     }
+  }
+
+  /// How many deletes go in one batch (the limit is 500).
+  static const _deletesPerBatch = 400;
+
+  @override
+  Future<void> closeRoom(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final snap = await _guard(() => _room(code).get(), RoomError.roomNotFound);
+    final data = snap.data();
+    if (data == null) return;
+    final meta = _meta(code, data);
+    if (meta.status != RoomStatus.ended) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final me = await readMyMember(code);
+    if (me == null && meta.ownerUid != uid) {
+      throw const RoomException(RoomError.notAMember);
+    }
+    try {
+      // The entries first: their numbers come from the state, which goes after
+      // them, so a call that stopped half way finds what is left.
+      final state = await _state(code).get();
+      final seq = state.data()?['seq'] as int? ?? 0;
+      for (var from = 0; from < seq; from += _deletesPerBatch) {
+        final batch = _db.batch();
+        for (var i = from; i < seq && i < from + _deletesPerBatch; i++) {
+          batch.delete(_entry(code, i));
+        }
+        await batch.commit();
+      }
+      final requests = await _room(code).collection('requests').get();
+      final members = await _room(code).collection('members').get();
+      final rest = _db.batch();
+      for (final d in requests.docs) {
+        rest.delete(d.reference);
+      }
+      rest.delete(_state(code));
+      // Everything but the caller's own seat, member and presence documents,
+      // which the rules look at while the rest goes.
+      final mySeat = me?.seat;
+      for (var i = 1; i <= 8; i++) {
+        if ('p$i' != mySeat) rest.delete(_seat(code, 'p$i'));
+      }
+      for (final d in members.docs) {
+        if (d.id == uid) continue;
+        rest.delete(d.reference);
+        rest.delete(_presence(code, d.id));
+      }
+      await rest.commit();
+      await (_db.batch()
+            ..delete(_seat(code, mySeat ?? 'p1'))
+            ..delete(_member(code, uid))
+            ..delete(_presence(code, uid))
+            ..delete(_room(code)))
+          .commit();
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') throw _translate(e, RoomError.unknown);
+      // Somebody else may have taken it down a moment ago.
+      final again = await _room(
+        code,
+      ).get().then<bool>((s) => s.exists, onError: (Object _) => true);
+      if (!again) return;
+      throw const RoomException(RoomError.notAllowed);
+    }
+  }
+
+  @override
+  Future<RoomMeta> playAgain(String code, {String? password}) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code, endedToo: true);
+    if (meta.ownerUid != uid) throw const RoomException(RoomError.notOwner);
+    if (meta.status != RoomStatus.ended) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final next = meta.nextCode;
+    if (next != null) {
+      try {
+        final there = await _readMeta(next);
+        if (there.status == RoomStatus.lobby) return there;
+      } on RoomException catch (e) {
+        if (e.error != RoomError.roomNotFound) rethrow;
+      }
+    }
+    if (meta.hasPassword && (password == null || password.isEmpty)) {
+      throw const RoomException(RoomError.wrongPassword);
+    }
+    final me = await readMyMember(code);
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final made = await createRoom(
+      settings: meta.settings,
+      password: password,
+      name: me.name,
+      color: me.color,
+    );
+    await _guard(
+      () => _room(code).update({'nextCode': made.code}),
+      RoomError.notOwner,
+    );
+    return made;
   }
 
   @override
