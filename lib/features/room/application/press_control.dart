@@ -103,20 +103,41 @@ class PressController extends Notifier<PressState> {
   /// (or when it was left alone because another one is still being settled).
   Future<RoomError?> press(EntryDraft draft) async {
     if (state.sending || state.cooling || state.unsureCid != null) return null;
+    return _run(
+      draft.cid,
+      () => ref.read(roomRepositoryProvider).submitEntry(code, draft),
+    );
+  }
+
+  /// Takes back the entry [seq] and gives the error to show, or null when it
+  /// went through. The rest after a press does not stop it: the bar to do it
+  /// is shown right after the press.
+  Future<RoomError?> undo(int seq) async {
+    if (state.sending || state.unsureCid != null) return null;
+    return _run(
+      '$_undoMark$seq',
+      () => ref.read(roomRepositoryProvider).undoEntry(code, seq),
+    );
+  }
+
+  /// Runs [send], an action told apart from the others by [mark] (the code of
+  /// a press, or `undo-` and the number of the entry), one at a time.
+  Future<RoomError?> _run(String mark, Future<void> Function() send) async {
+    _rest?.cancel();
     state = const PressState(sending: true);
     try {
-      await ref.read(roomRepositoryProvider).submitEntry(code, draft);
+      await send();
     } on RoomException catch (e) {
       if (e.error == RoomError.unsure) {
-        state = PressState(unsureCid: draft.cid);
+        state = PressState(unsureCid: mark);
         // Its entry may have reached the history while the answer was lost.
-        if (_written(draft.cid, ref.read(roomEntriesProvider(code)).value)) {
+        if (_written(mark, ref.read(roomEntriesProvider(code)).value)) {
           _settle();
         } else if (e is UnsureException) {
           // The attempt is still running; the clock cannot say it is over.
           unawaited(
             e.settled.whenComplete(() {
-              if (!_disposed && state.unsureCid == draft.cid) _settle();
+              if (!_disposed && state.unsureCid == mark) _settle();
             }),
           );
         } else {
@@ -138,8 +159,18 @@ class PressController extends Notifier<PressState> {
     return null;
   }
 
-  static bool _written(String cid, List<RoomEntry>? history) =>
-      (history ?? const []).any((e) => e.cid == cid);
+  static const _undoMark = 'undo-';
+
+  /// Whether the history shows that the action marked [mark] was done: the
+  /// press with that code is there, or the entry of an undo is undone.
+  static bool _written(String mark, List<RoomEntry>? history) {
+    final entries = history ?? const <RoomEntry>[];
+    if (mark.startsWith(_undoMark)) {
+      final seq = int.tryParse(mark.substring(_undoMark.length));
+      return entries.any((e) => e.seq == seq && e.voided);
+    }
+    return entries.any((e) => e.cid == mark);
+  }
 
   void _startPatience() {
     _patience?.cancel();

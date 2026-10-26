@@ -27,6 +27,27 @@ class _Scripted extends FakeRoomRepository {
   /// still running until this completes.
   Completer<void>? stillRunning;
 
+  /// The same for taking a press back.
+  Completer<void>? undoStillRunning;
+  bool undoThenLose = false;
+  Completer<void>? undoHold;
+
+  @override
+  Future<void> undoEntry(String code, int seq) async {
+    calls++;
+    await undoHold?.future;
+    if (undoStillRunning case final running?) {
+      throw UnsureException(running.future);
+    }
+    await super.undoEntry(code, seq);
+    if (undoThenLose) {
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.value();
+      }
+      throw const RoomException(RoomError.unsure);
+    }
+  }
+
   @override
   Future<void> submitEntry(String code, EntryDraft draft) async {
     calls++;
@@ -78,6 +99,9 @@ class _World {
 
   /// A press, to its end.
   RoomError? pressNow(EntryDraft draft) => finish(controller.press(draft));
+
+  /// Taking a press back, to its end.
+  RoomError? undoNow(int seq) => finish(controller.undo(seq));
 }
 
 /// A started room of two and a container acting as 'owner' (p1).
@@ -381,6 +405,77 @@ void main() {
         running.complete();
         async.flushMicrotasks();
         expect(w.press.unsureCid, isNull);
+      });
+
+      _inWorld('a press can be taken back, and the buttons rest after it', (
+        async,
+        w,
+      ) {
+        expect(w.pressNow(EntryDraft.passGo()), isNull);
+        async.elapse(const Duration(seconds: 2));
+        expect(w.undoNow(0), isNull);
+        expect(w.press.cooling, isTrue);
+        async.elapse(const Duration(seconds: 2));
+        expect(w.press.cooling, isFalse);
+      });
+
+      _inWorld('taking back works during the rest that follows a press', (
+        async,
+        w,
+      ) {
+        expect(w.pressNow(EntryDraft.passGo()), isNull);
+        expect(w.press.cooling, isTrue);
+        expect(w.undoNow(0), isNull, reason: 'not ignored');
+        expect(w.repo.calls, 2);
+      });
+
+      _inWorld('taking back what cannot be taken back says why', (async, w) {
+        expect(w.undoNow(7), RoomError.tooLate);
+        expect(w.press.sending, isFalse);
+        expect(w.press.unsureCid, isNull);
+      });
+
+      _inWorld('a second action while one is on its way is left alone', (
+        async,
+        w,
+      ) {
+        w.repo.undoHold = Completer<void>();
+        unawaited(w.controller.undo(0));
+        async.flushMicrotasks();
+        expect(w.press.sending, isTrue);
+        expect(w.undoNow(0), isNull);
+        expect(w.repo.calls, 1);
+        w.repo.undoHold!.complete();
+        async.flushMicrotasks();
+      });
+
+      _inWorld(
+        'a take-back that is still running holds the buttons until it ends',
+        (async, w) {
+          expect(w.pressNow(EntryDraft.passGo()), isNull);
+          async.elapse(const Duration(seconds: 2));
+          final running = Completer<void>();
+          w.repo.undoStillRunning = running;
+          expect(w.undoNow(0), RoomError.unsure);
+          expect(w.press.unsureCid, 'undo-0');
+          async.elapse(const Duration(minutes: 5));
+          expect(w.press.unsureCid, 'undo-0');
+          running.complete();
+          async.flushMicrotasks();
+          expect(w.press.unsureCid, isNull);
+        },
+      );
+
+      _inWorld('a take-back whose answer was lost is settled by the history', (
+        async,
+        w,
+      ) {
+        expect(w.pressNow(EntryDraft.passGo()), isNull);
+        async.elapse(const Duration(seconds: 2));
+        w.repo.undoThenLose = true;
+        expect(w.undoNow(0), RoomError.unsure);
+        async.flushMicrotasks();
+        expect(w.press.unsureCid, isNull, reason: 'the entry shows as undone');
       });
 
       _inWorld('after it is settled, pressing works again', (async, w) {
