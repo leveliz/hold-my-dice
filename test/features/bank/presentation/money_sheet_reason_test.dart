@@ -188,4 +188,26 @@ void main() {
       expect(opened.result?.reason, 'ค่าเช่า');
     },
   );
+
+  testWidgets('with the keyboard up, the sheet can be scrolled clear of it', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      reason: const ReasonOptions(chips: ['ค่าเช่า']),
+      size: const Size(360, 640),
+    );
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -2000),
+    );
+    await tester.pumpAndSettle();
+    final okBottom = tester
+        .getRect(find.byKey(const ValueKey('sheet-ok')))
+        .bottom;
+    expect(okBottom, lessThanOrEqualTo(640 - 300));
+  });
 }

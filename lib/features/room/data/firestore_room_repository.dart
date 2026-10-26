@@ -442,6 +442,11 @@ class FirestoreRoomRepository implements RoomRepository {
         ? meta.settings.goAmount
         : draft.amount;
 
+    // The place this press last tried to take. The SDK runs the transaction
+    // again after an error it takes for retryable, even one that came after
+    // the commit went through (the answer was lost); the press must then see
+    // that its own entry is already there and not write another.
+    int? lastPlace;
     for (var attempt = 1; ; attempt++) {
       var triedSeq = -1;
       // What the attempt found out. An error thrown inside the transaction
@@ -449,54 +454,67 @@ class FirestoreRoomRepository implements RoomRepository {
       // a nameless failure), so the attempt records it and returns.
       RoomError? refused;
       var lostTheRace = false;
+      var alreadyIn = false;
       try {
-        await _db
-            .runTransaction<void>((tx) async {
-              refused = null;
-              lostTheRace = false;
-              final snap = await tx.get(_state(code));
-              final data = snap.data();
-              if (data == null) {
-                refused = RoomError.notStarted;
-                return;
-              }
-              final state = RoomState.fromMap(data);
-              triedSeq = state.seq;
-              final place = _entry(code, state.seq);
-              if ((await tx.get(place)).exists) {
-                lostTheRace = true;
-                return;
-              }
-              final entry = RoomEntry(
-                seq: state.seq,
-                kind: draft.kind,
-                seat: seat,
-                by: uid,
-                cid: draft.cid,
-                from: draft.kind == EntryKind.payBank
-                    ? seat
-                    : bank.Transaction.bank,
-                to: draft.kind == EntryKind.payBank
-                    ? bank.Transaction.bank
-                    : seat,
-                amount: amount,
-                reason: reason,
-              );
-              final result = Ledger.apply(state.toLedger(meta.settings), entry);
-              if (result is Rejected) {
-                refused = roomErrorOf(result.reason);
-                return;
-              }
-              tx.set(place, entry.toMap(FieldValue.serverTimestamp()));
-              tx.update(_state(code), {
-                'seq': state.seq + 1,
-                'balances': (result as Applied).state.balances,
-              });
-            })
-            .timeout(
-              _writeTimeout,
-              onTimeout: () => throw const RoomException(RoomError.unsure),
-            );
+        final running = _db.runTransaction<void>((tx) async {
+          refused = null;
+          lostTheRace = false;
+          alreadyIn = false;
+          final snap = await tx.get(_state(code));
+          final data = snap.data();
+          if (data == null) {
+            refused = RoomError.notStarted;
+            return;
+          }
+          final state = RoomState.fromMap(data);
+          triedSeq = state.seq;
+          final earlier = lastPlace;
+          if (earlier != null && earlier != state.seq) {
+            final mine = await tx.get(_entry(code, earlier));
+            if (entryIsMine(mine.data(), draft.cid, seat)) {
+              alreadyIn = true;
+              return;
+            }
+          }
+          final place = _entry(code, state.seq);
+          if ((await tx.get(place)).exists) {
+            lostTheRace = true;
+            return;
+          }
+          final entry = RoomEntry(
+            seq: state.seq,
+            kind: draft.kind,
+            seat: seat,
+            by: uid,
+            cid: draft.cid,
+            from: draft.kind == EntryKind.payBank
+                ? seat
+                : bank.Transaction.bank,
+            to: draft.kind == EntryKind.payBank ? bank.Transaction.bank : seat,
+            amount: amount,
+            reason: reason,
+          );
+          final result = Ledger.apply(state.toLedger(meta.settings), entry);
+          if (result is Rejected) {
+            refused = roomErrorOf(result.reason);
+            return;
+          }
+          lastPlace = state.seq;
+          tx.set(place, entry.toMap(FieldValue.serverTimestamp()));
+          tx.update(_state(code), {
+            'seq': state.seq + 1,
+            'balances': (result as Applied).state.balances,
+          });
+        });
+        // Giving up the wait does not stop the transaction; whoever presses
+        // next is told when it is over.
+        await running.timeout(
+          _writeTimeout,
+          onTimeout: () => throw UnsureException(
+            running.then((_) {}, onError: (Object _) {}),
+          ),
+        );
+        if (alreadyIn) return;
         if (refused case final error?) throw RoomException(error);
         if (!lostTheRace) return;
         if (attempt >= _pressTries) {

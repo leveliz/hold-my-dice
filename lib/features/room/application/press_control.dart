@@ -76,10 +76,12 @@ class PressController extends Notifier<PressState> {
   final String code;
   Timer? _rest;
   Timer? _patience;
+  var _disposed = false;
 
   @override
   PressState build() {
     ref.onDispose(() {
+      _disposed = true;
       _rest?.cancel();
       _patience?.cancel();
     });
@@ -110,6 +112,13 @@ class PressController extends Notifier<PressState> {
         // Its entry may have reached the history while the answer was lost.
         if (_written(draft.cid, ref.read(roomEntriesProvider(code)).value)) {
           _settle();
+        } else if (e is UnsureException) {
+          // The attempt is still running; the clock cannot say it is over.
+          unawaited(
+            e.settled.whenComplete(() {
+              if (!_disposed && state.unsureCid == draft.cid) _settle();
+            }),
+          );
         } else {
           _startPatience();
         }

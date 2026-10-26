@@ -23,6 +23,10 @@ class _Scripted extends FakeRoomRepository {
   bool writeThenLose = false;
   bool loseWithoutWriting = false;
 
+  /// When set, a press is answered "not sure" and the attempt is said to be
+  /// still running until this completes.
+  Completer<void>? stillRunning;
+
   @override
   Future<void> submitEntry(String code, EntryDraft draft) async {
     calls++;
@@ -30,6 +34,9 @@ class _Scripted extends FakeRoomRepository {
     if (failWithSomethingElse) throw StateError('not a room error');
     if (failWith case final e?) throw RoomException(e);
     if (loseWithoutWriting) throw const RoomException(RoomError.unsure);
+    if (stillRunning case final running?) {
+      throw UnsureException(running.future);
+    }
     await super.submitEntry(code, draft);
     if (writeThenLose) {
       // The entry reaches the history before the answer is given up on.
@@ -356,6 +363,24 @@ void main() {
           isEmpty,
           reason: 'nothing left to wait for',
         );
+      });
+
+      _inWorld('a press whose attempt is still running stays unsure past the '
+          'usual wait, and is settled when the attempt ends', (async, w) {
+        final running = Completer<void>();
+        w.repo.stillRunning = running;
+        final draft = EntryDraft.passGo();
+        expect(w.pressNow(draft), RoomError.unsure);
+        expect(w.press.unsureCid, draft.cid);
+        async.elapse(const Duration(minutes: 5));
+        expect(
+          w.press.unsureCid,
+          draft.cid,
+          reason: 'the clock alone does not end it',
+        );
+        running.complete();
+        async.flushMicrotasks();
+        expect(w.press.unsureCid, isNull);
       });
 
       _inWorld('after it is settled, pressing works again', (async, w) {

@@ -81,6 +81,20 @@ class RoomException implements Exception {
       'RoomException($error${detail == null ? '' : ': $detail'})';
 }
 
+/// A press that was given up on waiting for but may still be going through.
+/// [settled] completes (never with an error) when the attempt is over, written
+/// or not; until then pressing again could count the same money twice.
+class UnsureException extends RoomException {
+  UnsureException(this.settled) : super(RoomError.unsure);
+
+  final Future<void> settled;
+}
+
+/// Whether the stored entry [data] is the press with code [cid] made from
+/// [seat]. The same press must never be written twice.
+bool entryIsMine(Map<String, Object?>? data, String cid, String seat) =>
+    data != null && data['cid'] == cid && data['seat'] == seat;
+
 /// Who the person using this device is. Anonymous: the same uid comes back
 /// after a reload as long as the browser or phone keeps its storage.
 abstract class AuthService {
