@@ -17,13 +17,30 @@ const _gold = Color(0xFFC8962A);
 /// What everybody in the room sees once the game has ended: the ranking, as a
 /// podium for the first three and a list for the rest. Every balance is
 /// shown, whatever the room hid while it was played.
-class RoomSummaryScreen extends ConsumerWidget {
+class RoomSummaryScreen extends ConsumerStatefulWidget {
   const RoomSummaryScreen({super.key, required this.code});
 
   final String code;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RoomSummaryScreen> createState() => _RoomSummaryScreenState();
+}
+
+class _RoomSummaryScreenState extends ConsumerState<RoomSummaryScreen> {
+  String get code => widget.code;
+
+  @override
+  void initState() {
+    super.initState();
+    // A message from the game (somebody went out, a refusal) would sit over
+    // the buttons of the summary.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final game = ref.watch(roomGameProvider(code));
     return Scaffold(
       key: const ValueKey('room-summary'),

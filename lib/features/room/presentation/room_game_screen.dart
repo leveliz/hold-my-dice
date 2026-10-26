@@ -52,10 +52,10 @@ class RoomGameScreen extends ConsumerWidget {
         title: Text('โต๊ะ $code'),
         actions: [
           if (now != null && (now.mySeat != null || now.iAmOwner))
-            IconButton(
+            TextButton.icon(
               key: const ValueKey('end-game'),
-              tooltip: 'จบเกม',
-              icon: const Icon(LucideIcons.flagTriangleRight),
+              icon: const Icon(LucideIcons.flagTriangleRight, size: 18),
+              label: const Text('จบเกม'),
               onPressed: () => _confirmEndGame(context, ref, code, now),
             ),
           if (game.value?.online ?? false)

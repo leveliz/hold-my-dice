@@ -112,6 +112,36 @@ void main() {
       },
     );
 
+    testWidgets('the button says what it does, also on a narrow screen', (
+      tester,
+    ) async {
+      await open(tester, _owner);
+      tester.view.physicalSize = const Size(320, 640);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: key('end-game'), matching: find.text('จบเกม')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a message left over from the game does not cover the summary',
+      (tester) async {
+        await open(tester, 'u2');
+        await pressEnd(tester);
+        await tester.tap(key('end-game-confirm'));
+        await tester.pumpAndSettle();
+        expect(snackText(tester), contains('ตอนนี้ทำไม่ได้'));
+        await tester.runAsync(() => repoOn(store, _owner).endGame(code));
+        await tester.pumpAndSettle();
+        expect(key('room-summary'), findsOneWidget);
+        expect(find.byType(SnackBar), findsNothing);
+        await leave(tester);
+      },
+    );
+
     testWidgets('a watcher has no button', (tester) async {
       await repoOn(
         store,

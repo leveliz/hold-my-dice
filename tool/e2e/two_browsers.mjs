@@ -486,6 +486,15 @@ try {
   await p6.page.getByText('P1', { exact: true }).last().click();
   check(await seen(host, 'คุณเป็นนายธนาคาร', 8000), 'the seat is handed to a friend, who is the banker now');
   check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) >= 1, 'who has the GO button of their own again');
+
+  // 6h. The owner ends the game: everybody, the watcher too, sees the summary.
+  await button(host, 'จบเกม', true).click();
+  check(await seen(host, 'จบเกมนี้?', 5000), 'ending the game asks first');
+  await host.page.getByRole('button', { name: 'จบเกม', exact: true }).last().click();
+  const sawSummary = await Promise.all([host, ...players.slice(1), watcher].map((p) => seen(p, 'จบเกมแล้ว', 20000)));
+  check(sawSummary.every(Boolean), 'all 8 players and the watcher see the summary by themselves');
+  check(await seen(watcher, 'ผู้ชนะ', 5000), 'the summary names a winner');
+  check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) === 0, 'and nobody has money buttons any more');
 } finally {
   await browser.close();
 }
