@@ -372,7 +372,7 @@ class _GameBody extends ConsumerWidget {
                   title: Text(view.nameOf(seat)),
                   trailing: view.state.bankrupt.contains(seat)
                       ? const RoomChip('ออกจากเกม')
-                      : null,
+                      : const Icon(LucideIcons.chevronRight, size: 18),
                   onTap: () => Navigator.pop(context, seat),
                 ),
           ],
@@ -1358,7 +1358,9 @@ class _BankerBarState extends ConsumerState<_BankerBar> {
         ? (view.seatActive
               ? ' กดรับ จ่าย และ GO ให้เพื่อนได้ด้วยปุ่มใต้ชื่อ'
               : ' คุณออกจากเกมแล้ว กดรับ จ่าย และ GO ให้เพื่อนได้')
-        : ' เป็นคนกดรับเงิน จ่ายธนาคาร และ GO ให้';
+        : view.seatActive
+        ? ' เป็นคนกดรับเงิน จ่ายธนาคาร และ GO ให้คุณ'
+        : ' เป็นคนกดรับเงิน จ่ายธนาคาร และ GO ให้ผู้เล่น';
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Container(
@@ -1394,9 +1396,13 @@ class _BankerBarState extends ConsumerState<_BankerBar> {
               ),
             ),
             if (mine)
-              TextButton(
+              OutlinedButton(
                 key: const ValueKey('banker-pass'),
                 onPressed: widget.onPass,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 36),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
                 child: const Text('ส่งต่อ'),
               )
             else if (quiet)
