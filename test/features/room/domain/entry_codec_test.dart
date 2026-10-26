@@ -121,7 +121,7 @@ void main() {
       );
     });
 
-    test('refuses what the first slice does not store', () {
+    test('refuses a group, which is not stored', () {
       expect(
         () => const RoomEntry(
           seq: 0,
@@ -136,12 +136,92 @@ void main() {
         ).toMap(_serverTime),
         throwsStateError,
       );
+    });
+
+    test('a mortgage is stored on the entry that uses it, and only there', () {
+      final withMortgage = RoomEntry(
+        seq: 3,
+        kind: EntryKind.payBank,
+        seat: 'p2',
+        by: 'uid-of-p2',
+        from: 'p2',
+        to: 'bank',
+        amount: 700,
+        mortgage: 360,
+        cid: 'abcdefghij0123456789',
+      ).toMap(_serverTime);
+      expect(withMortgage['mortgage'], 360);
+      final without = _entry(
+        EntryKind.payBank,
+        from: 'p2',
+        to: 'bank',
+      ).toMap(_serverTime);
+      expect(without.containsKey('mortgage'), isFalse);
+    });
+
+    test('a bankruptcy is stored with its facts and no amount or parties', () {
+      final map = const RoomEntry(
+        seq: 5,
+        kind: EntryKind.bankrupt,
+        seat: 'p2',
+        by: 'uid-of-p2',
+        cid: 'abcdefghij0123456789',
+        bankrupt: BankruptInfo(
+          seat: 'p2',
+          creditorSeat: 'p3',
+          cash: 400,
+          owed: 700,
+        ),
+      ).toMap(_serverTime);
+      expect(map['kind'], 'bankrupt');
+      expect(map['bankrupt'], {
+        'seat': 'p2',
+        'creditorSeat': 'p3',
+        'cash': 400,
+        'owed': 700,
+      });
+      for (final key in ['from', 'to', 'amount', 'reason']) {
+        expect(map.containsKey(key), isTrue, reason: key);
+        expect(map[key], isNull, reason: key);
+      }
+    });
+
+    test('a debt to the bank stores a null creditor, not a missing key', () {
+      final map = const RoomEntry(
+        seq: 5,
+        kind: EntryKind.bankrupt,
+        seat: 'p2',
+        by: 'u',
+        cid: 'c',
+        bankrupt: BankruptInfo(seat: 'p2', cash: 0, owed: 10),
+      ).toMap(_serverTime);
+      expect((map['bankrupt'] as Map).containsKey('creditorSeat'), isTrue);
+      expect((map['bankrupt'] as Map)['creditorSeat'], isNull);
+    });
+
+    test('a bankruptcy entry without its facts is refused', () {
       expect(
         () => const RoomEntry(
           seq: 0,
           kind: EntryKind.bankrupt,
           seat: 'p1',
           by: 'u',
+          cid: 'c',
+        ).toMap(_serverTime),
+        throwsStateError,
+      );
+    });
+
+    test('facts of a bankruptcy on another kind are refused', () {
+      expect(
+        () => const RoomEntry(
+          seq: 0,
+          kind: EntryKind.payBank,
+          seat: 'p1',
+          by: 'u',
+          from: 'p1',
+          to: 'bank',
+          amount: 1,
           cid: 'c',
           bankrupt: BankruptInfo(seat: 'p1', cash: 0, owed: 10),
         ).toMap(_serverTime),
@@ -170,6 +250,88 @@ void main() {
         expect(back.voided, isFalse);
         expect(back.at, DateTime.utc(2026, 10, 26, 12));
       }
+    });
+
+    test('reads back a mortgage and a bankruptcy', () {
+      final paid = RoomEntry.fromMap(
+        _stored(
+          RoomEntry(
+            seq: 3,
+            kind: EntryKind.transfer,
+            seat: 'p2',
+            by: 'u2',
+            from: 'p2',
+            to: 'p3',
+            amount: 700,
+            mortgage: 360,
+            cid: 'abcdefghij0123456789',
+          ),
+        ),
+      );
+      expect(paid.mortgage, 360);
+      expect(_entry(EntryKind.payBank).mortgage, isNull);
+      final out = RoomEntry.fromMap(
+        _stored(
+          const RoomEntry(
+            seq: 5,
+            kind: EntryKind.bankrupt,
+            seat: 'p2',
+            by: 'u2',
+            cid: 'abcdefghij0123456789',
+            bankrupt: BankruptInfo(
+              seat: 'p2',
+              creditorSeat: 'p3',
+              cash: 400,
+              owed: 700,
+            ),
+          ),
+        ),
+      );
+      expect(out.kind, EntryKind.bankrupt);
+      expect(out.bankrupt!.seat, 'p2');
+      expect(out.bankrupt!.creditorSeat, 'p3');
+      expect(out.bankrupt!.cash, 400);
+      expect(out.bankrupt!.owed, 700);
+      expect(out.amount, isNull);
+    });
+
+    test('refuses facts of a bankruptcy that are wrong', () {
+      Map<String, Object?> stored([Map<String, Object?> over = const {}]) =>
+          _stored(
+              const RoomEntry(
+                seq: 5,
+                kind: EntryKind.bankrupt,
+                seat: 'p2',
+                by: 'u2',
+                cid: 'abcdefghij0123456789',
+                bankrupt: BankruptInfo(seat: 'p2', cash: 400, owed: 700),
+              ),
+            )
+            ..['bankrupt'] = {
+              'seat': 'p2',
+              'creditorSeat': null,
+              'cash': 400,
+              'owed': 700,
+              ...over,
+            };
+      expect(RoomEntry.fromMap(stored()).bankrupt!.owed, 700);
+      for (final bad in [
+        {'seat': 2},
+        {'cash': 4.5},
+        {'owed': '700'},
+        {'creditorSeat': 3},
+        {'owed': null},
+      ]) {
+        expect(
+          () => RoomEntry.fromMap(stored(bad)),
+          throwsA(isA<FormatException>()),
+          reason: '$bad',
+        );
+      }
+      expect(
+        () => RoomEntry.fromMap(stored()..['bankrupt'] = 'p2'),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('keeps Thai and emoji in a reason as they are', () {
@@ -214,6 +376,7 @@ void main() {
     refuses('a reason that is not text', (m) => m['reason'] = 5);
     refuses('a time that is neither a time nor null', (m) => m['at'] = 'now');
     refuses('a voided flag that is not true or false', (m) => m['voided'] = 1);
+    refuses('a mortgage with decimals', (m) => m['mortgage'] = 10.5);
 
     test('the message says which field is wrong', () {
       final map = _stored(_entry(EntryKind.payBank, from: 'p2', to: 'bank'))

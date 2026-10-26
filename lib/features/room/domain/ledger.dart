@@ -15,6 +15,10 @@ enum LedgerRejection {
   bankLimit,
   invalidBankrupt,
 
+  /// A mortgage on a payment that does not need one, that does not cover what
+  /// is missing, or that leaves more over than a fifth of the starting cash.
+  invalidMortgage,
+
   /// Who pays and who receives do not fit the kind of entry.
   invalidParties,
 
@@ -136,13 +140,18 @@ class Ledger {
         if (from == null || amount == null || !balances.containsKey(from)) {
           return const Rejected(LedgerRejection.invalidParties);
         }
+        final raised = entry.mortgage ?? 0;
         if (state.bankHasLimit) {
-          if (balances[Transaction.bank]! < amount) {
+          if (balances[Transaction.bank]! < amount - raised) {
             return const Rejected(LedgerRejection.bankLimit);
           }
-          balances[Transaction.bank] = balances[Transaction.bank]! - amount;
+          balances[Transaction.bank] =
+              balances[Transaction.bank]! - amount + raised;
         }
-        balances[from] = balances[from]! + amount;
+        if (balances[from]! + amount - raised < 0) {
+          return const Rejected(LedgerRejection.insufficient);
+        }
+        balances[from] = balances[from]! + amount - raised;
       case EntryKind.transfer:
         final from = entry.from;
         final to = entry.to;
@@ -153,11 +162,15 @@ class Ledger {
             !balances.containsKey(to)) {
           return const Rejected(LedgerRejection.invalidParties);
         }
-        if (balances[to]! < amount) {
+        final raised = entry.mortgage ?? 0;
+        if (balances[to]! < amount || balances[from]! + amount - raised < 0) {
           return const Rejected(LedgerRejection.insufficient);
         }
-        balances[from] = balances[from]! + amount;
+        balances[from] = balances[from]! + amount - raised;
         balances[to] = balances[to]! - amount;
+        if (state.bankHasLimit) {
+          balances[Transaction.bank] = balances[Transaction.bank]! + raised;
+        }
       case EntryKind.mortgage || EntryKind.bankrupt:
         return const Rejected(LedgerRejection.notUndoable);
     }
@@ -181,7 +194,35 @@ class Ledger {
       ? const Rejected(LedgerRejection.invalidAmount)
       : null;
 
+  /// The check of a mortgage raised together with the payment of [amount] by
+  /// a seat holding [cash]: it must be needed, cover what is missing, and
+  /// leave no more over than a fifth of the starting cash. Null when fine.
+  static Rejected? _badMortgage(
+    LedgerState s,
+    int mortgage,
+    int amount,
+    int cash,
+  ) {
+    if (mortgage < 1 || mortgage > maxEntryAmount) {
+      return const Rejected(LedgerRejection.invalidAmount);
+    }
+    if (amount <= cash) return const Rejected(LedgerRejection.invalidMortgage);
+    if (cash + mortgage < amount) {
+      return const Rejected(LedgerRejection.insufficient);
+    }
+    if (cash + mortgage - amount > s.startingCash ~/ 5) {
+      return const Rejected(LedgerRejection.invalidMortgage);
+    }
+    if (s.bankHasLimit && s.balances[Transaction.bank]! < mortgage) {
+      return const Rejected(LedgerRejection.bankLimit);
+    }
+    return null;
+  }
+
   static LedgerResult _fromBank(LedgerState s, RoomEntry e) {
+    if (e.mortgage != null) {
+      return const Rejected(LedgerRejection.invalidMortgage);
+    }
     final to = e.to;
     if (e.from != Transaction.bank || to == null || to == Transaction.bank) {
       return const Rejected(LedgerRejection.invalidParties);
@@ -208,13 +249,19 @@ class Ledger {
     if (_badAmount(e.amount) case final bad?) return bad;
     final amount = e.amount!;
     if (!s.isActive(from)) return const Rejected(LedgerRejection.notActive);
-    if (s.balances[from]! < amount) {
+    final raised = e.mortgage;
+    if (raised != null) {
+      if (_badMortgage(s, raised, amount, s.balances[from]!) case final bad?) {
+        return bad;
+      }
+    } else if (s.balances[from]! < amount) {
       return const Rejected(LedgerRejection.insufficient);
     }
     final balances = {...s.balances};
-    balances[from] = balances[from]! - amount;
+    balances[from] = balances[from]! - amount + (raised ?? 0);
     if (s.bankHasLimit) {
-      balances[Transaction.bank] = balances[Transaction.bank]! + amount;
+      balances[Transaction.bank] =
+          balances[Transaction.bank]! + amount - (raised ?? 0);
     }
     return Applied(s._with(balances: balances));
   }
@@ -234,12 +281,20 @@ class Ledger {
     if (!s.isActive(from) || !s.isActive(to)) {
       return const Rejected(LedgerRejection.notActive);
     }
-    if (s.balances[from]! < amount) {
+    final raised = e.mortgage;
+    if (raised != null) {
+      if (_badMortgage(s, raised, amount, s.balances[from]!) case final bad?) {
+        return bad;
+      }
+    } else if (s.balances[from]! < amount) {
       return const Rejected(LedgerRejection.insufficient);
     }
     final balances = {...s.balances};
-    balances[from] = balances[from]! - amount;
+    balances[from] = balances[from]! - amount + (raised ?? 0);
     balances[to] = balances[to]! + amount;
+    if (raised != null && s.bankHasLimit) {
+      balances[Transaction.bank] = balances[Transaction.bank]! - raised;
+    }
     return Applied(s._with(balances: balances));
   }
 

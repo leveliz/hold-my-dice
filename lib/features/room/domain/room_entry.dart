@@ -36,6 +36,7 @@ class RoomEntry {
     this.from,
     this.to,
     this.amount,
+    this.mortgage,
     this.bankrupt,
     this.group,
     this.reason,
@@ -76,6 +77,8 @@ class RoomEntry {
       from: optional<String>('from'),
       to: optional<String>('to'),
       amount: optional<int>('amount'),
+      mortgage: optional<int>('mortgage'),
+      bankrupt: _bankruptFrom(optional<Map<Object?, Object?>>('bankrupt')),
       reason: optional<String>('reason'),
       voided: optional<bool>('voided') ?? false,
     );
@@ -101,6 +104,10 @@ class RoomEntry {
   final String? from;
   final String? to;
   final int? amount;
+
+  /// What was raised by mortgage in the same press as a payment of [amount]
+  /// (payBank or transfer only); null when nothing was mortgaged.
+  final int? mortgage;
   final BankruptInfo? bankrupt;
 
   /// Entries made by one press (mortgage and then pay) share a group.
@@ -121,18 +128,33 @@ class RoomEntry {
     from: from,
     to: to,
     amount: amount,
+    mortgage: mortgage,
     bankrupt: bankrupt,
     group: group,
     reason: reason,
     voided: voided ?? this.voided,
   );
 
+  Map<String, Object?>? get bankruptMap {
+    final b = bankrupt;
+    if (b == null) return null;
+    return {
+      'seat': b.seat,
+      'creditorSeat': b.creditorSeat,
+      'cash': b.cash,
+      'owed': b.owed,
+    };
+  }
+
   /// The entry as stored, with [at] being what the database turns into the
   /// server time (a placeholder from the data layer). The layout is the same
-  /// for every kind; the first slice stores no groups and no bankruptcies.
+  /// for every kind; `mortgage` and `bankrupt` are written only when present,
+  /// so an entry without them is stored exactly as before. Groups are not
+  /// stored.
   Map<String, Object?> toMap(Object at) {
-    if (group != null || bankrupt != null) {
-      throw StateError('only single entries without a bankruptcy are stored');
+    if (group != null) throw StateError('groups are not stored');
+    if ((kind == EntryKind.bankrupt) != (bankrupt != null)) {
+      throw StateError('the facts of a bankruptcy go with a bankrupt entry');
     }
     final by = this.by, cid = this.cid;
     if (by == null || cid == null) {
@@ -148,9 +170,30 @@ class RoomEntry {
       'from': from,
       'to': to,
       'amount': amount,
+      'mortgage': ?mortgage,
+      'bankrupt': ?bankruptMap,
       'reason': reason,
       'cid': cid,
       'voided': voided,
     };
   }
+}
+
+BankruptInfo? _bankruptFrom(Map<Object?, Object?>? map) {
+  if (map == null) return null;
+  T? field<T>(String key, {bool nullable = false}) {
+    final value = map[key];
+    if (value == null && nullable) return null;
+    if (value is! T) {
+      throw FormatException('entry field "bankrupt.$key" is wrong: $value');
+    }
+    return value;
+  }
+
+  return BankruptInfo(
+    seat: field<String>('seat')!,
+    creditorSeat: field<String>('creditorSeat', nullable: true),
+    cash: field<int>('cash')!,
+    owed: field<int>('owed')!,
+  );
 }
