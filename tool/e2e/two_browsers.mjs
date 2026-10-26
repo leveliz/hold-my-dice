@@ -394,29 +394,6 @@ try {
   check(await waitFor(async () => (await balancesOn(host)).P3 === 100), 'and the host sees the same balance');
   await sleep(4500);
 
-  const p6 = players[5];
-  await waitFor(async () => (await balancesOn(p6)).P6 !== undefined);
-  const owes6 = (await balancesOn(p6)).P6 + 1000;
-  // (The latest line of the history also starts with these words, so the
-  // button is looked up by its whole name.)
-  const payBankButton = p6.page.getByRole('button', { name: 'จ่ายธนาคาร', exact: true });
-  await waitFor(() => payBankButton.isEnabled());
-  await payBankButton.click();
-  await keys(p6, String(owes6));
-  await button(p6, 'ตกลง').click();
-  await seen(p6, 'เงินไม่พอ', 8000);
-  await button(p6, 'ล้มละลาย').first().click();
-  check(await seen(p6, 'ล้มละลาย?', 5000), 'going bankrupt asks for a confirmation first');
-  await button(p6, 'ล้มละลาย').last().click();
-  check(await seen(p6, 'คุณออกจากเกมแล้ว', 10000), 'the one who went bankrupt is out of the game');
-  check(await seen(host, 'P6 ล้มละลาย', 8000), 'the others are told');
-  check(
-    await waitFor(async () => (await screenText(host)).split(String.fromCharCode(10)).some((l) => /^P6 .*ออกจากเกม/.test(l))),
-    'and see the seat marked as out',
-  );
-  check(await button(p6, 'GO', true).isDisabled(), 'whoever is out has no money buttons');
-  await sleep(4500);
-
   // 6d. Without a connection the money buttons go off within about 12 seconds,
   // and come back with the signal.
   const p4 = players[3];
@@ -445,6 +422,47 @@ try {
   // 6f. The watcher sees the same history and cannot press.
   check(await seen(watcher, 'P8'), 'the watcher sees the players');
   check((await watcher.page.getByRole('button', { name: 'GO', exact: true }).count()) === 0, 'the watcher has no money buttons');
+  const p6 = players[5];
+  await waitFor(async () => (await balancesOn(p6)).P6 !== undefined);
+  const owes6 = (await balancesOn(p6)).P6 + 1000;
+  // (The latest line of the history also starts with these words, so the
+  // button is looked up by its whole name.)
+  const payBankButton = p6.page.getByRole('button', { name: 'จ่ายธนาคาร', exact: true });
+  await waitFor(() => payBankButton.isEnabled());
+  await payBankButton.click();
+  await keys(p6, String(owes6));
+  await button(p6, 'ตกลง').click();
+  await seen(p6, 'เงินไม่พอ', 8000);
+  await button(p6, 'ล้มละลาย').first().click();
+  check(await seen(p6, 'ล้มละลาย?', 5000), 'going bankrupt asks for a confirmation first');
+  await button(p6, 'ล้มละลาย').last().click();
+  check(await seen(p6, 'คุณออกจากเกมแล้ว', 10000), 'the one who went bankrupt is out of the game');
+  check(await seen(host, 'P6 ล้มละลาย', 8000), 'the others are told');
+  check(
+    await waitFor(async () => (await screenText(host)).split(String.fromCharCode(10)).some((l) => /^P6 .*ออกจากเกม/.test(l))),
+    'and see the seat marked as out',
+  );
+  check(
+    (await p6.page.getByRole('button', { name: 'จ่ายธนาคาร', exact: true }).count()) === 0,
+    'the one who is out has no money buttons of their own (the banker has only the ones for the friends)',
+  );
+  await sleep(4500);
+
+
+  // 6g. The one who went out first is the banker: presses the bank's buttons
+  // for the others, hands the seat on.
+  check(await seen(p6, 'คุณเป็นนายธนาคาร', 8000), 'the first to go out is told they are the banker');
+  check(await seen(host, 'นายธนาคาร P6', 8000), 'the others see who the banker is');
+  check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) === 0, 'a player has no GO button while there is a banker');
+  const hostBeforeGo = (await balancesOn(host)).P1;
+  await p6.page.getByRole('button', { name: 'GO', exact: true }).first().click();
+  check(await waitFor(async () => (await balancesOn(host)).P1 === hostBeforeGo + 200), 'the banker pressed GO for the first friend');
+  check(await seen(host, 'นายธนาคาร P6 กด GO ให้คุณ +200', 8000), 'who is told it was the banker');
+  await button(p6, 'ส่งต่อ').click();
+  await seen(p6, 'ส่งต่อตำแหน่งนายธนาคารให้', 5000);
+  await p6.page.getByText('P1', { exact: true }).last().click();
+  check(await seen(host, 'คุณเป็นนายธนาคาร', 8000), 'the seat is handed to a friend, who is the banker now');
+  check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) >= 1, 'who has the GO button of their own again');
 } finally {
   await browser.close();
 }

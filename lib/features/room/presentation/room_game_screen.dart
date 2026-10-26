@@ -1357,6 +1357,14 @@ class _BankerBarState extends ConsumerState<_BankerBar> {
     final last = view.entries.isEmpty ? null : view.entries.last.at;
     final quiet =
         last != null && ref.read(roomClockProvider)().difference(last) > _quiet;
+    final title = mine
+        ? 'คุณเป็นนายธนาคาร'
+        : 'นายธนาคาร ${view.nameOf(banker)}';
+    final detail = mine
+        ? (view.seatActive
+              ? ' กดรับ จ่าย และ GO ให้เพื่อนได้ด้วยปุ่มใต้ชื่อ'
+              : ' คุณออกจากเกมแล้ว กดรับ จ่าย และ GO ให้เพื่อนได้')
+        : ' เป็นคนกดรับเงิน จ่ายธนาคาร และ GO ให้';
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Container(
@@ -1372,25 +1380,23 @@ class _BankerBarState extends ConsumerState<_BankerBar> {
             const Icon(LucideIcons.landmark, size: 18, color: color),
             const SizedBox(width: 8),
             Expanded(
-              child: Text.rich(
-                TextSpan(
-                  children: [
+              child: Semantics(
+                container: true,
+                label: '$title$detail',
+                child: ExcludeSemantics(
+                  child: Text.rich(
                     TextSpan(
-                      text: mine
-                          ? 'คุณเป็นนายธนาคาร'
-                          : 'นายธนาคาร ${view.nameOf(banker)}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      children: [
+                        TextSpan(
+                          text: title,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        TextSpan(text: detail),
+                      ],
                     ),
-                    TextSpan(
-                      text: mine
-                          ? (view.seatActive
-                                ? ' กดรับ จ่าย และ GO ให้เพื่อนได้ด้วยปุ่มใต้ชื่อ'
-                                : ' คุณออกจากเกมแล้ว กดรับ จ่าย และ GO ให้เพื่อนได้')
-                          : ' เป็นคนกดรับเงิน จ่ายธนาคาร และ GO ให้',
-                    ),
-                  ],
+                    style: text.bodySmall,
+                  ),
                 ),
-                style: text.bodySmall,
               ),
             ),
             if (mine)
