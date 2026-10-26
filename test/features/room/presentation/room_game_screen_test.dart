@@ -117,6 +117,261 @@ void main() {
   bool enabled(WidgetTester tester, String k) =>
       tester.widget<ButtonStyleButton>(key(k)).onPressed != null;
 
+  group('the sheet for not enough money', () {
+    Future<void> payBankSheet(WidgetTester tester, String digits) async {
+      await tester.tap(key('press-pay'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, digits);
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> mortgage(WidgetTester tester, String value) async {
+      await tester.enterText(key('mortgage-input'), value);
+      await tester.pump();
+      await tester.tap(key('mortgage-add'));
+      await tester.pump();
+    }
+
+    String status(WidgetTester tester) =>
+        tester.widget<Text>(key('mortgage-total')).data!;
+
+    testWidgets(
+      'tells what is missing, and pays only when the mortgage is enough',
+      (tester) async {
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        await payBankSheet(tester, '2000');
+        expect(find.text('ขาด 500'), findsOneWidget);
+        expect(find.text('จ่ายธนาคาร 2,000 · มีอยู่ 1,500'), findsOneWidget);
+        expect(enabled(tester, 'mortgage-confirm'), isFalse);
+        expect(status(tester), contains('ยังขาดอีก 500'));
+        await mortgage(tester, '499');
+        expect(status(tester), 'รวมจำนอง 499 · ยังขาดอีก 1');
+        expect(enabled(tester, 'mortgage-confirm'), isFalse);
+        await tester.tap(key('mortgage-remove-0'));
+        await tester.pump();
+        await mortgage(tester, '200');
+        expect(status(tester), 'รวมจำนอง 200 · ยังขาดอีก 300');
+        expect(enabled(tester, 'mortgage-confirm'), isFalse);
+        await mortgage(tester, '300');
+        expect(status(tester), 'รวมจำนอง 500 · พอจ่ายแล้ว เหลือ 0');
+        expect(enabled(tester, 'mortgage-confirm'), isTrue);
+        await tester.tap(key('mortgage-remove-0'));
+        await tester.pump();
+        expect(enabled(tester, 'mortgage-confirm'), isFalse);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a mortgage that leaves more than a fifth of the start is refused',
+      (tester) async {
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        await payBankSheet(tester, '2000');
+        await mortgage(tester, '800');
+        expect(status(tester), 'รวมจำนอง 800 · พอจ่ายแล้ว เหลือ 300');
+        expect(
+          enabled(tester, 'mortgage-confirm'),
+          isTrue,
+          reason: 'exactly 300',
+        );
+        await mortgage(tester, '1');
+        expect(status(tester), contains('จำนองเกินไป'));
+        expect(enabled(tester, 'mortgage-confirm'), isFalse);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('paying exactly what they hold needs no sheet', (tester) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await payBankSheet(tester, '1500');
+      expect(key('shortfall-sheet'), findsNothing);
+      expect(balance(tester), '0');
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('a bank that holds less than the mortgage stops the payment', (
+      tester,
+    ) async {
+      final small = await makeRoom(
+        store,
+        settings: const RoomSettings(
+          startingCash: 1500,
+          goAmount: 200,
+          maxPlayers: 4,
+          bankLimit: 100,
+        ),
+      );
+      await repoOn(
+        store,
+        'u2',
+      ).joinAsPlayer(code: small, name: 'แพร', color: 0xFFE11D48);
+      await repoOn(store, _owner).startGame(small);
+      await openApp(tester, store, '/room/$small', uid: _owner);
+      await payBankSheet(tester, '1700');
+      await mortgage(tester, '200');
+      expect(status(tester), 'รวมจำนอง 200 · ธนาคารมีเงินไม่พอให้จำนองยอดนี้');
+      expect(enabled(tester, 'mortgage-confirm'), isFalse);
+      await leave(tester);
+    });
+
+    testWidgets('pays the bank in one press and the history says so', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await payBankSheet(tester, '2000');
+      await mortgage(tester, '600');
+      await tester.tap(key('mortgage-confirm'));
+      await tester.pumpAndSettle();
+      expect(key('shortfall-sheet'), findsNothing);
+      expect(balance(tester), '100');
+      expect(
+        tester.widget<Text>(key('history-latest')).data,
+        'จ่ายธนาคาร ต้น -2,000 · จำนอง 600',
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('pays a friend in full from a transfer with a mortgage', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-give'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '2000');
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      await mortgage(tester, '500');
+      await tester.tap(key('mortgage-confirm'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '0');
+      expect(
+        find.descendant(of: key('friend-p2'), matching: find.text('3,500')),
+        findsOneWidget,
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('money that arrives meanwhile makes the mortgage unnecessary', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await payBankSheet(tester, '1600');
+      await mortgage(tester, '100');
+      await repoOn(
+        store,
+        'u2',
+      ).submitEntry(code, EntryDraft.transfer('p1', 200));
+      await tester.pumpAndSettle();
+      expect(status(tester), 'ตอนนี้เงินพอจ่ายแล้ว ไม่ต้องจำนอง');
+      expect(key('mortgage-input'), findsNothing);
+      expect(enabled(tester, 'bankrupt-button'), isFalse);
+      await tester.tap(key('mortgage-confirm'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '100');
+      expect(
+        tester.widget<Text>(key('history-latest')).data,
+        'จ่ายธนาคาร ต้น -1,600',
+        reason: 'no mortgage was written',
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('going bankrupt asks first; backing out writes nothing', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await payBankSheet(tester, '2000');
+      await tester.tap(key('bankrupt-button'));
+      await tester.pumpAndSettle();
+      expect(key('bankrupt-dialog'), findsOneWidget);
+      await tester.tap(key('bankrupt-cancel'));
+      await tester.pumpAndSettle();
+      expect(key('shortfall-sheet'), findsOneWidget);
+      expect(balance(tester), '1,500');
+      expect(find.text('ยังไม่มีรายการ'), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets('going bankrupt puts the person out, owing the bank', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await payBankSheet(tester, '2000');
+      await tester.tap(key('bankrupt-button'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('bankrupt-confirm'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '0');
+      expect(key('band-out'), findsOneWidget);
+      expect(enabled(tester, 'press-pay'), isFalse);
+      expect(
+        tester.widget<Text>(key('history-latest')).data,
+        'ล้มละลาย ต้น · หนี้ 2,000 ให้ธนาคาร',
+      );
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets('going bankrupt owing a friend pays the friend in full', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await tester.tap(key('friend-p2'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('friend-action-give'));
+      await tester.pumpAndSettle();
+      await typeAmount(tester, '2000');
+      await tester.tap(key('sheet-ok'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('bankrupt-button'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('แพร ได้รับ 2,000 ครบ'), findsOneWidget);
+      await tester.tap(key('bankrupt-confirm'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: key('friend-p2'), matching: find.text('3,500')),
+        findsOneWidget,
+      );
+      expect(key('band-out'), findsOneWidget);
+      await rest(tester);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'a debt over ten times the starting cash cannot be bankrupted',
+      (tester) async {
+        await openApp(tester, store, '/room/$code', uid: _owner);
+        await payBankSheet(tester, '999999999');
+        expect(enabled(tester, 'bankrupt-button'), isFalse);
+        expect(key('bankrupt-too-big'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('fits a narrow screen with a long name and many mortgages', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      tester.view.physicalSize = const Size(320, 640);
+      await tester.pumpAndSettle();
+      await payBankSheet(tester, '999999999');
+      for (var i = 0; i < 6; i++) {
+        await mortgage(tester, '100');
+      }
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(key('mortgage-confirm'), findsOneWidget);
+      await leave(tester);
+    });
+  });
+
   group('a player', () {
     testWidgets('sees their balance, the others and a quiet history', (
       tester,
@@ -215,7 +470,7 @@ void main() {
       await leave(tester);
     });
 
-    testWidgets('paying more than they hold is refused in words', (
+    testWidgets('paying more than they hold opens the not-enough sheet', (
       tester,
     ) async {
       await openApp(tester, store, '/room/$code', uid: _owner);
@@ -224,8 +479,9 @@ void main() {
       await typeAmount(tester, '2000');
       await tester.tap(key('sheet-ok'));
       await tester.pumpAndSettle();
-      expect(snackText(tester), contains('เงินไม่พอ'));
+      expect(key('shortfall-sheet'), findsOneWidget);
       expect(balance(tester), '1,500');
+      expect(find.text('ยังไม่มีรายการ'), findsOneWidget);
       await leave(tester);
     });
 
@@ -449,10 +705,13 @@ void main() {
       await leave(tester);
     });
 
-    testWidgets('more than you have is refused in words', (tester) async {
+    testWidgets('more than you have opens the not-enough sheet', (
+      tester,
+    ) async {
       await openApp(tester, store, '/room/$code', uid: _owner);
       await transferTo(tester, 'p2', '2000');
-      expect(snackText(tester), contains('เงินไม่พอ'));
+      expect(key('shortfall-sheet'), findsOneWidget);
+      expect(find.text('จ่ายแพร 2,000 · มีอยู่ 1,500'), findsOneWidget);
       expect(balance(tester), '1,500');
       await leave(tester);
     });
@@ -776,18 +1035,72 @@ void main() {
       await leave(tester);
     });
 
-    testWidgets('with too little money the card says so and cannot pay', (
+    testWidgets(
+      'with too little money the card says so; paying opens the sheet',
+      (tester) async {
+        await openAs(tester, _owner);
+        await u2().requestMoney(code, fromSeat: 'p1', amount: 2000);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 800));
+        expect(find.text('คุณมี 1,500 · ไม่พอจ่าย'), findsOneWidget);
+        expect(key('request-short'), findsOneWidget);
+        expect(enabled(tester, 'request-pay'), isTrue);
+        await tester.tap(key('request-pay'));
+        await tester.pumpAndSettle();
+        expect(key('shortfall-sheet'), findsOneWidget);
+        expect(balance(tester), '1,500');
+        await leave(tester);
+      },
+    );
+
+    testWidgets('a request is paid with a mortgage from the sheet', (
       tester,
     ) async {
       await openAs(tester, _owner);
       await u2().requestMoney(code, fromSeat: 'p1', amount: 2000);
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 800));
-      expect(find.text('คุณมี 1,500 · ไม่พอจ่าย'), findsOneWidget);
-      expect(key('request-short'), findsOneWidget);
-      expect(enabled(tester, 'request-pay'), isFalse);
+      await tester.tap(key('request-pay'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('mortgage-input'), '600');
+      await tester.pump();
+      await tester.tap(key('mortgage-add'));
+      await tester.pump();
+      await tester.tap(key('mortgage-confirm'));
+      await tester.pumpAndSettle();
+      expect(balance(tester), '100');
+      expect(key('request-card'), findsNothing);
+      expect(
+        find.descendant(of: key('friend-p2'), matching: find.text('3,500')),
+        findsOneWidget,
+      );
+      await rest(tester);
       await leave(tester);
     });
+
+    testWidgets(
+      'going bankrupt from the card pays the asker and ends the request',
+      (tester) async {
+        await openAs(tester, _owner);
+        await u2().requestMoney(code, fromSeat: 'p1', amount: 2000);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 800));
+        await tester.tap(key('request-pay'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('bankrupt-button'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('bankrupt-confirm'));
+        await tester.pumpAndSettle();
+        expect(balance(tester), '0');
+        expect(key('band-out'), findsOneWidget);
+        expect(key('request-card'), findsNothing);
+        expect(
+          find.descendant(of: key('friend-p2'), matching: find.text('3,500')),
+          findsOneWidget,
+        );
+        await leave(tester);
+      },
+    );
 
     testWidgets('several requests come one at a time, with a count', (
       tester,

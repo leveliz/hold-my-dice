@@ -25,6 +25,7 @@ import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_request.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
+import 'package:hold_my_dice/features/room/presentation/shortfall_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 const _reasonChips = ['ค่าเช่า', 'การ์ดโอกาส', 'ภาษี'];
@@ -170,7 +171,40 @@ class _GameBody extends ConsumerWidget {
       recent: const [],
     );
     if (result == null || !context.mounted) return;
-    await _send(context, ref, EntryDraft.payBank(result.amount));
+    await _payOrShortfall(context, ref, result.amount, null);
+  }
+
+  /// Pays [amount] to the bank ([toSeat] null) or to that seat. When the cash
+  /// does not cover it, the "not enough money" sheet comes first: mortgage and
+  /// pay in one press, or go bankrupt.
+  Future<void> _payOrShortfall(
+    BuildContext context,
+    WidgetRef ref,
+    int amount,
+    String? toSeat,
+  ) async {
+    EntryDraft pay([int? mortgage]) => toSeat == null
+        ? EntryDraft.payBank(amount, mortgage: mortgage)
+        : EntryDraft.transfer(toSeat, amount, mortgage: mortgage);
+    final cash = ref.read(roomGameProvider(code)).value?.myBalance ?? 0;
+    if (amount <= cash) {
+      await _send(context, ref, pay());
+      return;
+    }
+    final choice = await showShortfallSheet(
+      context,
+      code: code,
+      amount: amount,
+      toSeat: toSeat,
+    );
+    if (choice == null || !context.mounted) return;
+    await _send(
+      context,
+      ref,
+      choice.bankrupt
+          ? EntryDraft.bankrupt(amount, creditorSeat: toSeat)
+          : pay(choice.mortgage),
+    );
   }
 
   Future<void> _transfer(
@@ -191,7 +225,7 @@ class _GameBody extends ConsumerWidget {
       ),
     );
     if (result == null || !context.mounted) return;
-    await _send(context, ref, EntryDraft.transfer(toSeat, result.amount));
+    await _payOrShortfall(context, ref, result.amount, toSeat);
   }
 
   /// A friend was tapped: give or ask.
@@ -808,8 +842,26 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     final requests = ref.read(requestsControllerProvider(widget.code).notifier);
     final press = ref.read(pressControllerProvider(widget.code).notifier);
     final say = widget.onSay;
-    final id = _r.id;
-    final error = await press.payRequest(id);
+    final r = _r;
+    final id = r.id;
+    RoomError? error;
+    if ((ref.read(roomGameProvider(widget.code)).value?.myBalance ?? 0) >=
+        r.amount) {
+      error = await press.payRequest(id);
+    } else {
+      final choice = await showShortfallSheet(
+        context,
+        code: widget.code,
+        amount: r.amount,
+        toSeat: r.toSeat,
+      );
+      if (choice == null) return;
+      error = choice.bankrupt
+          ? await press.press(
+              EntryDraft.bankrupt(r.amount, creditorSeat: r.toSeat),
+            )
+          : await press.payRequest(id, mortgage: choice.mortgage);
+    }
     if (error == null) return;
     _dropIfGone(requests, id, error);
     say(roomErrorText(RoomException(error)));
@@ -844,10 +896,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     final mine = view.myBalance ?? 0;
     final enough = mine >= r.amount;
     final canPay =
-        _armed &&
-        enough &&
-        left > Duration.zero &&
-        view.block == PressBlock.none;
+        _armed && left > Duration.zero && view.block == PressBlock.none;
     return Padding(
       padding: const EdgeInsets.only(top: 10, bottom: 6),
       child: Container(
@@ -914,7 +963,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                 style: text.bodySmall?.copyWith(color: muted),
               ),
               Text(
-                'รับเงินจากธนาคารด้วยเหตุผล "จำนอง" ก่อน',
+                'แตะจ่ายเพื่อจำนองหรือล้มละลาย',
                 key: const ValueKey('request-short'),
                 style: text.bodySmall?.copyWith(color: const Color(0xFFBE123C)),
               ),
