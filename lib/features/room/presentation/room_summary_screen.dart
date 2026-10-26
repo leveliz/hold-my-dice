@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,7 +8,11 @@ import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_avatar.dart';
+import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
+import 'package:hold_my_dice/features/room/application/room_providers.dart';
+import 'package:hold_my_dice/features/room/data/room_repository.dart';
+import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/domain/standings.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
 import 'package:hold_my_dice/features/room/presentation/room_game_screen.dart';
@@ -14,6 +20,10 @@ import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 const _gold = Color(0xFFC8962A);
+
+/// How long after the end the room is taken down by a player's phone (the
+/// rules let a player do it from then on; the owner may at any time).
+const closeRoomAfter = Duration(minutes: 5);
 
 /// Gold text that can be read on the light and on the dark ground.
 Color _goldText(BuildContext context) =>
@@ -69,15 +79,115 @@ class _RoomSummaryScreenState extends ConsumerState<RoomSummaryScreen> {
   }
 }
 
-class _Summary extends StatelessWidget {
+class _Summary extends ConsumerStatefulWidget {
   const _Summary({required this.code, required this.view});
 
   final String code;
   final RoomGameView view;
 
   @override
+  ConsumerState<_Summary> createState() => _SummaryState();
+}
+
+class _SummaryState extends ConsumerState<_Summary> {
+  var _busy = false;
+
+  String get code => widget.code;
+  RoomGameView get view => widget.view;
+
+  void _say(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _run(Future<void> Function() action) async {
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (e) {
+      _say(roomErrorText(e));
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  /// The owner opens the next game: a lobby with the same settings.
+  Future<void> _playAgain(RoomMeta? meta) async {
+    String? password;
+    if (meta?.hasPassword ?? false) {
+      password = await showDialog<String>(
+        context: context,
+        builder: (_) => const _AgainPasswordDialog(),
+      );
+      if (password == null) return;
+    }
+    await _run(() async {
+      final next = await ref
+          .read(roomRepositoryProvider)
+          .playAgain(code, password: password);
+      if (mounted) context.go('/room/${next.code}');
+    });
+  }
+
+  /// The owner takes the room down after one question, then goes home.
+  Future<void> _close() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('close-room-dialog'),
+        title: const Text('ปิดห้องนี้?'),
+        content: const Text(
+          'ทุกคนจะดูสรุปและประวัติไม่ได้อีก และเอากลับมาไม่ได้',
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('close-room-cancel'),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ไม่ปิด'),
+          ),
+          FilledButton(
+            key: const ValueKey('close-room-confirm'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ปิดห้อง'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _run(() async {
+      await ref.read(roomRepositoryProvider).closeRoom(code);
+      if (mounted) context.go('/');
+    });
+  }
+
+  /// Follows the owner to the next game: a player of this game sits down in it
+  /// at once; a watcher, or a room that asks for its password, goes to its
+  /// join form.
+  Future<void> _joinNext(String next) => _run(() async {
+    final repo = ref.read(roomRepositoryProvider);
+    final me = await repo.readMyMember(code);
+    if (me != null && me.role == MemberRole.player) {
+      try {
+        await repo.joinAsPlayer(code: next, name: me.name, color: me.color);
+      } on RoomException catch (e) {
+        if (e.error != RoomError.wrongPassword) rethrow;
+      }
+    }
+    if (mounted) context.go('/room/$next');
+  });
+
+  @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final meta = ref.watch(roomMetaProvider(code)).value;
+    final nextCode = meta?.nextCode;
+    final endedAt = meta?.endedAt;
+    final owner = view.iAmOwner;
     final ranking = standings(
       seats: view.seats,
       balances: view.balances,
@@ -105,6 +215,19 @@ class _Summary extends StatelessWidget {
                   'จบเกมแล้ว',
                   style: headingStyle(context, text.headlineSmall),
                 ),
+                const SizedBox(height: 12),
+                if (nextCode != null)
+                  _NextRoomBanner(
+                    owner: owner,
+                    busy: _busy,
+                    onJoin: () => _joinNext(nextCode),
+                  )
+                else if (endedAt != null)
+                  _CloseNotice(
+                    code: code,
+                    endedAt: endedAt,
+                    canClose: owner || view.mySeat != null,
+                  ),
                 const SizedBox(height: 16),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -137,30 +260,231 @@ class _Summary extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                FilledButton(
-                  key: const ValueKey('summary-home'),
-                  onPressed: () => context.go('/'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
+                if (owner)
+                  FilledButton(
+                    key: const ValueKey('summary-again'),
+                    onPressed: _busy ? null : () => _playAgain(meta),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                    child: const Text('เล่นอีกรอบ'),
+                  )
+                else
+                  FilledButton(
+                    key: const ValueKey('summary-home'),
+                    onPressed: () => context.go('/'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                    child: const Text('ออกจากห้อง'),
                   ),
-                  child: const Text('กลับหน้าแรก'),
-                ),
                 const SizedBox(height: 8),
-                OutlinedButton(
-                  key: const ValueKey('summary-history'),
-                  onPressed: () => showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    showDragHandle: true,
-                    builder: (_) => RoomHistorySheet(code: code),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                  child: const Text('ดูประวัติทั้งหมด'),
+                Row(
+                  children: [
+                    if (owner) ...[
+                      Expanded(
+                        child: OutlinedButton(
+                          key: const ValueKey('summary-close'),
+                          onPressed: _busy ? null : _close,
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            foregroundColor: Theme.of(
+                              context,
+                            ).colorScheme.error,
+                          ),
+                          child: const Text('ปิดห้อง'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: OutlinedButton(
+                        key: const ValueKey('summary-history'),
+                        onPressed: () => showModalBottomSheet<void>(
+                          context: context,
+                          isScrollControlled: true,
+                          showDragHandle: true,
+                          builder: (_) => RoomHistorySheet(code: code),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                        child: const Text('ดูประวัติทั้งหมด'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Asks the owner for the password of the next room: the old one only keeps a
+/// proof of it, so it cannot be carried over.
+class _AgainPasswordDialog extends StatefulWidget {
+  const _AgainPasswordDialog();
+
+  @override
+  State<_AgainPasswordDialog> createState() => _AgainPasswordDialogState();
+}
+
+class _AgainPasswordDialogState extends State<_AgainPasswordDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('again-dialog'),
+      title: const Text('รหัสผ่านของห้องใหม่'),
+      content: TextField(
+        key: const ValueKey('again-password'),
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: 'ห้องนี้มีรหัสผ่าน ใส่รหัสผ่านของห้องใหม่',
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('again-cancel'),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(
+          key: const ValueKey('again-confirm'),
+          onPressed: _controller.text.isEmpty
+              ? null
+              : () => Navigator.pop(context, _controller.text),
+          child: const Text('เล่นอีกรอบ'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tells everybody the room goes away, and when. The phone of a player (or of
+/// the owner) takes the room down when the time is up; a watcher only sees it.
+class _CloseNotice extends ConsumerStatefulWidget {
+  const _CloseNotice({
+    required this.code,
+    required this.endedAt,
+    required this.canClose,
+  });
+
+  final String code;
+  final DateTime endedAt;
+  final bool canClose;
+
+  @override
+  ConsumerState<_CloseNotice> createState() => _CloseNoticeState();
+}
+
+class _CloseNoticeState extends ConsumerState<_CloseNotice> {
+  Timer? _tick;
+  DateTime? _lastTry;
+  var _trying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) => _update());
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  Duration _left() {
+    final now = ref.read(roomClockProvider)();
+    return widget.endedAt.add(closeRoomAfter).difference(now);
+  }
+
+  void _update() {
+    if (!mounted) return;
+    setState(() {});
+    if (!widget.canClose || _trying || _left() > Duration.zero) return;
+    final now = ref.read(roomClockProvider)();
+    // A phone whose clock runs ahead is told no by the room; try again soon.
+    if (_lastTry != null &&
+        now.difference(_lastTry!) < const Duration(seconds: 5)) {
+      return;
+    }
+    _lastTry = now;
+    _close();
+  }
+
+  Future<void> _close() async {
+    _trying = true;
+    try {
+      await ref.read(roomRepositoryProvider).closeRoom(widget.code);
+    } catch (_) {
+      // Somebody else may be doing it, or the line is down: the next try says.
+    }
+    _trying = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final left = _left();
+    final text = left > Duration.zero
+        ? 'ห้องจะถูกปิดใน ${left.inMinutes}:'
+              '${(left.inSeconds % 60).toString().padLeft(2, '0')}'
+        : 'กำลังปิดห้อง…';
+    return Container(
+      key: const ValueKey('summary-close-notice'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: tileDecoration(context),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.timer, size: 18),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown instead of the countdown once the owner has opened the next game.
+class _NextRoomBanner extends StatelessWidget {
+  const _NextRoomBanner({
+    required this.owner,
+    required this.busy,
+    required this.onJoin,
+  });
+
+  final bool owner;
+  final bool busy;
+  final VoidCallback onJoin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('summary-next-banner'),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: tileDecoration(context),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.dices, size: 18),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('มีห้องใหม่แล้ว')),
+          FilledButton(
+            key: const ValueKey('summary-next-join'),
+            onPressed: busy ? null : onJoin,
+            child: Text(owner ? 'ไปห้องใหม่' : 'เข้าร่วม'),
           ),
         ],
       ),
