@@ -1804,6 +1804,263 @@ describe('who reads the entries', () => {
   });
 });
 
+// ---- 7e: a mortgage in the same press as a payment, and bankruptcy
+
+const POOR = { ...BASE, p1: 400 };
+const POOR_BANK = { ...POOR, bank: 5000 };
+const bankRoom = () => seedPlaying({ settingsOver: { bankLimit: 5000 }, balances: POOR_BANK });
+const poorRoom = () => seedPlaying({ balances: POOR });
+
+/** A payment of [amount] by [from], helped by [mortgage]: to the bank or to seat [to]. */
+function mortgagePay(from, to, amount, mortgage, base = POOR) {
+  const balances = { ...base, [from]: base[from] + mortgage - amount };
+  if (to === 'bank') {
+    if ('bank' in base) balances.bank = base.bank - mortgage + amount;
+  } else {
+    balances[to] = base[to] + amount;
+    if ('bank' in base) balances.bank = base.bank - mortgage;
+  }
+  return {
+    entry: { seat: from, kind: to === 'bank' ? 'payBank' : 'transfer', from, to, amount, reason: null, mortgage },
+    balances,
+  };
+}
+
+/** Seat [seat] goes out owing [owed] to seat [creditor] (null: the bank). */
+function bankrupt(seat, creditor, owed, base = BASE, out = [], banker = null) {
+  const cash = base[seat];
+  const balances = { ...base, [seat]: 0 };
+  if (creditor) {
+    balances[creditor] = base[creditor] + owed;
+    if ('bank' in base) balances.bank = base.bank - (owed - cash);
+  } else if ('bank' in base) {
+    balances.bank = base.bank + cash;
+  }
+  return {
+    entry: {
+      seat,
+      kind: 'bankrupt',
+      from: null,
+      to: null,
+      amount: null,
+      reason: null,
+      bankrupt: { seat, creditorSeat: creditor, cash, owed },
+    },
+    balances,
+    stateExtra: { bankrupt: [...out, seat], bankerSeat: banker ?? seat },
+  };
+}
+const goOut = (uid, s, opts = {}) => put(uid, s, { stateExtra: s.stateExtra, ...opts });
+
+describe('a mortgage with a payment: what is accepted', () => {
+  it('a payment to the bank that the cash does not cover', async () => {
+    await poorRoom();
+    await assertSucceeds(put('owner', mortgagePay('p1', 'bank', 700, 360)));
+    assert.equal((await adminGet(stateDoc)).data().balances.p1, 60);
+  });
+
+  it('a transfer that the cash does not cover', async () => {
+    await poorRoom();
+    await assertSucceeds(put('owner', mortgagePay('p1', 'p2', 700, 360)));
+    const b = (await adminGet(stateDoc)).data().balances;
+    assert.deepEqual([b.p1, b.p2], [60, 2200]);
+  });
+
+  it('with a bank limit the bank pays out the mortgage and takes the payment', async () => {
+    await bankRoom();
+    await assertSucceeds(put('owner', mortgagePay('p1', 'bank', 700, 360, POOR_BANK)));
+    assert.equal((await adminGet(stateDoc)).data().balances.bank, 5000 - 360 + 700);
+    await env.clearFirestore();
+    await bankRoom();
+    await assertSucceeds(put('owner', mortgagePay('p1', 'p2', 700, 360, POOR_BANK)));
+    assert.equal((await adminGet(stateDoc)).data().balances.bank, 5000 - 360);
+  });
+
+  it('what is left over may be a fifth of the starting cash, 300, exactly', async () => {
+    await poorRoom();
+    await assertSucceeds(put('owner', mortgagePay('p1', 'bank', 700, 600)));
+  });
+
+  it('a mortgage of just what is missing', async () => {
+    await poorRoom();
+    await assertSucceeds(put('owner', mortgagePay('p1', 'bank', 700, 300)));
+    assert.equal((await adminGet(stateDoc)).data().balances.p1, 0);
+  });
+
+  it('a bank below zero (after a bankruptcy) can still be paid', async () => {
+    const base = { ...BASE, bank: -300 };
+    await seedPlaying({ settingsOver: { bankLimit: 5000 }, balances: base });
+    await assertSucceeds(put('owner', payBank('p1', 100, base)));
+    assert.equal((await adminGet(stateDoc)).data().balances.bank, -200);
+  });
+});
+
+describe('a mortgage with a payment: what is refused', () => {
+  const refuse = (title, run, setup = poorRoom) =>
+    it(title, async () => {
+      await setup();
+      await assertFails(run());
+    });
+
+  refuse('when the cash covers the payment', () => put('owner', mortgagePay('p1', 'bank', 400, 100)));
+  refuse('when the cash covers it by a coin', () => put('owner', mortgagePay('p1', 'bank', 300, 100)));
+  refuse('a mortgage that does not cover what is missing', () => put('owner', mortgagePay('p1', 'bank', 700, 299)));
+  refuse('what is left over is 301', () => put('owner', mortgagePay('p1', 'bank', 700, 601)));
+  refuse('what is left over is 301 on a transfer', () => put('owner', mortgagePay('p1', 'p2', 700, 601)));
+  refuse('a mortgage of 0', () => put('owner', mortgagePay('p1', 'bank', 700, 0)));
+  refuse('a negative mortgage', () => put('owner', mortgagePay('p1', 'bank', 700, -5)));
+  refuse('a mortgage that is text', () => put('owner', mortgagePay('p1', 'bank', 700, 360), { entry: { mortgage: '360' } }));
+  refuse('a mortgage with decimals', () => put('owner', mortgagePay('p1', 'bank', 700, 360.5), { balances: { ...POOR, p1: 60.5 } }));
+  refuse('a mortgage that the balances do not show', () => put('owner', mortgagePay('p1', 'bank', 700, 360), { balances: { ...POOR, p1: 0 } }));
+  refuse('a mortgage that gives the seat more than it should', () => put('owner', mortgagePay('p1', 'bank', 700, 360), { balances: { ...POOR, p1: 61 } }));
+  refuse('a transfer whose mortgage the receiver gets', () => put('owner', mortgagePay('p1', 'p2', 700, 360), { balances: { ...POOR, p1: 60, p2: 2060 } }));
+  refuse('a transfer to a player who is out', () => put('owner', mortgagePay('p1', 'p2', 700, 360)), () =>
+    seedPlaying({ balances: POOR, stateOver: { bankrupt: ['p2'] } }));
+  refuse('on a receive', () => put('owner', receive('p1', 100, POOR), { entry: { mortgage: 50 }, balances: { ...POOR, p1: 500 } }));
+  refuse('on a pass over GO', () => put('owner', passGo('p1', POOR), { entry: { mortgage: 50 }, balances: { ...POOR, p1: 600 } }));
+  refuse('when the bank holds less than the mortgage', () => put('owner', mortgagePay('p1', 'bank', 700, 360, { ...POOR, bank: 359 })), () =>
+    seedPlaying({ settingsOver: { bankLimit: 5000 }, balances: { ...POOR, bank: 359 } }));
+  refuse('when the bank does not take the payment', () => put('owner', mortgagePay('p1', 'bank', 700, 360, POOR_BANK), { balances: { ...POOR, p1: 60, bank: 4640 } }), bankRoom);
+  refuse('by somebody else', () => put('u2', mortgagePay('p1', 'bank', 700, 360)));
+  refuse('when the bank does not pay out the mortgage of a transfer', () => put('owner', mortgagePay('p1', 'p2', 700, 360, POOR_BANK), { balances: { ...POOR, p1: 60, p2: 2200, bank: 5000 } }), bankRoom);
+});
+
+describe('bankruptcy: what is accepted', () => {
+  it('owing a player: the player gets the whole debt, the seat ends at 0 and is out', async () => {
+    await seedPlaying();
+    await assertSucceeds(goOut('owner', bankrupt('p1', 'p2', 2000)));
+    const state = (await adminGet(stateDoc)).data();
+    assert.deepEqual(state.balances, { ...BASE, p1: 0, p2: 3500 });
+    assert.deepEqual(state.bankrupt, ['p1']);
+    assert.equal(state.bankerSeat, 'p1');
+    assert.equal(state.seq, 1);
+  });
+
+  it('owing the bank: the cash goes to the bank', async () => {
+    const base = { ...BASE, bank: 5000 };
+    await seedPlaying({ settingsOver: { bankLimit: 5000 }, balances: base });
+    await assertSucceeds(goOut('owner', bankrupt('p1', null, 2000, base)));
+    const state = (await adminGet(stateDoc)).data();
+    assert.deepEqual(state.balances, { ...BASE, p1: 0, bank: 6500 });
+  });
+
+  it('owing the bank in a room without a bank limit', async () => {
+    await seedPlaying();
+    await assertSucceeds(goOut('owner', bankrupt('p1', null, 2000)));
+    assert.equal((await adminGet(stateDoc)).data().balances.p1, 0);
+  });
+
+  it('the bank pays what the cash does not cover, and may go below zero', async () => {
+    const base = { ...BASE, bank: 100 };
+    await seedPlaying({ settingsOver: { bankLimit: 100 }, balances: base });
+    await assertSucceeds(goOut('owner', bankrupt('p1', 'p2', 2000, base)));
+    assert.equal((await adminGet(stateDoc)).data().balances.bank, 100 - 500);
+  });
+
+  it('the debt may be 10 times the starting cash, 15,000, and the cash may be 0', async () => {
+    const base = { ...BASE, p1: 0 };
+    await seedPlaying({ balances: base });
+    await assertSucceeds(goOut('owner', bankrupt('p1', 'p2', 15000, base)));
+  });
+
+  it('the second to go out does not become the banker', async () => {
+    await seedPlaying({ stateOver: { bankrupt: ['p4'], bankerSeat: 'p4' } });
+    await assertSucceeds(goOut('owner', bankrupt('p1', 'p2', 2000, BASE, ['p4'], 'p4')));
+    const state = (await adminGet(stateDoc)).data();
+    assert.deepEqual(state.bankrupt, ['p4', 'p1']);
+    assert.equal(state.bankerSeat, 'p4');
+  });
+});
+
+describe('bankruptcy: what is refused', () => {
+  const refuse = (title, run, setup = seedPlaying) =>
+    it(title, async () => {
+      await setup();
+      await assertFails(run());
+    });
+  const out = (over = {}, extra = {}) => {
+    const s = bankrupt('p1', 'p2', 2000);
+    return { ...s, entry: { ...s.entry, ...over }, ...extra };
+  };
+  const info = (over) => {
+    const s = bankrupt('p1', 'p2', 2000);
+    return { ...s, entry: { ...s.entry, bankrupt: { ...s.entry.bankrupt, ...over } } };
+  };
+
+  refuse('the cash in the facts is not what the seat holds', () => goOut('owner', info({ cash: 1000 })));
+  refuse('the debt equals the cash', () => goOut('owner', bankrupt('p1', 'p2', 1500)));
+  refuse('the debt is less than the cash', () => goOut('owner', bankrupt('p1', 'p2', 1000)));
+  refuse('the debt is over 15,000', () => goOut('owner', bankrupt('p1', 'p2', 15001)));
+  refuse('the debt has decimals', () => goOut('owner', info({ owed: 2000.5 })));
+  refuse('the debt is text', () => goOut('owner', info({ owed: '2000' })));
+  refuse('the creditor is the seat itself', () => goOut('owner', info({ creditorSeat: 'p1' })));
+  refuse('a creditor who is not in the game', () => goOut('owner', info({ creditorSeat: 'p9' })));
+  refuse('a creditor who is out already', () => goOut('owner', bankrupt('p1', 'p2', 2000, BASE, ['p2'], 'p2')), () =>
+    seedPlaying({ stateOver: { bankrupt: ['p2'], bankerSeat: 'p2' } }));
+  refuse('the facts are for another seat', () => goOut('owner', info({ seat: 'p2' })));
+  refuse('the facts have another key', () => goOut('owner', info({ extra: 1 })));
+  refuse('the facts lack a key', () => {
+    const s = bankrupt('p1', 'p2', 2000);
+    delete s.entry.bankrupt.owed;
+    return goOut('owner', s);
+  });
+  refuse('the facts are not a map', () => goOut('owner', out({ bankrupt: 'p1' })));
+  refuse('no facts', () => goOut('owner', out({ bankrupt: null })));
+  refuse('the creditor gets less than the debt', () => goOut('owner', bankrupt('p1', 'p2', 2000), { balances: { ...BASE, p1: 0, p2: 3499 } }));
+  refuse('the creditor gets more than the debt', () => goOut('owner', bankrupt('p1', 'p2', 2000), { balances: { ...BASE, p1: 0, p2: 3501 } }));
+  refuse('the cash in the facts is a lie that the numbers follow', () => goOut('owner', info({ cash: 1000 }), { balances: { ...BASE, p1: 500, p2: 3500 } }));
+  refuse('owing the bank, with a seat that keeps money', () => goOut('owner', bankrupt('p1', null, 2000), { balances: { ...BASE, p1: 5 } }));
+  refuse('owing the bank, with another seat getting the cash', () => goOut('owner', bankrupt('p1', null, 2000), { balances: { ...BASE, p1: 0, p2: 3000 } }));
+  refuse('the seat keeps some money', () => goOut('owner', bankrupt('p1', 'p2', 2000), { balances: { ...BASE, p1: 1, p2: 3500 } }));
+  refuse('another seat moves too', () => goOut('owner', bankrupt('p1', 'p2', 2000), { balances: { ...BASE, p1: 0, p2: 3500, p3: 1501 } }));
+  refuse('the seat is not put on the list of those out', () => goOut('owner', bankrupt('p1', 'p2', 2000), { stateExtra: { bankerSeat: 'p1' } }));
+  refuse('somebody else is put on the list', () => goOut('owner', bankrupt('p1', 'p2', 2000), { stateExtra: { bankrupt: ['p2'], bankerSeat: 'p1' } }));
+  refuse('the banker is somebody else', () => goOut('owner', bankrupt('p1', 'p2', 2000), { stateExtra: { bankrupt: ['p1'], bankerSeat: 'p2' } }));
+  refuse('no banker is set', () => goOut('owner', bankrupt('p1', 'p2', 2000), { stateExtra: { bankrupt: ['p1'], bankerSeat: null } }));
+  refuse('the second to go out takes the banker over', () => goOut('owner', bankrupt('p1', 'p2', 2000, BASE, ['p4'], 'p1')), () =>
+    seedPlaying({ stateOver: { bankrupt: ['p4'], bankerSeat: 'p4' } }));
+  refuse('by somebody else', () => goOut('u2', bankrupt('p1', 'p2', 2000)));
+  refuse('a seat that is out already', () => goOut('owner', bankrupt('p1', 'p2', 2000, BASE, ['p1'], 'p1')), () =>
+    seedPlaying({ stateOver: { bankrupt: ['p1'], bankerSeat: 'p1' } }));
+  refuse('with an amount', () => goOut('owner', out({ amount: 2000 })));
+  refuse('with a reason', () => goOut('owner', out({ reason: 'x' })));
+  refuse('with a party', () => goOut('owner', out({ to: 'p2' })));
+  refuse('with a mortgage', () => goOut('owner', out({ mortgage: 100 })));
+  refuse('facts on another kind', () => put('owner', { ...payBank('p1', 100), entry: { ...payBank('p1', 100).entry, bankrupt: bankrupt('p1', 'p2', 2000).entry.bankrupt } }));
+  refuse('the list of those out changing with another kind of entry', () => put('owner', receive('p1', 100), { stateExtra: { bankrupt: ['p1'], bankerSeat: 'p1' } }));
+});
+
+describe('taking back a payment with a mortgage', () => {
+  it('a payment to the bank, with and without a bank limit', async () => {
+    for (const [base, room] of [[POOR, {}], [POOR_BANK, { settingsOver: { bankLimit: 5000 }, balances: POOR_BANK }]]) {
+      await env.clearFirestore();
+      await seedOnePress(mortgagePay('p1', 'bank', 700, 360, base), { seedOver: room });
+      await assertSucceeds(takeBack('owner', { balances: base }));
+    }
+  });
+
+  it('a transfer, with and without a bank limit', async () => {
+    for (const [base, room] of [[POOR, {}], [POOR_BANK, { settingsOver: { bankLimit: 5000 }, balances: POOR_BANK }]]) {
+      await env.clearFirestore();
+      await seedOnePress(mortgagePay('p1', 'p2', 700, 360, base), { seedOver: room });
+      await assertSucceeds(takeBack('owner', { balances: base }));
+    }
+  });
+
+  it('is refused when the mortgage is left out of the numbers', async () => {
+    await seedOnePress(mortgagePay('p1', 'bank', 700, 360));
+    await assertFails(takeBack('owner', { balances: { ...POOR, p1: 760 } }));
+    await env.clearFirestore();
+    await seedOnePress(mortgagePay('p1', 'p2', 700, 360));
+    await assertFails(takeBack('owner', { balances: { ...POOR, p1: 760, p2: 800 } }));
+  });
+
+  it('a bankruptcy is not taken back', async () => {
+    await seedOnePress(bankrupt('p1', 'p2', 2000));
+    await assertFails(takeBack('owner', { balances: BASE }));
+  });
+});
+
 describe('the rules agree with the Ledger', () => {
   const cases = JSON.parse(readFileSync('parity_cases.json', 'utf8'));
 
@@ -1811,6 +2068,28 @@ describe('the rules agree with the Ledger', () => {
   function natural(c) {
     const after = { ...c.balances };
     const sign = c.op === 'undo' ? -1 : 1;
+    if (c.kind === 'bankrupt') {
+      after[c.seat] = 0;
+      if (c.creditor) {
+        after[c.creditor] = (c.creditor === c.seat ? 0 : after[c.creditor]) + c.owed;
+        if ('bank' in after) after.bank -= c.owed - c.cash;
+      } else if ('bank' in after) {
+        after.bank += c.cash;
+      }
+      return after;
+    }
+    if ('mortgage' in c) {
+      // the payment helped by a mortgage: the seat gets the mortgage, pays the amount
+      const give = sign * (c.mortgage - c.amount);
+      after[c.seat] += give;
+      if (c.kind === 'transfer') {
+        after[c.to] -= sign * -c.amount;
+        if ('bank' in after) after.bank -= sign * c.mortgage;
+      } else if ('bank' in after) {
+        after.bank -= give;
+      }
+      return after;
+    }
     if (c.kind === 'transfer') {
       after[c.seat] = (after[c.seat] ?? 0) - sign * c.amount;
       after[c.to] = (after[c.to] ?? 0) + sign * c.amount;
@@ -1822,14 +2101,26 @@ describe('the rules agree with the Ledger', () => {
     return after;
   }
 
-  const entryOf = (c) => ({
-    seat: c.seat,
-    kind: c.kind,
-    from: c.kind === 'payBank' || c.kind === 'transfer' ? c.seat : 'bank',
-    to: c.kind === 'payBank' ? 'bank' : c.kind === 'transfer' ? c.to : c.seat,
-    amount: c.amount,
-    reason: c.kind === 'receive' ? 'ค่าเช่า' : c.kind === 'passGo' ? 'ผ่านจุดเริ่ม' : null,
-  });
+  const entryOf = (c) =>
+    c.kind === 'bankrupt'
+      ? {
+          seat: c.seat,
+          kind: 'bankrupt',
+          from: null,
+          to: null,
+          amount: null,
+          reason: null,
+          bankrupt: { seat: c.seat, creditorSeat: c.creditor ?? null, cash: c.cash, owed: c.owed },
+        }
+      : {
+          seat: c.seat,
+          kind: c.kind,
+          from: c.kind === 'payBank' || c.kind === 'transfer' ? c.seat : 'bank',
+          to: c.kind === 'payBank' ? 'bank' : c.kind === 'transfer' ? c.to : c.seat,
+          amount: c.amount,
+          reason: c.kind === 'receive' ? 'ค่าเช่า' : c.kind === 'passGo' ? 'ผ่านจุดเริ่ม' : null,
+          ...('mortgage' in c ? { mortgage: c.mortgage } : {}),
+        };
 
   it(`accepts and refuses ${cases.length} made-up presses and take-backs exactly as the Ledger does`, async () => {
     await seedPlaying();
@@ -1838,7 +2129,7 @@ describe('the rules agree with the Ledger', () => {
       const seats = ['p1', 'p2', 'p3', 'p4'];
       await admin(async (db) => {
         await deleteDoc(entryDoc(db, 0));
-        await setDoc(stateDoc(db), stateData({ seats, seq: c.op === 'undo' ? 1 : 0, balances: c.balances, bankrupt: c.bankrupt }));
+        await setDoc(stateDoc(db), stateData({ seats, seq: c.op === 'undo' ? 1 : 0, balances: c.balances, bankrupt: c.bankrupt, bankerSeat: c.bankerSeat ?? null }));
         if (c.op === 'undo') {
           await setDoc(entryDoc(db, 0), entryData({ seq: 0, by: uidOfSeat[c.seat], at: Timestamp.now(), ...entryOf(c) }));
         }
@@ -1848,7 +2139,9 @@ describe('the rules agree with the Ledger', () => {
       let accepted = true;
       try {
         if (c.op === 'undo') await takeBack(uidOfSeat[c.seat], { balances: after });
-        else await put(uidOfSeat[c.seat], { entry: entryOf(c), balances: after });
+        else if (c.kind === 'bankrupt') {
+          await put(uidOfSeat[c.seat], { entry: entryOf(c), balances: after }, { stateExtra: { bankrupt: [...c.bankrupt, c.seat], bankerSeat: c.bankerSeat ?? c.seat } });
+        } else await put(uidOfSeat[c.seat], { entry: entryOf(c), balances: after });
       } catch {
         accepted = false;
       }

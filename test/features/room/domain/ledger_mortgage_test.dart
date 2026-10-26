@@ -173,6 +173,24 @@ void main() {
       expect(_why(Ledger.undo(spent, e)), LedgerRejection.insufficient);
     });
 
+    test(
+      'gives money to a bank below zero (after a bankruptcy) when it gains',
+      () {
+        // The mortgage 200 was bigger than the payment 100: undoing it pays the
+        // bank back 100 net, so the bank gains and may stay below zero.
+        final e = _payBank('p2', 100, mortgage: 200);
+        final after = LedgerState(
+          balances: {'p1': 1500, 'p2': 150, 'p3': 1500, 'bank': -500},
+          bankrupt: const [],
+          bankerSeat: null,
+          startingCash: 1500,
+        );
+        final back = _applied(Ledger.undo(after, e));
+        expect(back.balances['p2'], 50);
+        expect(back.balances['bank'], -400);
+      },
+    );
+
     test('is refused when the bank no longer holds what it was paid', () {
       final e = _payBank('p2', 700, mortgage: 360);
       final done = _applied(Ledger.apply(poorLimited, e));

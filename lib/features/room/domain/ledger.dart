@@ -142,7 +142,8 @@ class Ledger {
         }
         final raised = entry.mortgage ?? 0;
         if (state.bankHasLimit) {
-          if (balances[Transaction.bank]! < amount - raised) {
+          if (amount > raised &&
+              balances[Transaction.bank]! < amount - raised) {
             return const Rejected(LedgerRejection.bankLimit);
           }
           balances[Transaction.bank] =

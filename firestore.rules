@@ -118,7 +118,9 @@ service cloud.firestore {
 
     // What an entry does to the balances: the seat of the person who pressed
     // moves by [delta], the bank (only when the room gives it a limit) moves
-    // the other way, and nothing else changes. Whole numbers only, none below 0.
+    // the other way, and nothing else changes. Whole numbers only, no seat
+    // below 0, and the bank not below 0 when it pays out (after a bankruptcy
+    // the bank may be below 0 and can still be paid).
     function balancesMove(before, after, seat, delta) {
       return before is map && after is map
         && after.size() == before.size()
@@ -126,9 +128,69 @@ service cloud.firestore {
         && after[seat] is int && after[seat] >= 0
         && after[seat] == before[seat] + delta
         && ('bank' in before
-            ? 'bank' in after && after.bank is int && after.bank >= 0
+            ? 'bank' in after && after.bank is int
+              && (delta <= 0 || after.bank >= 0)
               && after.bank == before.bank - delta
             : !('bank' in after));
+    }
+
+    // Two seats move by their own amounts and the bank (when the room has
+    // one) by [bankDelta]; nothing else changes. Used where a payment is
+    // helped by a mortgage and for a bankruptcy owed to a player.
+    function balancesPair(before, after, a, da, b, db, bankDelta) {
+      return before is map && after is map
+        && after.size() == before.size()
+        && after.diff(before).affectedKeys().hasOnly([a, b, 'bank'])
+        && after[a] is int && after[a] >= 0 && after[a] == before[a] + da
+        && after[b] is int && after[b] >= 0 && after[b] == before[b] + db
+        && ('bank' in before
+            ? 'bank' in after && after.bank is int
+              && after.bank == before.bank + bankDelta
+            : !('bank' in after));
+    }
+
+    // A mortgage raised together with the payment [d] by a seat that cannot
+    // pay it: needed, enough, leaving no more over than a fifth of the starting
+    // cash (5 * left <= cash, the same as left <= cash ~/ 5), and the bank
+    // must hold what it is asked to pay out.
+    function mortgageOk(state, room, d) {
+      let cash = state.balances[d.seat];
+      return validMoney(d.mortgage)
+        && d.amount > cash
+        && cash + d.mortgage >= d.amount
+        && 5 * (cash + d.mortgage - d.amount) <= room.settings.startingCash
+        && (!('bank' in state.balances) || state.balances.bank >= d.mortgage);
+    }
+
+    // The bankruptcy of d.seat: the facts are the real ones, the debtor ends at
+    // 0 and the creditor (a player, or the bank) is paid as the ledger pays
+    // them, the seat goes on the list of those who are out and the first one
+    // out becomes the banker.
+    function validBankrupt(d, state, stateAfter, room) {
+      let b = d.bankrupt;
+      return !('mortgage' in d)
+        && d.from == null && d.to == null && d.amount == null
+        && d.reason == null
+        && b is map
+        && b.keys().hasOnly(['seat', 'creditorSeat', 'cash', 'owed'])
+        && b.keys().hasAll(['seat', 'creditorSeat', 'cash', 'owed'])
+        && b.seat == d.seat
+        && b.cash is int && b.cash == state.balances[d.seat]
+        && b.owed is int && b.owed > b.cash
+        && b.owed <= 10 * room.settings.startingCash
+        && (b.creditorSeat == null
+            ? balancesMove(state.balances, stateAfter.balances, d.seat,
+                           -b.cash)
+            : b.creditorSeat is string && b.creditorSeat.matches('p[1-8]')
+              && b.creditorSeat != d.seat
+              && b.creditorSeat in state.seats
+              && !(b.creditorSeat in state.bankrupt)
+              && balancesPair(state.balances, stateAfter.balances, d.seat,
+                              -b.cash, b.creditorSeat, b.owed,
+                              b.cash - b.owed))
+        && stateAfter.bankrupt == state.bankrupt.concat([d.seat])
+        && stateAfter.bankerSeat
+             == (state.bankerSeat == null ? d.seat : state.bankerSeat);
     }
 
     // What a transfer does to the balances: [from] gives [amount], [to] gets
@@ -155,7 +217,8 @@ service cloud.firestore {
       let room = get(roomDoc(code)).data;
       return signedIn()
         && d.keys().hasOnly(['v', 'seq', 'by', 'seat', 'at', 'kind', 'from',
-                             'to', 'amount', 'reason', 'cid', 'voided'])
+                             'to', 'amount', 'reason', 'cid', 'voided',
+                             'mortgage', 'bankrupt'])
         && d.keys().hasAll(['v', 'seq', 'by', 'seat', 'at', 'kind', 'from',
                             'to', 'amount', 'reason', 'cid', 'voided'])
         && d.v == 1
@@ -171,29 +234,44 @@ service cloud.firestore {
         && d.at == request.time
         && d.voided == false
         && d.cid is string && d.cid.size() >= 8 && d.cid.size() <= 40
-        && d.amount is int && d.amount >= 1 && d.amount <= 999999999
-        && (d.kind == 'receive'
-            ? d.from == 'bank' && d.to == d.seat && validReason(d.reason)
-              && balancesMove(state.balances, stateAfter.balances, d.seat,
-                              d.amount)
-            : d.kind == 'passGo'
-            ? d.from == 'bank' && d.to == d.seat
-              && d.amount == room.settings.goAmount
-              && d.reason == 'ผ่านจุดเริ่ม'
-              && balancesMove(state.balances, stateAfter.balances, d.seat,
-                              d.amount)
-            : d.kind == 'transfer'
-            ? d.from == d.seat
-              && d.to is string && d.to != d.seat
-              && d.to in state.seats && !(d.to in state.bankrupt)
-              && (d.reason == null || validReason(d.reason))
-              && balancesTransfer(state.balances, stateAfter.balances, d.seat,
-                                  d.to, d.amount)
-            : d.kind == 'payBank'
-              && d.from == d.seat && d.to == 'bank'
-              && (d.reason == null || validReason(d.reason))
-              && balancesMove(state.balances, stateAfter.balances, d.seat,
-                              -d.amount));
+        && (d.kind == 'bankrupt'
+            ? validBankrupt(d, state, stateAfter, room)
+            : !('bankrupt' in d)
+              && d.amount is int && d.amount >= 1 && d.amount <= 999999999
+              && (d.kind == 'receive'
+                  ? !('mortgage' in d)
+                    && d.from == 'bank' && d.to == d.seat
+                    && validReason(d.reason)
+                    && balancesMove(state.balances, stateAfter.balances,
+                                    d.seat, d.amount)
+                  : d.kind == 'passGo'
+                  ? !('mortgage' in d)
+                    && d.from == 'bank' && d.to == d.seat
+                    && d.amount == room.settings.goAmount
+                    && d.reason == 'ผ่านจุดเริ่ม'
+                    && balancesMove(state.balances, stateAfter.balances,
+                                    d.seat, d.amount)
+                  : d.kind == 'transfer'
+                  ? d.from == d.seat
+                    && d.to is string && d.to != d.seat
+                    && d.to in state.seats && !(d.to in state.bankrupt)
+                    && (d.reason == null || validReason(d.reason))
+                    && (!('mortgage' in d)
+                        ? balancesTransfer(state.balances, stateAfter.balances,
+                                           d.seat, d.to, d.amount)
+                        : mortgageOk(state, room, d)
+                          && balancesPair(state.balances, stateAfter.balances,
+                                          d.seat, d.mortgage - d.amount,
+                                          d.to, d.amount, -d.mortgage))
+                  : d.kind == 'payBank'
+                    && d.from == d.seat && d.to == 'bank'
+                    && (d.reason == null || validReason(d.reason))
+                    && (!('mortgage' in d)
+                        ? balancesMove(state.balances, stateAfter.balances,
+                                       d.seat, -d.amount)
+                        : mortgageOk(state, room, d)
+                          && balancesMove(state.balances, stateAfter.balances,
+                                          d.seat, d.mortgage - d.amount))));
     }
 
     // Taking back an entry: the latest of the whole game, the person's own,
@@ -214,11 +292,15 @@ service cloud.firestore {
         && request.time < old.at + duration.value(6500, 'ms')
         && stateAfter.seq == state.seq
         && (old.kind == 'transfer'
-            ? balancesTransfer(state.balances, stateAfter.balances, old.to,
-                               old.seat, old.amount)
+            ? ('mortgage' in old
+                ? balancesPair(state.balances, stateAfter.balances, old.seat,
+                               old.amount - old.mortgage, old.to, -old.amount,
+                               old.mortgage)
+                : balancesTransfer(state.balances, stateAfter.balances,
+                                   old.to, old.seat, old.amount))
             : old.kind == 'payBank'
             ? balancesMove(state.balances, stateAfter.balances, old.seat,
-                           old.amount)
+                           old.amount - old.get('mortgage', 0))
             : balancesMove(state.balances, stateAfter.balances, old.seat,
                            -old.amount));
     }
@@ -437,11 +519,17 @@ service cloud.firestore {
 
         // The numbers move only together with the entry that explains them:
         // the entry of the old seq must be created in the same transaction.
+        // Who is out and who is the banker change only with a bankruptcy entry
+        // (which checks them itself).
         allow update: if signedIn()
           && docId == 'current'
           && get(roomDoc(code)).data.status == 'playing'
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['balances', 'seq'])
+               .hasOnly(['balances', 'seq', 'bankrupt', 'bankerSeat'])
+          && (request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['balances', 'seq'])
+              || getAfter(entryPath(code, string(resource.data.seq)))
+                   .data.kind == 'bankrupt')
           && request.resource.data.seq is int
           && request.resource.data.seq == resource.data.seq + 1
           && existsAfter(entryPath(code, string(resource.data.seq)));
