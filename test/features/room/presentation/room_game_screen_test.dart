@@ -166,7 +166,7 @@ void main() {
       await typeAmount(tester, '2000');
       await tester.tap(key('sheet-ok'));
       await tester.pumpAndSettle();
-      expect(snackText(tester), 'เงินไม่พอ');
+      expect(snackText(tester), contains('เงินไม่พอ'));
       expect(balance(tester), '1,500');
       await leave(tester);
     });

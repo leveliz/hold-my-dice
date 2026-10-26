@@ -15,6 +15,7 @@ EntryLabel describeRoomEntry(
     EntryKind.passGo => 'ผ่านจุดเริ่ม $who +$amount',
     EntryKind.receive => 'รับจากธนาคาร $who +$amount',
     EntryKind.payBank => 'จ่ายธนาคาร $who -$amount',
+    EntryKind.transfer => 'โอน $who → ${nameOf(entry.to ?? '')} $amount',
     // Kinds of a later version of the app: shown, not understood.
     _ => 'รายการที่แอพนี้ยังไม่รู้จัก',
   };

@@ -44,6 +44,34 @@ BalanceCheck checkBalances({
   for (final (i, entry) in entries.indexed) {
     if (entry.seq != i || entry.at == null) return BalanceCheck.syncing;
   }
+  final held = _replay(state, entries, settings);
+  // An entry the rules refuse is a fault, whatever the balances say.
+  if (held == null) return BalanceCheck.mismatch;
+  if (_same(held, state.balances)) return BalanceCheck.ok;
+  // An undo changes the newest entry and the balances at the same time but
+  // reaches this device in two pieces; if the balances fit the entry the
+  // other way round, the other piece is on its way.
+  if (entries.isNotEmpty) {
+    final last = entries.last;
+    final flipped = [
+      ...entries.take(entries.length - 1),
+      last.copyWith(voided: !last.voided),
+    ];
+    final other = _replay(state, flipped, settings);
+    if (other != null && _same(other, state.balances)) {
+      return BalanceCheck.syncing;
+    }
+  }
+  return BalanceCheck.mismatch;
+}
+
+/// The balances the entries add up to from the start, or null when the rules
+/// of the money refuse one of them.
+Map<String, int>? _replay(
+  RoomState state,
+  List<RoomEntry> entries,
+  RoomSettings settings,
+) {
   var ledger = Ledger.initial(
     state.seats,
     settings.startingCash,
@@ -51,13 +79,12 @@ BalanceCheck checkBalances({
   );
   for (final entry in entries) {
     final result = Ledger.apply(ledger, entry);
-    if (result is! Applied) return BalanceCheck.mismatch;
+    if (result is! Applied) return null;
     ledger = result.state;
   }
-  final held = ledger.balances;
-  final stored = state.balances;
-  final same =
-      held.length == stored.length &&
-      held.entries.every((e) => stored[e.key] == e.value);
-  return same ? BalanceCheck.ok : BalanceCheck.mismatch;
+  return ledger.balances;
 }
+
+bool _same(Map<String, int> held, Map<String, int> stored) =>
+    held.length == stored.length &&
+    held.entries.every((e) => stored[e.key] == e.value);

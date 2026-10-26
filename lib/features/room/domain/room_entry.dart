@@ -110,6 +110,23 @@ class RoomEntry {
   /// Undone: still shown in the history but it moves no money.
   final bool voided;
 
+  /// The same entry, undone or not.
+  RoomEntry copyWith({bool? voided}) => RoomEntry(
+    seq: seq,
+    kind: kind,
+    seat: seat,
+    by: by,
+    at: at,
+    cid: cid,
+    from: from,
+    to: to,
+    amount: amount,
+    bankrupt: bankrupt,
+    group: group,
+    reason: reason,
+    voided: voided ?? this.voided,
+  );
+
   /// The entry as stored, with [at] being what the database turns into the
   /// server time (a placeholder from the data layer). The layout is the same
   /// for every kind; the first slice stores no groups and no bankruptcies.

@@ -57,6 +57,40 @@ void main() {
       );
     });
 
+    test('a transfer names both people and the amount', () {
+      final label = describeRoomEntry(
+        RoomEntry(
+          seq: 0,
+          kind: EntryKind.transfer,
+          seat: 'p1',
+          from: 'p1',
+          to: 'p2',
+          amount: 1200,
+        ),
+        _name,
+      );
+      expect(label.title, 'โอน ต้น → แพร 1,200');
+      expect(label.subtitle, isNull);
+    });
+
+    test('a payment of a request says so, and an undone one says that too', () {
+      final label = describeRoomEntry(
+        RoomEntry(
+          seq: 0,
+          kind: EntryKind.transfer,
+          seat: 'p2',
+          from: 'p2',
+          to: 'p1',
+          amount: 300,
+          reason: 'ตามคำขอเรียกเก็บ',
+          voided: true,
+        ),
+        _name,
+      );
+      expect(label.title, 'โอน แพร → ต้น 300');
+      expect(label.subtitle, 'ตามคำขอเรียกเก็บ · ยกเลิกแล้ว');
+    });
+
     test('big amounts have thousands separators', () {
       expect(
         describeRoomEntry(
@@ -93,7 +127,7 @@ void main() {
     });
 
     test('a kind of entry this app does not know yet does not crash', () {
-      final label = describeRoomEntry(_entry(EntryKind.transfer), _name);
+      final label = describeRoomEntry(_entry(EntryKind.mortgage), _name);
       expect(label.title, 'รายการที่แอพนี้ยังไม่รู้จัก');
     });
   });

@@ -62,7 +62,14 @@ void main() {
 
     test('what no press can cause is just an unknown error', () {
       expect(roomErrorOf(LedgerRejection.invalidBankrupt), RoomError.unknown);
-      expect(roomErrorOf(LedgerRejection.invalidParties), RoomError.unknown);
+    });
+
+    test('money that cannot go to that person, and an undo that cannot be', () {
+      expect(
+        roomErrorOf(LedgerRejection.invalidParties),
+        RoomError.invalidParties,
+      );
+      expect(roomErrorOf(LedgerRejection.notUndoable), RoomError.tooLate);
     });
   });
 }

@@ -17,6 +17,10 @@ enum LedgerRejection {
 
   /// Who pays and who receives do not fit the kind of entry.
   invalidParties,
+
+  /// The entry is not one that can be undone (already undone, or a kind
+  /// that has no undo here).
+  notUndoable,
 }
 
 /// The money side of a game: who holds what, who is out, who is the banker.
@@ -104,6 +108,60 @@ class Ledger {
       EntryKind.transfer => _transfer(state, entry),
       EntryKind.bankrupt => _bankrupt(state, entry),
     };
+  }
+
+  /// Gives back what [entry] did to the balances, as when a person takes
+  /// back their latest press. Refused when it would leave a seat (or a bank
+  /// with a limit) below zero, and for entries that are already undone or of
+  /// a kind that is not undone (mortgage, bankruptcy).
+  static LedgerResult undo(LedgerState state, RoomEntry entry) {
+    if (entry.voided) return const Rejected(LedgerRejection.notUndoable);
+    final amount = entry.amount;
+    final balances = {...state.balances};
+    switch (entry.kind) {
+      case EntryKind.receive || EntryKind.passGo:
+        final to = entry.to;
+        if (to == null || amount == null || !balances.containsKey(to)) {
+          return const Rejected(LedgerRejection.invalidParties);
+        }
+        if (balances[to]! < amount) {
+          return const Rejected(LedgerRejection.insufficient);
+        }
+        balances[to] = balances[to]! - amount;
+        if (state.bankHasLimit) {
+          balances[Transaction.bank] = balances[Transaction.bank]! + amount;
+        }
+      case EntryKind.payBank:
+        final from = entry.from;
+        if (from == null || amount == null || !balances.containsKey(from)) {
+          return const Rejected(LedgerRejection.invalidParties);
+        }
+        if (state.bankHasLimit) {
+          if (balances[Transaction.bank]! < amount) {
+            return const Rejected(LedgerRejection.bankLimit);
+          }
+          balances[Transaction.bank] = balances[Transaction.bank]! - amount;
+        }
+        balances[from] = balances[from]! + amount;
+      case EntryKind.transfer:
+        final from = entry.from;
+        final to = entry.to;
+        if (from == null ||
+            to == null ||
+            amount == null ||
+            !balances.containsKey(from) ||
+            !balances.containsKey(to)) {
+          return const Rejected(LedgerRejection.invalidParties);
+        }
+        if (balances[to]! < amount) {
+          return const Rejected(LedgerRejection.insufficient);
+        }
+        balances[from] = balances[from]! + amount;
+        balances[to] = balances[to]! - amount;
+      case EntryKind.mortgage || EntryKind.bankrupt:
+        return const Rejected(LedgerRejection.notUndoable);
+    }
+    return Applied(state._with(balances: balances));
   }
 
   /// Applies [entries] one after another, all or nothing: the first refusal

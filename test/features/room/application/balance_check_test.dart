@@ -322,6 +322,81 @@ void main() {
       });
     });
 
+    group('while an undo is still arriving', () {
+      RoomEntry received({required bool voided}) => RoomEntry(
+        seq: 0,
+        kind: EntryKind.receive,
+        seat: 'p1',
+        by: 'u',
+        at: _at,
+        cid: 'c0',
+        from: 'bank',
+        to: 'p1',
+        amount: 300,
+        reason: 'ค่าเช่า',
+        voided: voided,
+      );
+
+      test('the entry is undone but the balances are not yet', () {
+        expect(
+          checkBalances(
+            state: _state(1, {'p1': 1800, 'p2': 1500}),
+            entries: [received(voided: true)],
+            settings: _settings,
+          ),
+          BalanceCheck.syncing,
+        );
+      });
+
+      test('the balances are back but the entry is not yet undone', () {
+        expect(
+          checkBalances(
+            state: _state(1, {'p1': 1500, 'p2': 1500}),
+            entries: [received(voided: false)],
+            settings: _settings,
+          ),
+          BalanceCheck.syncing,
+        );
+      });
+
+      test('a balance that fits neither way is still a mismatch', () {
+        for (final voided in [true, false]) {
+          expect(
+            checkBalances(
+              state: _state(1, {'p1': 1900, 'p2': 1500}),
+              entries: [received(voided: voided)],
+              settings: _settings,
+            ),
+            BalanceCheck.mismatch,
+          );
+        }
+      });
+
+      test('only the newest entry gets the benefit of the doubt', () {
+        expect(
+          checkBalances(
+            state: _state(2, {'p1': 1800, 'p2': 1200}),
+            entries: [
+              received(voided: true),
+              RoomEntry(
+                seq: 1,
+                kind: EntryKind.payBank,
+                seat: 'p2',
+                by: 'u',
+                at: _at,
+                cid: 'c1',
+                from: 'p2',
+                to: 'bank',
+                amount: 300,
+              ),
+            ],
+            settings: _settings,
+          ),
+          BalanceCheck.mismatch,
+        );
+      });
+    });
+
     test('a voided entry moves no money', () {
       final voided = RoomEntry(
         seq: 0,

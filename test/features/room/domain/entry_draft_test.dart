@@ -28,6 +28,21 @@ void main() {
       expect(EntryDraft.payBank(150, reason: 'ภาษี').reason, 'ภาษี');
     });
 
+    test('a transfer names who gets the money and carries no reason', () {
+      final d = EntryDraft.transfer('p2', 200);
+      expect(d.kind, EntryKind.transfer);
+      expect(d.toSeat, 'p2');
+      expect(d.amount, 200);
+      expect(d.reason, isNull);
+      expect(EntryDraft.transfer('p2', 200, reason: 'x').reason, 'x');
+    });
+
+    test('the other drafts have no one to give the money to', () {
+      expect(EntryDraft.receive(1, 'a').toSeat, isNull);
+      expect(EntryDraft.passGo().toSeat, isNull);
+      expect(EntryDraft.payBank(1).toSeat, isNull);
+    });
+
     test('every draft has a press code of 20 letters and digits', () {
       final d = EntryDraft.passGo();
       expect(d.cid.length, 20);

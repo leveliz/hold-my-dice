@@ -16,7 +16,10 @@ String roomErrorText(Object error) {
     RoomError.notStarted => 'เกมยังไม่เริ่ม',
     RoomError.notAPlayer =>
       'ที่นั่งนี้กดเงินไม่ได้ (เป็นผู้ชม หรือที่นั่งถูกคนอื่นเข้าแทนแล้ว)',
-    RoomError.insufficientFunds => 'เงินไม่พอ',
+    RoomError.insufficientFunds =>
+      'เงินไม่พอ รับเงินจากธนาคารด้วยเหตุผล "จำนอง" ก่อน',
+    RoomError.invalidParties => 'โอนให้คนนี้ไม่ได้ (ออกจากเกมแล้ว)',
+    RoomError.tooLate => 'ไม่ทันแล้ว มีรายการใหม่หรือหมดเวลา',
     RoomError.bankEmpty => 'ธนาคารมีเงินไม่พอ',
     RoomError.reasonRequired => 'ใส่เหตุผลก่อนรับเงินจากธนาคาร',
     RoomError.invalidAmount => 'จำนวนเงินต้องเป็นเลขเต็ม 1 ถึง 999,999,999',

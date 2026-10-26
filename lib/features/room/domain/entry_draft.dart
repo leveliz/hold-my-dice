@@ -30,10 +30,34 @@ class EntryDraft {
   EntryDraft.payBank(int amount, {String? reason, String? cid, Random? random})
     : this._(EntryKind.payBank, amount, reason, cid ?? _newCode(random));
 
-  const EntryDraft._(this.kind, this.amount, this.reason, this.cid);
+  /// Money from the person who presses to the person at [toSeat].
+  EntryDraft.transfer(
+    String toSeat,
+    int amount, {
+    String? reason,
+    String? cid,
+    Random? random,
+  }) : this._(
+         EntryKind.transfer,
+         amount,
+         reason,
+         cid ?? _newCode(random),
+         toSeat,
+       );
+
+  const EntryDraft._(
+    this.kind,
+    this.amount,
+    this.reason,
+    this.cid, [
+    this.toSeat,
+  ]);
 
   final EntryKind kind;
   final int? amount;
   final String? reason;
   final String cid;
+
+  /// Who gets the money; only a transfer has one.
+  final String? toSeat;
 }

@@ -39,6 +39,12 @@ enum RoomError {
 
   /// The free daily quota of the service is used up.
   quotaExhausted,
+
+  /// The money cannot go to that person (out of the game, or not a player).
+  invalidParties,
+
+  /// Too late to undo: something came after it, or the time is up.
+  tooLate,
   notOwner,
   notEnoughPlayers,
   spectatorsNotAllowed,
@@ -67,6 +73,8 @@ RoomError roomErrorOf(LedgerRejection rejection) => switch (rejection) {
   LedgerRejection.bankLimit => RoomError.bankEmpty,
   LedgerRejection.notActive => RoomError.notAPlayer,
   LedgerRejection.invalidAmount => RoomError.invalidAmount,
+  LedgerRejection.invalidParties => RoomError.invalidParties,
+  LedgerRejection.notUndoable => RoomError.tooLate,
   _ => RoomError.unknown,
 };
 
