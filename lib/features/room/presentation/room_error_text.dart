@@ -13,6 +13,16 @@ String roomErrorText(Object error) {
       'ที่นั่งนี้ยังมีคนใช้อยู่ เข้าแทนได้เมื่อเจ้าของเดิมหายไปเกิน 2 นาที',
     RoomError.ownerStillActive =>
       'เจ้าของห้องยังอยู่ รับแทนได้เมื่อเจ้าของหายไปเกิน 2 นาที',
+    RoomError.notStarted => 'เกมยังไม่เริ่ม',
+    RoomError.notAPlayer =>
+      'ที่นั่งนี้กดเงินไม่ได้ (เป็นผู้ชม หรือที่นั่งถูกคนอื่นเข้าแทนแล้ว)',
+    RoomError.insufficientFunds => 'เงินไม่พอ',
+    RoomError.bankEmpty => 'ธนาคารมีเงินไม่พอ',
+    RoomError.reasonRequired => 'ใส่เหตุผลก่อนรับเงินจากธนาคาร',
+    RoomError.invalidAmount => 'จำนวนเงินต้องเป็นเลขเต็ม 1 ถึง 999,999,999',
+    RoomError.conflict => 'มีคนกดพร้อมกันหลายคน ลองอีกครั้ง',
+    RoomError.unsure => 'ไม่แน่ใจว่าบันทึกแล้วหรือยัง ดูประวัติก่อนกดอีกครั้ง',
+    RoomError.quotaExhausted => 'บริการเต็มวันนี้ ลองใหม่พรุ่งนี้',
     RoomError.notOwner => 'เฉพาะเจ้าของห้องที่ทำได้',
     RoomError.notEnoughPlayers => 'ต้องมีผู้เล่นอย่างน้อย 2 คน',
     RoomError.spectatorsNotAllowed => 'ห้องนี้ไม่รับผู้ชม',

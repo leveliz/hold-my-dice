@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:hold_my_dice/features/bank/domain/transaction.dart';
 import 'package:hold_my_dice/features/room/application/room_code.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
+import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
+import 'package:hold_my_dice/features/room/domain/ledger.dart';
+import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 
 const _seatIsStaleAfter = Duration(minutes: 2);
@@ -25,6 +29,8 @@ class _Feed<T> {
   T _value;
   final _listeners = <MultiStreamController<T>>[];
 
+  T get value => _value;
+
   Stream<T> watch() => Stream<T>.multi((controller) {
     controller.add(_value);
     _listeners.add(controller);
@@ -43,7 +49,8 @@ class _Room {
   _Room(this.code, this.ownerUid, this.settings, this.passwordHash)
     : meta = _Feed<RoomMeta?>(null),
       members = _Feed<List<Member>>(const []),
-      state = _Feed<RoomState?>(null);
+      state = _Feed<RoomState?>(null),
+      entryFeed = _Feed<List<RoomEntry>>(const []);
 
   final String code;
   String ownerUid;
@@ -56,6 +63,8 @@ class _Room {
   final _Feed<RoomMeta?> meta;
   final _Feed<List<Member>> members;
   final _Feed<RoomState?> state;
+  final entries = <RoomEntry>[];
+  final _Feed<List<RoomEntry>> entryFeed;
 
   RoomMeta get metaNow => RoomMeta(
     code: code,
@@ -81,6 +90,10 @@ class FakeRoomStore {
   final DateTime Function() now;
   final Random random;
   final _rooms = <String, _Room>{};
+  final _online = _Feed<bool>(true);
+
+  /// Lets a test cut or restore the connection of every person in the rooms.
+  void setOnline(bool online) => _online.set(online);
 
   /// When [uid] last sent a heartbeat in the room, or null.
   DateTime? lastSeen(String code, String uid) => _rooms[code]?.presence[uid];
@@ -349,6 +362,65 @@ class FakeRoomRepository implements RoomRepository {
   Stream<RoomState?> watchState(String code) async* {
     final room = await _asMember(code);
     yield* room.state.watch();
+  }
+
+  @override
+  Stream<bool> watchOnline(String code) => _store._online.watch();
+
+  @override
+  Stream<List<RoomEntry>> watchEntries(String code) async* {
+    final room = await _asMember(code);
+    yield* room.entryFeed.watch();
+  }
+
+  @override
+  Future<void> submitEntry(String code, EntryDraft draft) async {
+    final uid = await _auth.ensureSignedIn();
+    final room = _room(code);
+    final me = room.memberByUid[uid];
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final state = room.state.value;
+    if (room.status != RoomStatus.playing || state == null) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final seat = me.seat;
+    if (me.role != MemberRole.player || seat == null) {
+      throw const RoomException(RoomError.notAPlayer);
+    }
+    // The same press sent again is the same press.
+    if (room.entries.any((e) => e.cid == draft.cid && e.seat == seat)) return;
+
+    final reason = storedReason(draft);
+    final entry = RoomEntry(
+      seq: state.seq,
+      kind: draft.kind,
+      seat: seat,
+      by: uid,
+      at: _store.now(),
+      cid: draft.cid,
+      from: draft.kind == EntryKind.payBank ? seat : Transaction.bank,
+      to: draft.kind == EntryKind.payBank ? Transaction.bank : seat,
+      amount: draft.kind == EntryKind.passGo
+          ? room.settings.goAmount
+          : draft.amount,
+      reason: reason,
+    );
+    final result = Ledger.apply(state.toLedger(room.settings), entry);
+    if (result is Rejected) {
+      throw RoomException(roomErrorOf(result.reason));
+    }
+    room.entries.add(entry);
+    room.entryFeed.set(List.unmodifiable(room.entries));
+    room.state.set(
+      RoomState(
+        seq: state.seq + 1,
+        seats: state.seats,
+        balances: (result as Applied).state.balances,
+        bankrupt: state.bankrupt,
+        bankerSeat: state.bankerSeat,
+        status: state.status,
+      ),
+    );
   }
 
   @override

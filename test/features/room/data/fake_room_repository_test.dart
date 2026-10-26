@@ -59,6 +59,22 @@ void main() {
       expect(meta.ownerUid, await c.read(authServiceProvider).ensureSignedIn());
     });
 
+    test('the connection can be cut and restored for every person', () async {
+      final h = FakeHarness();
+      const settings = RoomSettings(startingCash: 1500, goAmount: 200);
+      final meta = await h
+          .repoFor('owner')
+          .createRoom(settings: settings, name: 'x', color: 1);
+      final says = <bool>[];
+      final sub = h.repoFor('owner').watchOnline(meta.code).listen(says.add);
+      await Future<void>.delayed(Duration.zero);
+      h.store.setOnline(false);
+      h.store.setOnline(true);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(says, [true, false, true]);
+    });
+
     test('the auth service gives back the uid it was made with', () async {
       expect(await FakeAuthService('abc').ensureSignedIn(), 'abc');
     });

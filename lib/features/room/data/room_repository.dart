@@ -1,3 +1,6 @@
+import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
+import 'package:hold_my_dice/features/room/domain/ledger.dart';
+import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 
 /// What went wrong with a room operation, in terms a person can be told.
@@ -9,6 +12,33 @@ enum RoomError {
   seatTaken,
   seatStillActive,
   ownerStillActive,
+
+  /// The game has not started yet.
+  notStarted,
+
+  /// The person has no seat that can press (a spectator, or out of the game).
+  notAPlayer,
+
+  /// Not enough money for the payment.
+  insufficientFunds,
+
+  /// The bank holds less than it was asked to pay.
+  bankEmpty,
+
+  /// Receiving from the bank needs a reason.
+  reasonRequired,
+
+  /// The amount is not a whole number from 1 to 999,999,999.
+  invalidAmount,
+
+  /// Other presses kept getting in first and the press was given up.
+  conflict,
+
+  /// The press may or may not have been written (no answer in time).
+  unsure,
+
+  /// The free daily quota of the service is used up.
+  quotaExhausted,
   notOwner,
   notEnoughPlayers,
   spectatorsNotAllowed,
@@ -17,6 +47,28 @@ enum RoomError {
   offline,
   unknown,
 }
+
+/// The reason of a press as it is stored: trimmed, cut to the limit (without
+/// splitting an emoji), a GO's own words. A receive without one is refused; a
+/// payment without one has none.
+String? storedReason(EntryDraft draft) {
+  if (draft.kind == EntryKind.passGo) return goReason;
+  final text = cutReason((draft.reason ?? '').trim()).trim();
+  if (text.isNotEmpty) return text;
+  if (draft.kind == EntryKind.receive) {
+    throw const RoomException(RoomError.reasonRequired);
+  }
+  return null;
+}
+
+/// What a refusal by the money rules is called to the person.
+RoomError roomErrorOf(LedgerRejection rejection) => switch (rejection) {
+  LedgerRejection.insufficient => RoomError.insufficientFunds,
+  LedgerRejection.bankLimit => RoomError.bankEmpty,
+  LedgerRejection.notActive => RoomError.notAPlayer,
+  LedgerRejection.invalidAmount => RoomError.invalidAmount,
+  _ => RoomError.unknown,
+};
 
 class RoomException implements Exception {
   const RoomException(this.error, [this.detail]);
@@ -89,6 +141,17 @@ abstract class RoomRepository {
 
   /// Null until the game starts.
   Stream<RoomState?> watchState(String code);
+
+  /// Writes what the person pressed, for their own seat, as the next line of
+  /// the history and the matching change of the balances. Refused with a
+  /// [RoomException] (nothing is written) when it cannot be done.
+  Future<void> submitEntry(String code, EntryDraft draft);
+
+  /// The history of the game, oldest first, live. Members only.
+  Stream<List<RoomEntry>> watchEntries(String code);
+
+  /// Whether this device can reach the service, live (see `onlineFrom`).
+  Stream<bool> watchOnline(String code);
 
   /// Records that this person is still here (their own presence only).
   Future<void> heartbeat(String code);

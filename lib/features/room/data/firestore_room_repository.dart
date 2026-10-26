@@ -2,8 +2,13 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:hold_my_dice/features/bank/domain/transaction.dart' as bank;
+import 'package:hold_my_dice/features/room/application/connection_status.dart';
 import 'package:hold_my_dice/features/room/application/room_code.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
+import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
+import 'package:hold_my_dice/features/room/domain/ledger.dart';
+import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 
 const _codeTries = 5;
@@ -12,6 +17,15 @@ const _codeTries = 5;
 /// Firestore keeps a write it cannot send and never fails it, so without a
 /// limit a join without signal would wait for ever.
 const _writeTimeout = Duration(seconds: 15);
+
+/// How many times a press is built again after losing the race for its place
+/// in the history to other presses.
+const _pressTries = 12;
+
+/// This press found the place it wanted already taken by another one.
+class _LostTheRace implements Exception {
+  const _LostTheRace();
+}
 
 /// Rooms in Cloud Firestore, laid out as firestore.rules expects:
 /// `rooms/{code}` with `seats`, `members`, `presence` and `state` under it.
@@ -54,6 +68,7 @@ class FirestoreRoomRepository implements RoomRepository {
         'permission-denied' => RoomException(onDenied),
         'unavailable' ||
         'network-request-failed' => const RoomException(RoomError.offline),
+        'resource-exhausted' => const RoomException(RoomError.quotaExhausted),
         _ => RoomException(RoomError.unknown, '${e.code}: ${e.message}'),
       };
 
@@ -395,6 +410,130 @@ class FirestoreRoomRepository implements RoomRepository {
       if (e.code == 'permission-denied') return null;
       throw _translate(e, RoomError.unknown);
     }
+  }
+
+  DocumentReference<Map<String, dynamic>> _entry(String code, int seq) =>
+      _room(code).collection('entries').doc('$seq');
+
+  /// An entry as stored; the time of one still on its way is not known yet.
+  static RoomEntry _entryOf(Map<String, dynamic> d) {
+    final at = d['at'];
+    return RoomEntry.fromMap({...d, 'at': at is Timestamp ? at.toDate() : at});
+  }
+
+  /// Whether a press with this code is already in the history.
+  Future<bool> _alreadyWritten(String code, String cid) async {
+    final found = await _room(
+      code,
+    ).collection('entries').where('cid', isEqualTo: cid).limit(1).get();
+    return found.docs.isNotEmpty;
+  }
+
+  @override
+  Future<void> submitEntry(String code, EntryDraft draft) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    if (meta.status != RoomStatus.playing) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final me = await readMyMember(code);
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final seat = me.seat;
+    if (me.role != MemberRole.player || seat == null) {
+      throw const RoomException(RoomError.notAPlayer);
+    }
+    final reason = storedReason(draft);
+    final amount = draft.kind == EntryKind.passGo
+        ? meta.settings.goAmount
+        : draft.amount;
+
+    for (var attempt = 1; ; attempt++) {
+      var triedSeq = -1;
+      try {
+        await _db
+            .runTransaction<void>((tx) async {
+              final snap = await tx.get(_state(code));
+              final data = snap.data();
+              if (data == null) throw const RoomException(RoomError.notStarted);
+              final state = RoomState.fromMap(data);
+              triedSeq = state.seq;
+              final place = _entry(code, state.seq);
+              if ((await tx.get(place)).exists) throw const _LostTheRace();
+              final entry = RoomEntry(
+                seq: state.seq,
+                kind: draft.kind,
+                seat: seat,
+                by: uid,
+                cid: draft.cid,
+                from: draft.kind == EntryKind.payBank
+                    ? seat
+                    : bank.Transaction.bank,
+                to: draft.kind == EntryKind.payBank
+                    ? bank.Transaction.bank
+                    : seat,
+                amount: amount,
+                reason: reason,
+              );
+              final result = Ledger.apply(state.toLedger(meta.settings), entry);
+              if (result is Rejected) {
+                throw RoomException(roomErrorOf(result.reason));
+              }
+              tx.set(place, entry.toMap(FieldValue.serverTimestamp()));
+              tx.update(_state(code), {
+                'seq': state.seq + 1,
+                'balances': (result as Applied).state.balances,
+              });
+            })
+            .timeout(
+              _writeTimeout,
+              onTimeout: () => throw const RoomException(RoomError.unsure),
+            );
+        return;
+      } on _LostTheRace {
+        if (attempt >= _pressTries) {
+          throw const RoomException(RoomError.conflict);
+        }
+      } on FirebaseException catch (e) {
+        final race = e.code == 'permission-denied' || e.code == 'aborted';
+        if (!race) throw _translate(e, RoomError.notAPlayer);
+        // The rules read the state, so a press that lost the race to another
+        // is refused like a bad one. Tell them apart: if the press got in after
+        // all, or the state has moved on since this attempt, build it again.
+        if (await _alreadyWritten(code, draft.cid)) return;
+        final now = await _guard(() => _state(code).get(), RoomError.unknown);
+        final moved = (now.data()?['seq'] as int?) != triedSeq;
+        if (!moved || attempt >= _pressTries) {
+          throw RoomException(
+            e.code == 'aborted' || moved
+                ? RoomError.conflict
+                : RoomError.notAPlayer,
+          );
+        }
+      }
+    }
+  }
+
+  @override
+  Stream<List<RoomEntry>> watchEntries(String code) async* {
+    await _auth.ensureSignedIn();
+    yield* _guardStream(
+      _room(code)
+          .collection('entries')
+          .orderBy('seq')
+          .snapshots()
+          .map((q) => [for (final d in q.docs) _entryOf(d.data())]),
+      RoomError.notAMember,
+    );
+  }
+
+  @override
+  Stream<bool> watchOnline(String code) async* {
+    await _auth.ensureSignedIn();
+    yield* onlineFrom(
+      _state(code)
+          .snapshots(includeMetadataChanges: true)
+          .map((s) => s.metadata.isFromCache),
+    );
   }
 
   @override

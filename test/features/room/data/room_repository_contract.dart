@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
+import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
+import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 
 /// What a [RoomRepository] test needs besides the repository itself: the
@@ -94,6 +96,338 @@ void roomRepositoryContract(RoomHarness Function() create) {
         );
       },
     );
+
+    group('the money', () {
+      Future<String> started(
+        RoomHarness h, {
+        RoomSettings settings = _settings,
+        List<String> others = const ['u2'],
+      }) async {
+        final meta = await _create(h, settings: settings);
+        for (final uid in others) {
+          await _join(h, meta.code, uid);
+        }
+        await h.repoFor('owner').startGame(meta.code);
+        return meta.code;
+      }
+
+      Future<RoomState> state(RoomHarness h, String code) async =>
+          (await h.repoFor('owner').watchState(code).first)!;
+
+      Future<List<RoomEntry>> history(
+        RoomHarness h,
+        String code, [
+        String uid = 'owner',
+      ]) => h.repoFor(uid).watchEntries(code).first;
+
+      test(
+        'receive, pay and GO move the balances and write the entries in order',
+        () async {
+          final h = create();
+          final code = await started(h);
+          final owner = h.repoFor('owner');
+          await owner.submitEntry(code, EntryDraft.receive(300, 'ค่าเช่า'));
+          await h.repoFor('u2').submitEntry(code, EntryDraft.payBank(500));
+          await owner.submitEntry(code, EntryDraft.passGo());
+          final s = await state(h, code);
+          expect(s.seq, 3);
+          expect(s.balances['p1'], 2000);
+          expect(s.balances['p2'], 1000);
+          final entries = await history(h, code);
+          expect(entries.map((e) => e.seq), [0, 1, 2]);
+          expect(entries.map((e) => e.kind), [
+            EntryKind.receive,
+            EntryKind.payBank,
+            EntryKind.passGo,
+          ]);
+          expect(entries.map((e) => e.seat), ['p1', 'p2', 'p1']);
+          expect(entries.map((e) => e.amount), [300, 500, 200]);
+          expect(entries.map((e) => e.reason), ['ค่าเช่า', null, goReason]);
+          expect(entries.map((e) => e.from), ['bank', 'p2', 'bank']);
+          expect(entries.map((e) => e.to), ['p1', 'bank', 'p1']);
+        },
+      );
+
+      test('an entry says who pressed it and carries the press code', () async {
+        final h = create();
+        final code = await started(h);
+        final draft = EntryDraft.payBank(50);
+        await h.repoFor('u2').submitEntry(code, draft);
+        final e = (await history(h, code)).single;
+        expect(e.by, 'u2');
+        expect(e.seat, 'p2');
+        expect(e.cid, draft.cid);
+        expect(e.at, isNotNull);
+        expect(e.voided, isFalse);
+      });
+
+      group('what is refused writes nothing', () {
+        Future<void> refused(
+          Future<void> Function(RoomHarness h, String code) press,
+          RoomError error, {
+          RoomSettings settings = _settings,
+          bool begin = true,
+        }) async {
+          final h = create();
+          final code = begin
+              ? await started(h, settings: settings)
+              : (await _create(h, settings: settings)).code;
+          await expectLater(press(h, code), _throws(error));
+          if (begin) {
+            expect(await history(h, code), isEmpty);
+            final s = await state(h, code);
+            expect(s.seq, 0);
+            expect(s.balances['p1'], settings.startingCash);
+          }
+        }
+
+        test('paying more than the seat has', () {
+          return refused(
+            (h, c) =>
+                h.repoFor('owner').submitEntry(c, EntryDraft.payBank(1501)),
+            RoomError.insufficientFunds,
+          );
+        });
+
+        for (final amount in [0, -5, 1000000000]) {
+          test('an amount of $amount', () {
+            return refused(
+              (h, c) => h
+                  .repoFor('owner')
+                  .submitEntry(c, EntryDraft.receive(amount, 'ค่าเช่า')),
+              RoomError.invalidAmount,
+            );
+          });
+        }
+
+        test('a payment of 0', () {
+          return refused(
+            (h, c) => h.repoFor('owner').submitEntry(c, EntryDraft.payBank(0)),
+            RoomError.invalidAmount,
+          );
+        });
+
+        for (final reason in [null, '', '   ']) {
+          test(
+            'a receive without a reason (${reason == null ? 'null' : '"$reason"'})',
+            () {
+              return refused(
+                (h, c) => h
+                    .repoFor('owner')
+                    .submitEntry(c, EntryDraft.receive(10, reason)),
+                RoomError.reasonRequired,
+              );
+            },
+          );
+        }
+
+        test('a receive of more than a limited bank holds', () {
+          return refused(
+            (h, c) => h
+                .repoFor('owner')
+                .submitEntry(c, EntryDraft.receive(150, 'ขาย')),
+            RoomError.bankEmpty,
+            settings: const RoomSettings(
+              startingCash: 1500,
+              goAmount: 200,
+              maxPlayers: 4,
+              bankLimit: 100,
+            ),
+          );
+        });
+
+        test('a spectator', () {
+          return refused((h, c) async {
+            await h
+                .repoFor('s1')
+                .joinAsSpectator(code: c, name: 'ดู', color: 3);
+            await h.repoFor('s1').submitEntry(c, EntryDraft.passGo());
+          }, RoomError.notAPlayer);
+        });
+
+        test('somebody who is not in the room', () {
+          return refused(
+            (h, c) => h.repoFor('stranger').submitEntry(c, EntryDraft.passGo()),
+            RoomError.notAMember,
+          );
+        });
+
+        test('a room whose game has not started', () {
+          return refused(
+            (h, c) => h.repoFor('owner').submitEntry(c, EntryDraft.passGo()),
+            RoomError.notStarted,
+            begin: false,
+          );
+        });
+      });
+
+      test('a limited bank pays and receives the same amounts', () async {
+        final h = create();
+        final code = await started(
+          h,
+          settings: const RoomSettings(
+            startingCash: 1500,
+            goAmount: 200,
+            maxPlayers: 4,
+            bankLimit: 1000,
+          ),
+        );
+        final owner = h.repoFor('owner');
+        await owner.submitEntry(code, EntryDraft.receive(300, 'ขาย'));
+        expect((await state(h, code)).balances['bank'], 700);
+        await owner.submitEntry(code, EntryDraft.payBank(100));
+        expect((await state(h, code)).balances['bank'], 800);
+        await owner.submitEntry(code, EntryDraft.passGo());
+        expect((await state(h, code)).balances['bank'], 600);
+      });
+
+      test('eight presses at once all go through, in order', () async {
+        final h = create();
+        final code = await started(h, others: const ['u2', 'u3', 'u4']);
+        final who = ['owner', 'u2', 'u3', 'u4', 'owner', 'u2', 'u3', 'u4'];
+        await Future.wait([
+          for (final (i, uid) in who.indexed)
+            h
+                .repoFor(uid)
+                .submitEntry(code, EntryDraft.receive(10 + i, 'ค่าเช่า')),
+        ]);
+        final entries = await history(h, code);
+        expect(entries.map((e) => e.seq), [0, 1, 2, 3, 4, 5, 6, 7]);
+        final s = await state(h, code);
+        expect(s.seq, 8);
+        expect(
+          s.balances.values.fold<int>(0, (a, b) => a + b),
+          4 * 1500 +
+              [
+                for (var i = 0; i < 8; i++) 10 + i,
+              ].fold<int>(0, (a, b) => a + b),
+        );
+      });
+
+      test('the history is in the order of the seq, 10 after 9', () async {
+        final h = create();
+        final code = await started(h);
+        for (var i = 0; i < 12; i++) {
+          await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+        }
+        expect((await history(h, code)).map((e) => e.seq), [
+          for (var i = 0; i < 12; i++) i,
+        ]);
+      });
+
+      test(
+        'a listener hears the new entry and has already the old ones',
+        () async {
+          final h = create();
+          final code = await started(h);
+          await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+          final lengths = <int>[];
+          final sub = h
+              .repoFor('u2')
+              .watchEntries(code)
+              .listen((l) => lengths.add(l.length));
+          await Future<void>.delayed(Duration.zero);
+          await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+          await Future<void>.delayed(Duration.zero);
+          await sub.cancel();
+          expect(lengths, [1, 2]);
+        },
+      );
+
+      test('a press sent twice with the same code is written once', () async {
+        final h = create();
+        final code = await started(h);
+        final draft = EntryDraft.receive(100, 'ค่าเช่า');
+        await h.repoFor('owner').submitEntry(code, draft);
+        await h.repoFor('owner').submitEntry(code, draft);
+        expect(await history(h, code), hasLength(1));
+        expect((await state(h, code)).balances['p1'], 1600);
+      });
+
+      test('the same code from another seat is another press', () async {
+        final h = create();
+        final code = await started(h);
+        await h
+            .repoFor('owner')
+            .submitEntry(
+              code,
+              EntryDraft.receive(100, 'ก', cid: 'samesamesame'),
+            );
+        await h
+            .repoFor('u2')
+            .submitEntry(
+              code,
+              EntryDraft.receive(100, 'ก', cid: 'samesamesame'),
+            );
+        expect(await history(h, code), hasLength(2));
+      });
+
+      test('a reason is cut to 60 units and never inside an emoji', () async {
+        final h = create();
+        final code = await started(h);
+        final owner = h.repoFor('owner');
+        await owner.submitEntry(code, EntryDraft.receive(10, '${'x' * 59}😀'));
+        await owner.submitEntry(code, EntryDraft.receive(10, 'ก' * 70));
+        final entries = await history(h, code);
+        expect(entries[0].reason, 'x' * 59);
+        expect(entries[1].reason, 'ก' * 60);
+      });
+
+      test(
+        'a reason is trimmed, and a payment with a blank one has none',
+        () async {
+          final h = create();
+          final code = await started(h);
+          final owner = h.repoFor('owner');
+          await owner.submitEntry(code, EntryDraft.receive(10, '  ค่าเช่า  '));
+          await owner.submitEntry(code, EntryDraft.payBank(10, reason: '   '));
+          await owner.submitEntry(
+            code,
+            EntryDraft.payBank(10, reason: ' ภาษี '),
+          );
+          final entries = await history(h, code);
+          expect(entries.map((e) => e.reason), ['ค่าเช่า', null, 'ภาษี']);
+        },
+      );
+
+      test(
+        'GO pays the amount the room was made with, whatever was asked',
+        () async {
+          final h = create();
+          final code = await started(
+            h,
+            settings: const RoomSettings(
+              startingCash: 1500,
+              goAmount: 500,
+              maxPlayers: 4,
+            ),
+          );
+          await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+          expect((await state(h, code)).balances['p1'], 2000);
+          expect((await history(h, code)).single.amount, 500);
+        },
+      );
+
+      test('spectators read the history, strangers do not', () async {
+        final h = create();
+        final code = await started(h);
+        await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+        await h.repoFor('s1').joinAsSpectator(code: code, name: 'ดู', color: 3);
+        expect(await history(h, code, 's1'), hasLength(1));
+        await expectLater(
+          history(h, code, 'stranger'),
+          _throws(RoomError.notAMember),
+        );
+      });
+
+      test('the history of a room that does not exist', () async {
+        final h = create();
+        await expectLater(
+          history(h, 'ZZZZZZ', 'u2'),
+          _throws(RoomError.roomNotFound),
+        );
+      });
+    });
 
     group('when the owner is gone', () {
       test('a member cannot take the room while the owner is around', () async {
