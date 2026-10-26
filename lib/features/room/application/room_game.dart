@@ -20,6 +20,7 @@ class RoomGameView {
     required this.block,
     this.myUid,
     this.seatUids = const {},
+    this.ownerUid,
   });
 
   final RoomState state;
@@ -44,6 +45,14 @@ class RoomGameView {
   /// The uid of this person, and the uid of whoever sits at each seat.
   final String? myUid;
   final Map<String, String> seatUids;
+
+  /// The uid of the owner of the room.
+  final String? ownerUid;
+  bool get iAmOwner => myUid != null && myUid == ownerUid;
+
+  /// How many players have not gone bankrupt.
+  int get playersIn =>
+      state.seats.where((s) => !state.bankrupt.contains(s)).length;
 
   /// The seat of the banker (the first to go out, or whoever was handed or took
   /// the seat), null when nobody has gone out yet.
@@ -133,6 +142,7 @@ final roomGameProvider = Provider.autoDispose
           check: check,
           press: press,
           myUid: me.value?.uid,
+          ownerUid: m.ownerUid,
           seatUids: {
             for (final p in people)
               if (p.seat != null) p.seat!: p.uid,

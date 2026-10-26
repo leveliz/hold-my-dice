@@ -61,9 +61,11 @@ class ModePickerScreen extends ConsumerWidget {
                   accent: accent,
                   icon: LucideIcons.logIn,
                   title: 'กลับเข้าห้อง ${back.code}',
-                  subtitle: back.meta.status == RoomStatus.lobby
-                      ? 'ห้องรอ ยังไม่เริ่มเกม'
-                      : 'เกมกำลังเล่นอยู่',
+                  subtitle: switch (back.meta.status) {
+                    RoomStatus.lobby => 'ห้องรอ ยังไม่เริ่มเกม',
+                    RoomStatus.playing => 'เกมกำลังเล่นอยู่',
+                    RoomStatus.ended => 'เกมจบแล้ว ดูสรุป',
+                  },
                   onTap: () => context.push('/room/${back.code}'),
                 ),
                 const SizedBox(height: 14),

@@ -737,7 +737,7 @@ class FakeRoomRepository implements RoomRepository {
   @override
   Future<void> heartbeat(String code) async {
     final uid = await _auth.ensureSignedIn();
-    final room = await _asMember(code);
+    final room = await _asMember(code, endedToo: true);
     room.presence[uid] = _store.now();
   }
 }

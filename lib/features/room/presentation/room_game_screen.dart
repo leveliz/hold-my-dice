@@ -45,11 +45,19 @@ class RoomGameScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final game = ref.watch(roomGameProvider(code));
+    final now = game.value;
     return Scaffold(
       key: const ValueKey('room-playing'),
       appBar: HelperAppBar(
         title: Text('โต๊ะ $code'),
         actions: [
+          if (now != null && (now.mySeat != null || now.iAmOwner))
+            IconButton(
+              key: const ValueKey('end-game'),
+              tooltip: 'จบเกม',
+              icon: const Icon(LucideIcons.flagTriangleRight),
+              onPressed: () => _confirmEndGame(context, ref, code, now),
+            ),
           if (game.value?.online ?? false)
             Padding(
               padding: const EdgeInsets.only(right: 16),
@@ -88,6 +96,118 @@ class RoomGameScreen extends ConsumerWidget {
           ),
         ),
         data: (view) => _GameBody(code: code, view: view),
+      ),
+    );
+  }
+}
+
+/// Asks once, then ends the game for everybody. The owner and the banker may
+/// at any time; a player when both have been gone for 10 minutes (the room
+/// says no otherwise, and that is told in words).
+Future<void> _confirmEndGame(
+  BuildContext context,
+  WidgetRef ref,
+  String code,
+  RoomGameView view,
+) async {
+  final ownerOrBanker = view.iAmOwner || view.iAmBanker;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      key: const ValueKey('end-game-dialog'),
+      title: const Text('จบเกมนี้?'),
+      content: Text(
+        ownerOrBanker
+            ? 'ทุกคนในห้องจะเห็นหน้าสรุปอันดับ และเล่นต่อไม่ได้ ย้อนกลับไม่ได้'
+            : 'ปกติเจ้าของห้องหรือนายธนาคารเป็นคนจบเกม คุณจบได้เมื่อทั้งสองคน '
+                  'หายไปเกิน 10 นาที ทุกคนจะเห็นหน้าสรุปอันดับ และเล่นต่อไม่ได้ '
+                  'ย้อนกลับไม่ได้',
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('end-game-cancel'),
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('กลับไปก่อน'),
+        ),
+        FilledButton(
+          key: const ValueKey('end-game-confirm'),
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            foregroundColor: Theme.of(context).colorScheme.onError,
+          ),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('จบเกม'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  try {
+    await ref.read(roomRepositoryProvider).endGame(code);
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(roomErrorText(e)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+}
+
+/// Tells the owner and the banker that one player is left, with the way to
+/// end the game from here (it can be put away).
+class _LastOneBand extends StatefulWidget {
+  const _LastOneBand({required this.onEnd});
+
+  final VoidCallback onEnd;
+
+  @override
+  State<_LastOneBand> createState() => _LastOneBandState();
+}
+
+class _LastOneBandState extends State<_LastOneBand> {
+  var _dismissed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        key: const ValueKey('band-last-one'),
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primary.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'เหลือผู้เล่นคนเดียวแล้ว จบเกมเพื่อดูสรุปอันดับ หรือเล่นต่อก็ได้',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            TextButton(
+              key: const ValueKey('last-one-end'),
+              onPressed: widget.onEnd,
+              child: const Text('จบเกม'),
+            ),
+            IconButton(
+              key: const ValueKey('last-one-dismiss'),
+              tooltip: 'ปิดแถบ',
+              icon: const Icon(LucideIcons.x, size: 18),
+              onPressed: () => setState(() => _dismissed = true),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -408,7 +528,7 @@ class _GameBody extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _HistorySheet(code: code),
+      builder: (_) => RoomHistorySheet(code: code),
     );
   }
 
@@ -448,6 +568,10 @@ class _GameBody extends ConsumerWidget {
                   onPass: () => _bankerPass(context, ref),
                   onTakeOver: () => _bankerTakeOver(context, ref),
                 ),
+                if ((view.iAmOwner || view.iAmBanker) && view.playersIn <= 1)
+                  _LastOneBand(
+                    onEnd: () => _confirmEndGame(context, ref, code, view),
+                  ),
                 if (requests.outgoing.isNotEmpty)
                   _OutgoingBand(
                     code: code,
@@ -1573,16 +1697,16 @@ class _HistoryStrip extends StatelessWidget {
   }
 }
 
-class _HistorySheet extends ConsumerStatefulWidget {
-  const _HistorySheet({required this.code});
+class RoomHistorySheet extends ConsumerStatefulWidget {
+  const RoomHistorySheet({super.key, required this.code});
 
   final String code;
 
   @override
-  ConsumerState<_HistorySheet> createState() => _HistorySheetState();
+  ConsumerState<RoomHistorySheet> createState() => _HistorySheetState();
 }
 
-class _HistorySheetState extends ConsumerState<_HistorySheet> {
+class _HistorySheetState extends ConsumerState<RoomHistorySheet> {
   Timer? _tick;
 
   @override

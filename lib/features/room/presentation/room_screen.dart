@@ -14,6 +14,7 @@ import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
 import 'package:hold_my_dice/features/room/presentation/room_game_screen.dart';
+import 'package:hold_my_dice/features/room/presentation/room_summary_screen.dart';
 import 'package:hold_my_dice/features/room/presentation/room_widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -60,12 +61,21 @@ class RoomScreen extends ConsumerWidget {
                   loading: () => const _Message(null),
                   error: (e, _) => failed(e),
                   data: (me) {
-                    if (me == null) return _JoinForm(meta: meta);
+                    final ended = meta.status == RoomStatus.ended;
+                    // Nobody new can join a game that ended.
+                    if (me == null) {
+                      return ended
+                          ? const _Message('เกมนี้จบแล้ว', home: true)
+                          : _JoinForm(meta: meta);
+                    }
                     return _Present(
                       code: code,
-                      child: meta.status == RoomStatus.lobby
-                          ? _Lobby(meta: meta, me: me)
-                          : RoomGameScreen(code: code),
+                      beating: !ended,
+                      child: switch (meta.status) {
+                        RoomStatus.lobby => _Lobby(meta: meta, me: me),
+                        RoomStatus.playing => RoomGameScreen(code: code),
+                        RoomStatus.ended => RoomSummaryScreen(code: code),
+                      },
                     );
                   },
                 );
@@ -77,10 +87,18 @@ class RoomScreen extends ConsumerWidget {
 /// Keeps telling the room that this person is here for as long as they are
 /// on one of its pages (the waiting room and the game).
 class _Present extends ConsumerStatefulWidget {
-  const _Present({required this.code, required this.child});
+  const _Present({
+    required this.code,
+    required this.child,
+    this.beating = true,
+  });
 
   final String code;
   final Widget child;
+
+  /// Whether to keep beating (not once the game has ended: nobody needs it
+  /// and each beat is a write).
+  final bool beating;
 
   @override
   ConsumerState<_Present> createState() => _PresentState();
@@ -97,7 +115,8 @@ class _PresentState extends ConsumerState<_Present>
       ref.read(roomRepositoryProvider),
       widget.code,
       onNotAMember: _lookAgain,
-    )..start();
+    );
+    if (widget.beating) _beater.start();
     WidgetsBinding.instance.addObserver(this);
     // A provider is not changed while the tree is being built.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -112,9 +131,15 @@ class _PresentState extends ConsumerState<_Present>
   }
 
   @override
+  void didUpdateWidget(_Present old) {
+    super.didUpdateWidget(old);
+    if (old.beating && !widget.beating) _beater.stop();
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A locked or backgrounded phone sends no beats; say we are back at once.
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed && widget.beating) {
       _beater.beatNow();
     }
   }

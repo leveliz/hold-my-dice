@@ -71,6 +71,23 @@ void main() {
     expect(find.byKey(const ValueKey('my-balance')), findsOneWidget);
   });
 
+  testWidgets('the card says a game ended, and leads to its summary', (
+    tester,
+  ) async {
+    await repoOn(
+      store,
+      'u2',
+    ).joinAsPlayer(code: code, name: 'แพร', color: 0xFFE11D48);
+    await repoOn(store, 'owner').startGame(code);
+    await repoOn(store, 'owner').endGame(code);
+    await openPicker(tester, remembered: _remembering(code));
+    expect(find.text('เกมจบแล้ว ดูสรุป'), findsOneWidget);
+    expect(find.text('เกมกำลังเล่นอยู่'), findsNothing);
+    await tester.tap(card());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('room-summary')), findsOneWidget);
+  });
+
   testWidgets('no card for a room that does not exist', (tester) async {
     await openPicker(tester, remembered: _remembering('ZZZZZZ'));
     expect(card(), findsNothing);
