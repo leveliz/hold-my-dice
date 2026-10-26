@@ -369,12 +369,52 @@ try {
     check(!(await seen(players[1], 'P1 เรียกเก็บ', 1500)), 'and the card of the one asked goes away');
   }
 
-  // 6c. Paying more than they hold says so, in words.
+  // 6c. Not enough money: mortgage and pay in one press; going bankrupt.
+  const thousands = (n) => n.toLocaleString('en-US');
   const p3 = players[2];
+  await waitFor(async () => (await balancesOn(p3)).P3 !== undefined);
+  const b3 = (await balancesOn(p3)).P3;
+  const owes3 = b3 + 500;
   await button(p3, 'จ่ายธนาคาร').click();
-  await keys(p3, '999999999');
+  await keys(p3, String(owes3));
   await button(p3, 'ตกลง').click();
-  check(await seen(p3, 'เงินไม่พอ', 8000), 'paying more than you hold says "not enough money"');
+  check(await seen(p3, 'เงินไม่พอ', 8000), 'paying more than you hold opens the "not enough money" sheet');
+  check(await seen(p3, 'ขาด 500', 3000), 'and says what is missing');
+  const mortgageBox = p3.page.getByRole('textbox').first();
+  for (let attempt = 0; attempt < 4 && !(await button(p3, 'เพิ่ม').isEnabled()); attempt++) {
+    // Flutter's text field sometimes loses the first keys of a fresh focus.
+    await mortgageBox.click();
+    await sleep(400);
+    await mortgageBox.pressSequentially('600', { delay: 80 });
+    await sleep(400);
+  }
+  await button(p3, 'เพิ่ม').click();
+  await button(p3, `จ่าย ${thousands(owes3)}`).click();
+  check(await waitFor(async () => (await balancesOn(p3)).P3 === 100), 'a payment helped by a mortgage leaves what is over');
+  check(await waitFor(async () => (await balancesOn(host)).P3 === 100), 'and the host sees the same balance');
+  await sleep(4500);
+
+  const p6 = players[5];
+  await waitFor(async () => (await balancesOn(p6)).P6 !== undefined);
+  const owes6 = (await balancesOn(p6)).P6 + 1000;
+  // (The latest line of the history also starts with these words, so the
+  // button is looked up by its whole name.)
+  const payBankButton = p6.page.getByRole('button', { name: 'จ่ายธนาคาร', exact: true });
+  await waitFor(() => payBankButton.isEnabled());
+  await payBankButton.click();
+  await keys(p6, String(owes6));
+  await button(p6, 'ตกลง').click();
+  await seen(p6, 'เงินไม่พอ', 8000);
+  await button(p6, 'ล้มละลาย').first().click();
+  check(await seen(p6, 'ล้มละลาย?', 5000), 'going bankrupt asks for a confirmation first');
+  await button(p6, 'ล้มละลาย').last().click();
+  check(await seen(p6, 'คุณออกจากเกมแล้ว', 10000), 'the one who went bankrupt is out of the game');
+  check(await seen(host, 'P6 ล้มละลาย', 8000), 'the others are told');
+  check(
+    await waitFor(async () => (await screenText(host)).split(String.fromCharCode(10)).some((l) => /^P6 .*ออกจากเกม/.test(l))),
+    'and see the seat marked as out',
+  );
+  check(await button(p6, 'GO', true).isDisabled(), 'whoever is out has no money buttons');
   await sleep(4500);
 
   // 6d. Without a connection the money buttons go off within about 12 seconds,

@@ -274,42 +274,40 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const ValueKey('bankrupt-button'),
-                    onPressed: canGoBankrupt && !covered
-                        ? () => _goBankrupt(payee, cash)
-                        : null,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: scheme.error,
-                      side: BorderSide(
-                        color: scheme.error.withValues(
-                          alpha: canGoBankrupt && !covered ? 1 : 0.3,
-                        ),
-                      ),
-                    ),
-                    icon: const Icon(LucideIcons.logOut),
-                    label: const Text('ล้มละลาย'),
+            FilledButton.icon(
+              key: const ValueKey('mortgage-confirm'),
+              onPressed: enough
+                  ? () => Navigator.pop(
+                      context,
+                      ShortfallResult.pay(covered ? null : total),
+                    )
+                  : null,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+              ),
+              icon: const Icon(LucideIcons.handCoins),
+              label: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text('จ่าย ${formatMoney(amount)}', maxLines: 1),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const ValueKey('bankrupt-button'),
+              onPressed: canGoBankrupt && !covered
+                  ? () => _goBankrupt(payee, cash)
+                  : null,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                foregroundColor: scheme.error,
+                side: BorderSide(
+                  color: scheme.error.withValues(
+                    alpha: canGoBankrupt && !covered ? 1 : 0.3,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    key: const ValueKey('mortgage-confirm'),
-                    onPressed: enough
-                        ? () => Navigator.pop(
-                            context,
-                            ShortfallResult.pay(covered ? null : total),
-                          )
-                        : null,
-                    icon: const Icon(LucideIcons.handCoins),
-                    label: Text('จ่าย ${formatMoney(amount)}'),
-                  ),
-                ),
-              ],
+              ),
+              icon: const Icon(LucideIcons.logOut),
+              label: const Text('ล้มละลาย'),
             ),
             if (!canGoBankrupt && !covered)
               Padding(
