@@ -142,6 +142,7 @@ void main() {
         await openApp(tester, store, '/room/$code', uid: _owner);
         await payBankSheet(tester, '2000');
         expect(find.text('ขาด 500'), findsOneWidget);
+        expect(find.text('เหลือหลังจ่ายได้ไม่เกิน 300'), findsOneWidget);
         expect(find.text('จ่ายธนาคาร 2,000 · มีอยู่ 1,500'), findsOneWidget);
         expect(enabled(tester, 'mortgage-confirm'), isFalse);
         expect(status(tester), contains('ยังขาดอีก 500'));
@@ -333,6 +334,8 @@ void main() {
       await tester.tap(key('bankrupt-button'));
       await tester.pumpAndSettle();
       expect(find.textContaining('แพร ได้รับ 2,000 ครบ'), findsOneWidget);
+      expect(find.textContaining('ต้องจ่าย 2,000 · มี 1,500'), findsOneWidget);
+      expect(find.textContaining('ดูเกมต่อได้'), findsOneWidget);
       await tester.tap(key('bankrupt-confirm'));
       await tester.pumpAndSettle();
       expect(

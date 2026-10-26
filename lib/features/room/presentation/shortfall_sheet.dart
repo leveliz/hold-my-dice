@@ -77,15 +77,14 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('bankrupt-dialog'),
-        title: const Text('ล้มละลาย?'),
+        title: Text(
+          'ล้มละลาย?',
+          style: serifStyle(Theme.of(context).textTheme.headlineSmall),
+        ),
         content: Text(
-          toBank
-              ? 'ออกจากเกม เงินที่เหลือ ${formatMoney(cash)} คืนธนาคาร '
-                    'ย้อนกลับไม่ได้ และถ้าคุณเป็นคนแรกที่ล้มละลาย '
-                    'คุณจะเป็นนายธนาคาร'
-              : 'ออกจากเกม $payee ได้รับ ${formatMoney(widget.amount)} ครบ '
-                    'ธนาคารจ่ายส่วนต่าง ย้อนกลับไม่ได้ และถ้าคุณเป็นคนแรก'
-                    'ที่ล้มละลาย คุณจะเป็นนายธนาคาร',
+          'ต้องจ่าย ${formatMoney(widget.amount)} · มี ${formatMoney(cash)}\n'
+          '${toBank ? 'ออกจากเกม เงินที่เหลือ ${formatMoney(cash)} คืนธนาคาร' : 'ออกจากเกม $payee ได้รับ ${formatMoney(widget.amount)} ครบ ธนาคารจ่ายส่วนต่าง'}\n'
+          'ดูเกมต่อได้ แต่กดเงินไม่ได้ และย้อนกลับไม่ได้',
         ),
         actions: [
           TextButton.icon(
@@ -219,6 +218,14 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
                     ),
                   ],
                 ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'เหลือหลังจ่ายได้ไม่เกิน ${formatMoney(cap)}',
+                  key: const ValueKey('mortgage-cap'),
+                  style: text.bodySmall?.copyWith(color: muted),
+                ),
+              ),
               Row(
                 children: [
                   Expanded(
