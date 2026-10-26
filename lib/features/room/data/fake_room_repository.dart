@@ -8,6 +8,7 @@ import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/ledger.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 const _seatIsStaleAfter = Duration(minutes: 2);
 
@@ -50,7 +51,8 @@ class _Room {
     : meta = _Feed<RoomMeta?>(null),
       members = _Feed<List<Member>>(const []),
       state = _Feed<RoomState?>(null),
-      entryFeed = _Feed<List<RoomEntry>>(const []);
+      entryFeed = _Feed<List<RoomEntry>>(const []),
+      requestFeed = _Feed<List<RoomRequest>>(const []);
 
   final String code;
   String ownerUid;
@@ -65,6 +67,10 @@ class _Room {
   final _Feed<RoomState?> state;
   final entries = <RoomEntry>[];
   final _Feed<List<RoomEntry>> entryFeed;
+  final requests = <String, RoomRequest>{};
+  final _Feed<List<RoomRequest>> requestFeed;
+
+  void publishRequests() => requestFeed.set(List.unmodifiable(requests.values));
 
   RoomMeta get metaNow => RoomMeta(
     code: code,
@@ -477,6 +483,128 @@ class FakeRoomRepository implements RoomRepository {
         status: state.status,
       ),
     );
+  }
+
+  /// The seat of the signed-in person, who must be a player of a game that is
+  /// being played; otherwise throws.
+  Future<(_Room, String, RoomState)> _asPlayerOfGame(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final room = _room(code);
+    final me = room.memberByUid[uid];
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final state = room.state.value;
+    if (room.status != RoomStatus.playing || state == null) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final seat = me.seat;
+    if (me.role != MemberRole.player || seat == null) {
+      throw const RoomException(RoomError.notAPlayer);
+    }
+    return (room, seat, state);
+  }
+
+  bool _fresh(RoomRequest r) {
+    final at = r.createdAt;
+    return at != null && _store.now().difference(at) < requestLifetime;
+  }
+
+  @override
+  Future<void> requestMoney(
+    String code, {
+    required String fromSeat,
+    required int amount,
+  }) async {
+    final (room, seat, state) = await _asPlayerOfGame(code);
+    if (amount < 1 || amount > maxEntryAmount) {
+      throw const RoomException(RoomError.invalidAmount);
+    }
+    final ledger = state.toLedger(room.settings);
+    if (fromSeat == seat ||
+        !ledger.isActive(fromSeat) ||
+        !ledger.isActive(seat)) {
+      throw const RoomException(RoomError.invalidParties);
+    }
+    final id = RoomRequest.idFor(toSeat: seat, fromSeat: fromSeat);
+    final old = room.requests[id];
+    if (old != null && old.isOpen && _fresh(old)) {
+      throw const RoomException(RoomError.requestOpen);
+    }
+    room.requests[id] = RoomRequest(
+      id: id,
+      fromSeat: fromSeat,
+      toSeat: seat,
+      amount: amount,
+      status: RequestStatus.open,
+      createdAt: _store.now(),
+    );
+    room.publishRequests();
+  }
+
+  RoomRequest _requestOrGone(_Room room, String id) =>
+      room.requests[id] ?? (throw const RoomException(RoomError.requestGone));
+
+  void _setStatus(
+    _Room room,
+    RoomRequest r,
+    RequestStatus status, {
+    int? paidSeq,
+  }) {
+    room.requests[r.id] = RoomRequest(
+      id: r.id,
+      fromSeat: r.fromSeat,
+      toSeat: r.toSeat,
+      amount: r.amount,
+      status: status,
+      createdAt: r.createdAt,
+      paidSeq: paidSeq ?? r.paidSeq,
+    );
+    room.publishRequests();
+  }
+
+  @override
+  Future<void> cancelRequest(String code, String id) async {
+    final (room, seat, _) = await _asPlayerOfGame(code);
+    final r = _requestOrGone(room, id);
+    if (seat != r.fromSeat && seat != r.toSeat) {
+      throw const RoomException(RoomError.notAPlayer);
+    }
+    if (r.status == RequestStatus.cancelled) return;
+    if (r.status == RequestStatus.paid) {
+      throw const RoomException(RoomError.alreadyPaid);
+    }
+    _setStatus(room, r, RequestStatus.cancelled);
+  }
+
+  @override
+  Future<void> payRequest(String code, String id, {required String cid}) async {
+    final (room, seat, _) = await _asPlayerOfGame(code);
+    final r = _requestOrGone(room, id);
+    if (r.status == RequestStatus.paid) {
+      final paid = r.paidSeq;
+      if (paid != null &&
+          paid < room.entries.length &&
+          room.entries[paid].cid == cid &&
+          room.entries[paid].seat == seat) {
+        return;
+      }
+      throw const RoomException(RoomError.alreadyPaid);
+    }
+    if (r.status == RequestStatus.cancelled || !_fresh(r)) {
+      throw const RoomException(RoomError.requestGone);
+    }
+    if (seat != r.fromSeat) throw const RoomException(RoomError.notAPlayer);
+    await submitEntry(
+      code,
+      EntryDraft.transfer(r.toSeat, r.amount, reason: requestReason, cid: cid),
+    );
+    final entry = room.entries.firstWhere((e) => e.cid == cid);
+    _setStatus(room, r, RequestStatus.paid, paidSeq: entry.seq);
+  }
+
+  @override
+  Stream<List<RoomRequest>> watchRequests(String code) async* {
+    final room = await _asMember(code);
+    yield* room.requestFeed.watch();
   }
 
   @override

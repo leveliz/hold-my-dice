@@ -3,6 +3,7 @@ import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 /// What a [RoomRepository] test needs besides the repository itself: the
 /// same room seen by several people, a way to let time pass, and a look at
@@ -503,6 +504,315 @@ void roomRepositoryContract(RoomHarness Function() create) {
           h.repoFor('owner').undoEntry(code, 5),
           _throws(RoomError.tooLate),
         );
+      });
+
+      group('requests to pay', () {
+        Future<List<RoomRequest>> requests(
+          RoomHarness h,
+          String code, [
+          String uid = 'owner',
+        ]) => h.repoFor(uid).watchRequests(code).first;
+
+        Future<String> twoPlayers(RoomHarness h) =>
+            started(h, others: const ['u2', 'u3']);
+
+        test('there are none at first', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          expect(await requests(h, code), isEmpty);
+        });
+
+        test('asking leaves an open request that every player sees', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          await h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 300);
+          for (final uid in ['owner', 'u2', 'u3']) {
+            final r = (await requests(h, code, uid)).single;
+            expect(r.id, 'p2_p1', reason: uid);
+            expect(r.fromSeat, 'p1');
+            expect(r.toSeat, 'p2');
+            expect(r.amount, 300);
+            expect(r.isOpen, isTrue);
+            expect(r.createdAt, isNotNull);
+          }
+        });
+
+        test(
+          'asking yourself, nobody, or for a bad amount is refused',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            final u2 = h.repoFor('u2');
+            await expectLater(
+              u2.requestMoney(code, fromSeat: 'p2', amount: 10),
+              _throws(RoomError.invalidParties),
+            );
+            await expectLater(
+              u2.requestMoney(code, fromSeat: 'p9', amount: 10),
+              _throws(RoomError.invalidParties),
+            );
+            await expectLater(
+              u2.requestMoney(code, fromSeat: 'p1', amount: 0),
+              _throws(RoomError.invalidAmount),
+            );
+            await expectLater(
+              u2.requestMoney(code, fromSeat: 'p1', amount: 1000000000),
+              _throws(RoomError.invalidAmount),
+            );
+            expect(await requests(h, code), isEmpty);
+          },
+        );
+
+        test('asking while the first ask is still open is refused', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          final u2 = h.repoFor('u2');
+          await u2.requestMoney(code, fromSeat: 'p1', amount: 300);
+          await expectLater(
+            u2.requestMoney(code, fromSeat: 'p1', amount: 50),
+            _throws(RoomError.requestOpen),
+          );
+          expect((await requests(h, code)).single.amount, 300);
+        });
+
+        test('another person asked is another place', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          final u2 = h.repoFor('u2');
+          await u2.requestMoney(code, fromSeat: 'p1', amount: 300);
+          await u2.requestMoney(code, fromSeat: 'p3', amount: 20);
+          expect((await requests(h, code)).map((r) => r.id).toSet(), {
+            'p2_p1',
+            'p2_p3',
+          });
+        });
+
+        test(
+          'asking again after it was closed or ran out replaces it',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            final u2 = h.repoFor('u2');
+            await u2.requestMoney(code, fromSeat: 'p1', amount: 300);
+            await u2.cancelRequest(code, 'p2_p1');
+            await u2.requestMoney(code, fromSeat: 'p1', amount: 50);
+            var r = (await requests(h, code)).single;
+            expect((r.amount, r.status), (50, RequestStatus.open));
+            await h.advance(const Duration(minutes: 3));
+            await u2.requestMoney(code, fromSeat: 'p1', amount: 70);
+            r = (await requests(h, code)).single;
+            expect(r.amount, 70);
+          },
+        );
+
+        test(
+          'the asker or the payer can close it, and closing twice is quiet',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 300);
+            await h.repoFor('owner').cancelRequest(code, 'p2_p1');
+            expect(
+              (await requests(h, code)).single.status,
+              RequestStatus.cancelled,
+            );
+            await h.repoFor('owner').cancelRequest(code, 'p2_p1');
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 80);
+            await h.repoFor('u2').cancelRequest(code, 'p2_p1');
+            expect(
+              (await requests(h, code)).single.status,
+              RequestStatus.cancelled,
+            );
+          },
+        );
+
+        test(
+          'a third player cannot close it, and a missing one is gone',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 300);
+            await expectLater(
+              h.repoFor('u3').cancelRequest(code, 'p2_p1'),
+              _throws(RoomError.notAPlayer),
+            );
+            expect((await requests(h, code)).single.isOpen, isTrue);
+            await expectLater(
+              h.repoFor('u2').cancelRequest(code, 'p2_p3'),
+              _throws(RoomError.requestGone),
+            );
+          },
+        );
+
+        test(
+          'the payer pays: the money moves, the history says so, the request is paid',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 300);
+            await h
+                .repoFor('owner')
+                .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
+            expect((await state(h, code)).balances, {
+              'p1': 1200,
+              'p2': 1800,
+              'p3': 1500,
+            });
+            final entry = (await history(h, code)).single;
+            expect(entry.kind, EntryKind.transfer);
+            expect((entry.from, entry.to, entry.amount), ('p1', 'p2', 300));
+            expect(entry.reason, requestReason);
+            expect(entry.cid, 'cidcidcid1234');
+            final r = (await requests(h, code)).single;
+            expect(r.status, RequestStatus.paid);
+            expect(r.paidSeq, entry.seq);
+          },
+        );
+
+        test('paying with the same code twice is paying once', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          await h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 300);
+          await h
+              .repoFor('owner')
+              .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
+          await h
+              .repoFor('owner')
+              .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
+          expect((await state(h, code)).balances['p1'], 1200);
+          expect(await history(h, code), hasLength(1));
+        });
+
+        test('a request that is already paid cannot be paid again', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          await h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 300);
+          await h
+              .repoFor('owner')
+              .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
+          await expectLater(
+            h.repoFor('owner').payRequest(code, 'p2_p1', cid: 'cidcidcid9999'),
+            _throws(RoomError.alreadyPaid),
+          );
+          expect((await state(h, code)).balances['p1'], 1200);
+        });
+
+        test('only the one who is asked can pay', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          await h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 300);
+          for (final uid in ['u2', 'u3']) {
+            await expectLater(
+              h.repoFor(uid).payRequest(code, 'p2_p1', cid: 'cidcidcid1234'),
+              _throws(RoomError.notAPlayer),
+              reason: uid,
+            );
+          }
+          expect(await history(h, code), isEmpty);
+        });
+
+        test(
+          'a request that was cancelled, ran out or does not exist cannot be paid',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            final owner = h.repoFor('owner');
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 300);
+            await h.repoFor('u2').cancelRequest(code, 'p2_p1');
+            await expectLater(
+              owner.payRequest(code, 'p2_p1', cid: 'cidcidcid1234'),
+              _throws(RoomError.requestGone),
+            );
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 300);
+            await h.advance(const Duration(minutes: 3));
+            await expectLater(
+              owner.payRequest(code, 'p2_p1', cid: 'cidcidcid1234'),
+              _throws(RoomError.requestGone),
+            );
+            await expectLater(
+              owner.payRequest(code, 'p2_p9', cid: 'cidcidcid1234'),
+              _throws(RoomError.requestGone),
+            );
+            expect(await history(h, code), isEmpty);
+          },
+        );
+
+        test(
+          'paying more than you hold is refused and the request stays open',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 2000);
+            await expectLater(
+              h
+                  .repoFor('owner')
+                  .payRequest(code, 'p2_p1', cid: 'cidcidcid1234'),
+              _throws(RoomError.insufficientFunds),
+            );
+            expect((await requests(h, code)).single.isOpen, isTrue);
+            expect((await state(h, code)).balances['p1'], 1500);
+          },
+        );
+
+        test('a request that was paid cannot be cancelled', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          await h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 300);
+          await h
+              .repoFor('owner')
+              .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
+          for (final uid in ['u2', 'owner']) {
+            await expectLater(
+              h.repoFor(uid).cancelRequest(code, 'p2_p1'),
+              _throws(RoomError.alreadyPaid),
+              reason: uid,
+            );
+          }
+          expect((await requests(h, code)).single.status, RequestStatus.paid);
+        });
+
+        test(
+          'a paid transfer can be taken back, and the request stays paid',
+          () async {
+            final h = create();
+            final code = await twoPlayers(h);
+            await h
+                .repoFor('u2')
+                .requestMoney(code, fromSeat: 'p1', amount: 300);
+            await h
+                .repoFor('owner')
+                .payRequest(code, 'p2_p1', cid: 'cidcidcid1234');
+            await h.repoFor('owner').undoEntry(code, 0);
+            expect((await state(h, code)).balances['p1'], 1500);
+            expect((await requests(h, code)).single.status, RequestStatus.paid);
+          },
+        );
+
+        test('a player who is out cannot be asked, nor ask', () async {
+          final h = create();
+          final code = await twoPlayers(h);
+          // Only the owner of the room can go out in the fake: the first slice
+          // has no bankruptcy, so the state is the only way to see this case.
+          // The parties are checked against the seats of the game instead.
+          await expectLater(
+            h.repoFor('u2').requestMoney(code, fromSeat: 'p4', amount: 10),
+            _throws(RoomError.invalidParties),
+          );
+        });
       });
 
       test('a press sent twice with the same code is written once', () async {

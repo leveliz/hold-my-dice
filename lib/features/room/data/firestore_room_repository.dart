@@ -10,6 +10,7 @@ import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/ledger.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 const _codeTries = 5;
 
@@ -425,7 +426,16 @@ class FirestoreRoomRepository implements RoomRepository {
   }
 
   @override
-  Future<void> submitEntry(String code, EntryDraft draft) async {
+  Future<void> submitEntry(String code, EntryDraft draft) =>
+      _submit(code, draft);
+
+  /// Writes a press. With a [requestId] the press pays that request to pay:
+  /// the request is checked and marked paid in the same transaction.
+  Future<void> _submit(
+    String code,
+    EntryDraft draft, {
+    String? requestId,
+  }) async {
     final uid = await _auth.ensureSignedIn();
     final meta = await _readMeta(code);
     if (meta.status != RoomStatus.playing) {
@@ -472,6 +482,33 @@ class FirestoreRoomRepository implements RoomRepository {
             return;
           }
           final state = RoomState.fromMap(data);
+          if (requestId != null) {
+            final raw = (await tx.get(_request(code, requestId))).data();
+            final req = raw == null ? null : _requestOf(requestId, raw);
+            if (req == null ||
+                req.status == RequestStatus.cancelled ||
+                req.toSeat != toSeat ||
+                req.amount != amount) {
+              refused = RoomError.requestGone;
+              return;
+            }
+            if (req.status == RequestStatus.paid) {
+              final paid = req.paidSeq;
+              final mine = paid == null
+                  ? null
+                  : (await tx.get(_entry(code, paid))).data();
+              if (entryIsMine(mine, draft.cid, seat)) {
+                alreadyIn = true;
+              } else {
+                refused = RoomError.alreadyPaid;
+              }
+              return;
+            }
+            if (req.fromSeat != seat) {
+              refused = RoomError.notAPlayer;
+              return;
+            }
+          }
           if (draft.kind == EntryKind.transfer &&
               !state.toLedger(meta.settings).isActive(toSeat!)) {
             refused = RoomError.invalidParties;
@@ -521,6 +558,12 @@ class FirestoreRoomRepository implements RoomRepository {
             'seq': state.seq + 1,
             'balances': (result as Applied).state.balances,
           });
+          if (requestId != null) {
+            tx.update(_request(code, requestId), {
+              'status': 'paid',
+              'paidSeq': state.seq,
+            });
+          }
         });
         // Giving up the wait does not stop the transaction; whoever presses
         // next is told when it is over.
@@ -545,6 +588,18 @@ class FirestoreRoomRepository implements RoomRepository {
         if (await _alreadyWritten(code, draft.cid)) return;
         final now = await _guard(() => _state(code).get(), RoomError.unknown);
         final moved = (now.data()?['seq'] as int?) != triedSeq;
+        if (!moved && requestId != null) {
+          // Refused with the state where it was: the request is the reason
+          // (closed, ran out, paid by somebody in the meantime).
+          final raw = (await _guard(
+            () => _request(code, requestId).get(),
+            RoomError.unknown,
+          )).data();
+          final paid = raw != null && raw['status'] == 'paid';
+          throw RoomException(
+            paid ? RoomError.alreadyPaid : RoomError.requestGone,
+          );
+        }
         if (!moved || attempt >= _pressTries) {
           throw RoomException(
             e.code == 'aborted' || moved
@@ -554,6 +609,152 @@ class FirestoreRoomRepository implements RoomRepository {
         }
       }
     }
+  }
+
+  DocumentReference<Map<String, dynamic>> _request(String code, String id) =>
+      _room(code).collection('requests').doc(id);
+
+  /// A request as stored; the time of one still on its way is not known yet.
+  static RoomRequest _requestOf(String id, Map<String, dynamic> d) {
+    final at = d['createdAt'];
+    return RoomRequest.fromMap(id, {
+      ...d,
+      'createdAt': at is Timestamp ? at.toDate() : at,
+    });
+  }
+
+  @override
+  Future<void> requestMoney(
+    String code, {
+    required String fromSeat,
+    required int amount,
+  }) async {
+    await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    if (meta.status != RoomStatus.playing) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final me = await readMyMember(code);
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final seat = me.seat;
+    if (me.role != MemberRole.player || seat == null) {
+      throw const RoomException(RoomError.notAPlayer);
+    }
+    if (amount < 1 || amount > maxEntryAmount) {
+      throw const RoomException(RoomError.invalidAmount);
+    }
+    if (fromSeat == seat) throw const RoomException(RoomError.invalidParties);
+    final id = RoomRequest.idFor(toSeat: seat, fromSeat: fromSeat);
+    final ask = RoomRequest(
+      id: id,
+      fromSeat: fromSeat,
+      toSeat: seat,
+      amount: amount,
+      status: RequestStatus.open,
+    );
+    try {
+      await _request(
+        code,
+        id,
+      ).set(ask.toMap(FieldValue.serverTimestamp())).timeout(_writeTimeout);
+    } on TimeoutException {
+      throw const RoomException(RoomError.unsure);
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') {
+        throw _translate(e, RoomError.invalidParties);
+      }
+      // The rules say no to a second ask while the first is open and fresh,
+      // and to asking someone who is not (or no longer) in the game.
+      final raw = (await _guard(
+        () => _request(code, id).get(),
+        RoomError.unknown,
+      )).data();
+      final old = raw == null ? null : _requestOf(id, raw);
+      final at = old?.createdAt;
+      final fresh =
+          old != null &&
+          old.isOpen &&
+          (at == null || DateTime.now().difference(at) < requestLifetime);
+      throw RoomException(
+        fresh ? RoomError.requestOpen : RoomError.invalidParties,
+      );
+    }
+  }
+
+  @override
+  Future<void> cancelRequest(String code, String id) async {
+    await _auth.ensureSignedIn();
+    RoomError? refused;
+    try {
+      await _db
+          .runTransaction<void>((tx) async {
+            refused = null;
+            final ref = _request(code, id);
+            final raw = (await tx.get(ref)).data();
+            if (raw == null) {
+              refused = RoomError.requestGone;
+              return;
+            }
+            final status = _requestOf(id, raw).status;
+            if (status == RequestStatus.cancelled) return;
+            if (status == RequestStatus.paid) {
+              refused = RoomError.alreadyPaid;
+              return;
+            }
+            tx.update(ref, {'status': 'cancelled'});
+          })
+          .timeout(_writeTimeout);
+    } on TimeoutException {
+      throw const RoomException(RoomError.unsure);
+    } on FirebaseException catch (e) {
+      // Only the asker and the asked may close it.
+      if (e.code == 'permission-denied') {
+        throw const RoomException(RoomError.notAPlayer);
+      }
+      throw _translate(e, RoomError.notAPlayer);
+    }
+    if (refused case final error?) throw RoomException(error);
+  }
+
+  @override
+  Future<void> payRequest(String code, String id, {required String cid}) async {
+    final raw = (await _guard(
+      () => _request(code, id).get(),
+      RoomError.notAMember,
+    )).data();
+    if (raw == null) throw const RoomException(RoomError.requestGone);
+    final req = _requestOf(id, raw);
+    await _submit(
+      code,
+      EntryDraft.transfer(
+        req.toSeat,
+        req.amount,
+        reason: requestReason,
+        cid: cid,
+      ),
+      requestId: id,
+    );
+  }
+
+  @override
+  Stream<List<RoomRequest>> watchRequests(String code) async* {
+    await _auth.ensureSignedIn();
+    yield* _guardStream(
+      _room(code).collection('requests').snapshots().map((q) {
+        final out = <RoomRequest>[];
+        for (final d in q.docs) {
+          // One document that cannot be read is left out, not a reason to
+          // lose all the others.
+          try {
+            out.add(_requestOf(d.id, d.data()));
+          } on FormatException {
+            continue;
+          }
+        }
+        return out;
+      }),
+      RoomError.notAMember,
+    );
   }
 
   @override

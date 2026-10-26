@@ -2,9 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
-
-/// The reason a transfer carries when it pays a request to pay.
-const requestReason = 'ตามคำขอเรียกเก็บ';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 /// Entries older than this, next to the newest one, are history that a late
 /// snapshot brought along, not news.

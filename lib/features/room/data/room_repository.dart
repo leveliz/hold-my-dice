@@ -2,6 +2,7 @@ import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/ledger.dart';
 import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 /// What went wrong with a room operation, in terms a person can be told.
 enum RoomError {
@@ -45,6 +46,15 @@ enum RoomError {
 
   /// Too late to undo: something came after it, or the time is up.
   tooLate,
+
+  /// The person already has a request to pay open to that person.
+  requestOpen,
+
+  /// The request is closed, ran out or is not there.
+  requestGone,
+
+  /// The request was paid already.
+  alreadyPaid,
   notOwner,
   notEnoughPlayers,
   spectatorsNotAllowed,
@@ -183,6 +193,29 @@ abstract class RoomRepository {
   /// [RoomError.tooLate] when something came after it, it is not theirs, or
   /// the time is up.
   Future<void> undoEntry(String code, int seq);
+
+  /// Asks the person at [fromSeat] to pay [amount] to this person. Each pair
+  /// has room for one request: asking while the last one is open (and not
+  /// older than [requestLifetime]) is [RoomError.requestOpen]; after it is
+  /// closed or ran out the new one replaces it.
+  Future<void> requestMoney(
+    String code, {
+    required String fromSeat,
+    required int amount,
+  });
+
+  /// Closes the request, for the one who asked or the one asked. Closing what
+  /// is closed does nothing; what was paid is [RoomError.alreadyPaid].
+  Future<void> cancelRequest(String code, String id);
+
+  /// Pays the request as a transfer with the press code [cid], and marks it
+  /// paid, in one go. Paying again with the same code does nothing more;
+  /// another code on a paid request is [RoomError.alreadyPaid]; a request
+  /// that is cancelled, ran out or is missing is [RoomError.requestGone].
+  Future<void> payRequest(String code, String id, {required String cid});
+
+  /// Every request of the room (also the closed ones), live.
+  Stream<List<RoomRequest>> watchRequests(String code);
 
   /// The newest [historyWindow] entries of the game, oldest first, live.
   /// Members only. A long game is not read whole: every device would pay for
