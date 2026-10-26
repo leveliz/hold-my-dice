@@ -363,6 +363,7 @@ void main() {
         ))!;
         await tester.pumpAndSettle();
         expect(key('summary-next-banner'), findsOneWidget);
+        expect(find.text('มีห้องใหม่แล้ว'), findsOneWidget);
         expect(key('summary-close-notice'), findsNothing);
         await tester.tap(key('summary-next-join'));
         await tester.pumpAndSettle();

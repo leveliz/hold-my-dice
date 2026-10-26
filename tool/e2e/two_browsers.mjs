@@ -495,6 +495,30 @@ try {
   check(sawSummary.every(Boolean), 'all 8 players and the watcher see the summary by themselves');
   check(await seen(watcher, 'ผู้ชนะ', 5000), 'the summary names a winner');
   check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) === 0, 'and nobody has money buttons any more');
+
+  // 6i. Everybody is told the room will be closed; the owner plays again, the
+  // others are shown the new room and follow with one tap.
+  check(await seen(players[1], 'ห้องจะถูกปิดใน', 5000), 'everybody is told when the room will be closed');
+  check((await players[1].page.getByRole('button', { name: 'เล่นอีกรอบ' }).count()) === 0, 'a player has no "play again"');
+  await button(host, 'เล่นอีกรอบ').click();
+  check(await seen(host, 'ห้องรอ', 20000), 'the owner plays again and sits in the new waiting room');
+  check(await seen(players[1], 'มีห้องใหม่แล้ว', 20000), 'the others are shown the new room');
+  await button(players[1], 'เข้าร่วม').click();
+  check(await seen(players[1], 'ห้องรอ', 20000), 'one tap takes a player to the new waiting room');
+  check(await seen(host, 'P2', 20000), 'and the owner sees them sit down there');
+
+  // 6j. The owner goes back to the old summary and closes the room: the others
+  // who are still looking at it are told, and the room is gone for everybody.
+  await open(host, `/room/${playCode}`);
+  check(await seen(host, 'จบเกมแล้ว', 20000), 'the owner can come back to the old summary');
+  await host.page.getByRole('button', { name: 'ปิดห้อง', exact: true }).first().click();
+  check(await seen(host, 'ปิดห้องนี้?', 5000), 'closing the room asks first');
+  await host.page.getByRole('button', { name: 'ปิดห้อง', exact: true }).last().click();
+  check(await seen(players[2], 'ห้องนี้จบแล้วหรือไม่มีอยู่', 30000), 'a player who was reading the summary is told it is gone');
+  check(await seen(watcher, 'ห้องนี้จบแล้วหรือไม่มีอยู่', 30000), 'so is the watcher');
+  check(await gone(host, 'จบเกมแล้ว', 20000), 'the owner leaves the summary');
+  await open(host, `/room/${playCode}`);
+  check(await seen(host, 'ห้องนี้จบแล้วหรือไม่มีอยู่', 20000), 'the link of the old room leads nowhere');
 } finally {
   await browser.close();
 }

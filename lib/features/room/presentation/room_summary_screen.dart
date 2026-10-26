@@ -480,7 +480,11 @@ class _NextRoomBanner extends StatelessWidget {
         children: [
           const Icon(LucideIcons.dices, size: 18),
           const SizedBox(width: 8),
-          const Expanded(child: Text('มีห้องใหม่แล้ว')),
+          // Its own node: next to the button it would otherwise be only the
+          // label of the whole line, which a browser reads out of the markup.
+          Expanded(
+            child: Semantics(container: true, child: Text('มีห้องใหม่แล้ว')),
+          ),
           FilledButton(
             key: const ValueKey('summary-next-join'),
             onPressed: busy ? null : onJoin,
