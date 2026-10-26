@@ -63,6 +63,21 @@ service cloud.firestore {
                          get(seatDoc(code, state.bankerSeat)).data.uid))));
     }
 
+    // Whether a person may take a game that has ended down (its documents,
+    // then the room): the owner at any time, a player with a seat once 5
+    // minutes have gone by since the end. The room's own data is [room].
+    function mayCloseRoom(code, room) {
+      let me = get(memberDoc(code, request.auth.uid)).data;
+      return signedIn()
+        && room.status == 'ended'
+        && (room.ownerUid == request.auth.uid
+            || (exists(memberDoc(code, request.auth.uid))
+                && me.role == 'player'
+                && me.seat is string
+                && ownsSeat(code, me.seat)
+                && request.time > room.endedAt + duration.value(5, 'm')));
+    }
+
     function presenceGone(code, uid) {
       return !exists(presenceDoc(code, uid))
         || get(presenceDoc(code, uid)).data.lastSeen
@@ -473,6 +488,24 @@ service cloud.firestore {
         && resource.data.ownerUid == request.auth.uid
         && resource.data.status == 'lobby';
 
+      // A game that ended is taken down by the owner, or by a player once 5
+      // minutes have gone by (the app removes the rest of it first).
+      allow delete: if mayCloseRoom(code, resource.data);
+
+      // The owner of a game that ended says where the next one is: the code of
+      // a room of theirs that is still a lobby, once.
+      allow update: if signedIn()
+        && resource.data.status == 'ended'
+        && resource.data.ownerUid == request.auth.uid
+        && !('nextCode' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['nextCode'])
+        && request.resource.data.nextCode is string
+        && request.resource.data.nextCode.matches('[A-Z0-9]{6}')
+        && get(roomDoc(request.resource.data.nextCode)).data.ownerUid
+             == request.auth.uid
+        && get(roomDoc(request.resource.data.nextCode)).data.status == 'lobby';
+
       // ---- seats -------------------------------------------------------
       // The seat says who sits where and is the authority for "who is p3".
       // Readable one at a time by anyone signed in (so a person who lost their
@@ -514,7 +547,8 @@ service cloud.firestore {
           && get(presenceDoc(code, resource.data.uid)).data.lastSeen
                < request.time - duration.value(2, 'm');
 
-        allow delete: if ownerOfLobby(code);
+        allow delete: if ownerOfLobby(code)
+          || mayCloseRoom(code, get(roomDoc(code)).data);
       }
 
       // ---- members -----------------------------------------------------
@@ -563,7 +597,8 @@ service cloud.firestore {
                == request.auth.uid;
 
         // The owner of a room that has not started takes everybody out.
-        allow delete: if ownerOfLobby(code);
+        allow delete: if ownerOfLobby(code)
+          || mayCloseRoom(code, get(roomDoc(code)).data);
       }
 
       // ---- presence ----------------------------------------------------
@@ -580,7 +615,8 @@ service cloud.firestore {
           && request.resource.data.keys().hasAll(['lastSeen'])
           && request.resource.data.lastSeen == request.time;
 
-        allow delete: if ownerOfLobby(code);
+        allow delete: if ownerOfLobby(code)
+          || mayCloseRoom(code, get(roomDoc(code)).data);
       }
 
       // ---- state -------------------------------------------------------
@@ -676,7 +712,7 @@ service cloud.firestore {
                    get(seatDoc(code, resource.data.bankerSeat)).data.uid))
                    .data.lastSeen < request.time - duration.value(2, 'm'));
 
-        allow delete: if false;
+        allow delete: if mayCloseRoom(code, get(roomDoc(code)).data);
       }
 
       // ---- entries -----------------------------------------------------
@@ -687,7 +723,7 @@ service cloud.firestore {
         allow create: if validEntry(code, entryId, request.resource.data);
         allow update: if validVoid(code, entryId, resource.data,
                                    request.resource.data);
-        allow delete: if false;
+        allow delete: if mayCloseRoom(code, get(roomDoc(code)).data);
       }
 
       // ---- requests ----------------------------------------------------
@@ -717,7 +753,7 @@ service cloud.firestore {
           // the payer pays it
           || validRequestPaid(code, resource.data, request.resource.data);
 
-        allow delete: if false;
+        allow delete: if mayCloseRoom(code, get(roomDoc(code)).data);
       }
     }
   }

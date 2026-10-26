@@ -2479,6 +2479,155 @@ describe('ending a game: what is refused', () => {
   });
 });
 
+// ---- 7g: closing a game that ended, and the next game
+
+const FIVE = 5 * 60 * 1000;
+const SPECTATOR = 's1';
+
+/** A game of four that ended [age] ms ago, with an entry, a request and presence. */
+async function seedEnded(age = FIVE + 30 * 1000, { stateOver = {} } = {}) {
+  await seedPlaying({ stateOver: { seq: 1, ...stateOver } });
+  await admin(async (db) => {
+    await updateDoc(room(db), { status: 'ended', endedAt: Timestamp.fromMillis(Date.now() - age) });
+    await updateDoc(stateDoc(db), { status: 'ended' });
+    await setDoc(entryDoc(db, 0), entryData({ seq: 0 }));
+    await setDoc(reqDoc(db), requestData());
+    for (const uid of ['owner', 'u2', 'u3', 'u4']) await setDoc(presence(db, uid), { lastSeen: Timestamp.now() });
+    await setDoc(member(db, SPECTATOR), memberData('ดู', { role: 'spectator', seat: null }));
+    await setDoc(presence(db, SPECTATOR), { lastSeen: Timestamp.now() });
+  });
+}
+
+const closeAll = ['owner', 'u2', 'u3', 'u4', SPECTATOR];
+/** What the app deletes first: all the game's documents but the room, the caller's own seat and member document. */
+function closeFirst(db, uid) {
+  const batch = writeBatch(db);
+  batch.delete(entryDoc(db, 0));
+  batch.delete(reqDoc(db));
+  batch.delete(stateDoc(db));
+  for (let i = 1; i <= 4; i++) if (`p${i}` !== seatOf[uid]) batch.delete(seat(db, `p${i}`));
+  for (const u of closeAll) {
+    batch.delete(presence(db, u));
+    if (u !== uid) batch.delete(member(db, u));
+  }
+  return batch.commit();
+}
+/** The last batch: the caller's own seat and member document, and the room. */
+function closeLast(db, uid) {
+  const batch = writeBatch(db);
+  if (seatOf[uid]) batch.delete(seat(db, seatOf[uid]));
+  batch.delete(member(db, uid));
+  batch.delete(room(db));
+  return batch.commit();
+}
+
+describe('closing a game that ended: what is accepted', () => {
+  it('the owner takes it all down at once', async () => {
+    await seedEnded(10 * 1000);
+    const db = as('owner');
+    await assertSucceeds(closeFirst(db, 'owner'));
+    await assertSucceeds(closeLast(db, 'owner'));
+    assert.equal((await adminGet(room)).exists(), false);
+    assert.equal((await adminGet(stateDoc)).exists(), false);
+    assert.equal((await adminGet((d) => entryDoc(d, 0))).exists(), false);
+  });
+
+  it('a player takes it down once 5 minutes have gone by since the end', async () => {
+    await seedEnded();
+    const db = as('u2');
+    await assertSucceeds(closeFirst(db, 'u2'));
+    await assertSucceeds(closeLast(db, 'u2'));
+    assert.equal((await adminGet(room)).exists(), false);
+  });
+
+  it('the banker has no more right than another player', async () => {
+    await seedEnded(FIVE + 30 * 1000, { stateOver: { bankerSeat: 'p4', bankrupt: ['p4'], balances: { ...BASE, p4: 0 } } });
+    await assertSucceeds(closeFirst(as('u4'), 'u4'));
+  });
+});
+
+describe('closing a game that ended: what is refused', () => {
+  const refuse = (title, run, setup = () => seedEnded()) =>
+    it(title, async () => {
+      await setup();
+      await assertFails(run());
+    });
+
+  const parts = {
+    state: (db) => deleteDoc(stateDoc(db)),
+    entry: (db) => deleteDoc(entryDoc(db, 0)),
+    request: (db) => deleteDoc(reqDoc(db)),
+    seat: (db) => deleteDoc(seat(db, 'p2')),
+    member: (db) => deleteDoc(member(db, 'u3')),
+    presence: (db) => deleteDoc(presence(db, 'u3')),
+    room: (db) => deleteDoc(room(db)),
+  };
+  for (const [name, del] of Object.entries(parts)) {
+    refuse(`the ${name} by a player 4 minutes after the end`, () => del(as('u2')), () => seedEnded(4 * 60 * 1000));
+    refuse(`the ${name} by a watcher, long after the end`, () => del(as(SPECTATOR)), () => seedEnded(60 * 60 * 1000));
+    refuse(`the ${name} by a stranger, long after the end`, () => del(as('stranger')), () => seedEnded(60 * 60 * 1000));
+    refuse(`the ${name} by somebody who is not signed in`, () => del(anonymous()), () => seedEnded(60 * 60 * 1000));
+    refuse(`the ${name} by the owner while the game is played`, () => del(as('owner')), () => seedPlaying({ stateOver: { seq: 1 } }));
+  }
+  refuse('the room by a player whose seat was taken over (a member of nothing)', () => deleteDoc(room(as('ghost'))), async () => {
+    await seedEnded();
+    await admin((db) => setDoc(member(db, 'ghost'), memberData('ผี', { seat: 'p2' })));
+  });
+});
+
+describe('the next game: nextCode on a game that ended', () => {
+  const NEXT = 'NEW234';
+  const seedNext = (over = {}) => admin((db) => setDoc(room(db, NEXT), metaData({ createdAt: Timestamp.now(), ...over })));
+  const point = (uid, code = NEXT, extra = {}) => updateDoc(room(as(uid)), { nextCode: code, ...extra });
+
+  it('the owner points to a room of theirs that is a lobby', async () => {
+    await seedEnded(10 * 1000);
+    await seedNext();
+    await assertSucceeds(point('owner'));
+    assert.equal((await adminGet(room)).data().nextCode, NEXT);
+  });
+
+  const refuse = (title, run, { next = {}, noNext = false, ended = true } = {}) =>
+    it(title, async () => {
+      if (ended) await seedEnded(10 * 1000);
+      else await seedPlaying();
+      if (!noNext) await seedNext(next);
+      await assertFails(run());
+    });
+
+  refuse('a player', () => point('u2'));
+  refuse('a stranger', () => point('stranger'));
+  refuse('somebody who is not signed in', () => updateDoc(room(anonymous()), { nextCode: NEXT }));
+  refuse('the code of a room of somebody else', () => point('owner'), { next: { ownerUid: 'u2' } });
+  refuse('the code of a room that is being played', () => point('owner'), { next: { status: 'playing' } });
+  refuse('the code of a room that does not exist', () => point('owner'), { noNext: true });
+  it('a player who has a lobby of their own', async () => {
+    await seedEnded(10 * 1000);
+    await seedNext({ ownerUid: 'u2' });
+    await assertFails(point('u2'));
+  });
+  for (const odd of ['new234', 'NEW23', 'NEW2345']) {
+    it(`a code of a room that exists but is not written like one (${odd})`, async () => {
+      await seedEnded(10 * 1000);
+      await admin((db) => setDoc(room(db, odd), metaData({ createdAt: Timestamp.now() })));
+      await assertFails(point('owner', odd));
+    });
+  }
+  refuse('a code that is not a string', () => point('owner', 123456));
+  refuse('another field with it', () => point('owner', NEXT, { status: 'lobby' }));
+  refuse('a game that is still played', () => point('owner'), { ended: false });
+  it('a second time', async () => {
+    await seedEnded(10 * 1000);
+    await seedNext();
+    await seedNext2();
+    await assertSucceeds(point('owner'));
+    await assertFails(point('owner', 'NEW235'));
+  });
+  async function seedNext2() {
+    await admin((db) => setDoc(room(db, 'NEW235'), metaData({ createdAt: Timestamp.now() })));
+  }
+});
+
 describe('the rules agree with the Ledger', () => {
   const cases = JSON.parse(readFileSync('parity_cases.json', 'utf8'));
 
