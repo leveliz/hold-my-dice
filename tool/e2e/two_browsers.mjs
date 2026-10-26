@@ -130,6 +130,29 @@ try {
   check(!(await seen(late, 'ห้องนี้จบแล้ว', 1000)), 'and does not say the room has ended');
   await late.ctx.close();
 
+  // 2d. The owner of a room that has not started takes it down; the guest
+  // in the waiting room is told it is gone.
+  const doomedOwner = await person('doomed-owner');
+  await open(doomedOwner, '/room/create');
+  await typeName(doomedOwner, 'Gone');
+  await button(doomedOwner, 'ออกตั๋วห้อง').click();
+  await doomedOwner.page.waitForURL(/\/room\/[A-Z0-9]{6}$/, { timeout: 30000 });
+  const doomedCode = doomedOwner.page.url().split('/').pop();
+  const doomedGuest = await person('doomed-guest');
+  await open(doomedGuest, `/room/${doomedCode}`);
+  await seen(doomedGuest, 'ชวนคุณเข้าห้อง');
+  await typeName(doomedGuest, 'Stay');
+  await button(doomedGuest, 'นั่งโต๊ะ').click();
+  await seen(doomedGuest, 'ห้องรอ');
+  await button(doomedOwner, 'ลบห้องนี้').click();
+  check(await seen(doomedOwner, 'ลบห้องนี้?', 5000), 'taking a room down asks first');
+  await button(doomedOwner, 'ลบห้อง', true).click();
+  check(await seen(doomedGuest, 'ห้องนี้จบแล้วหรือไม่มีอยู่', 15000), 'the guest is told the room is gone');
+  await open(doomedGuest, `/room/${doomedCode}`);
+  check(await seen(doomedGuest, 'ห้องนี้จบแล้วหรือไม่มีอยู่', 15000), 'and the code leads nowhere afterwards');
+  await doomedOwner.ctx.close();
+  await doomedGuest.ctx.close();
+
   if (!quick) {
     // 3. The guest stays open: their beats keep the seat from being taken over.
     await sleep(Math.max(0, 150_000 - (Date.now() - joinedAt)));
