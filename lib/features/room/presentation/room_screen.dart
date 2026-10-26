@@ -207,6 +207,48 @@ class _LobbyState extends ConsumerState<_Lobby> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// The owner takes the room down after one question; everybody else who is
+  /// in the waiting room is told that it is gone.
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('delete-room-dialog'),
+        title: const Text('ลบห้องนี้?'),
+        content: const Text(
+          'ทุกคนที่อยู่ในห้องจะถูกเด้งออก และเอากลับมาไม่ได้',
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('delete-room-cancel'),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ไม่ลบ'),
+          ),
+          FilledButton(
+            key: const ValueKey('delete-room-confirm'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ลบห้อง'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(roomRepositoryProvider).deleteRoom(widget.meta.code);
+      if (mounted) context.go('/');
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _say(context, roomErrorText(e));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final meta = widget.meta;
@@ -332,15 +374,31 @@ class _LobbyState extends ConsumerState<_Lobby> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
               child: isOwner
-                  ? FilledButton.icon(
-                      key: const ValueKey('start-room'),
-                      onPressed: !_busy && bySeat.length >= 2 ? _start : null,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(56),
-                        textStyle: text.titleLarge,
-                      ),
-                      icon: const Icon(LucideIcons.play),
-                      label: Text('เริ่มเกม (${bySeat.length} คน)'),
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FilledButton.icon(
+                          key: const ValueKey('start-room'),
+                          onPressed: !_busy && bySeat.length >= 2
+                              ? _start
+                              : null,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(56),
+                            textStyle: text.titleLarge,
+                          ),
+                          icon: const Icon(LucideIcons.play),
+                          label: Text('เริ่มเกม (${bySeat.length} คน)'),
+                        ),
+                        TextButton.icon(
+                          key: const ValueKey('delete-room'),
+                          onPressed: _busy ? null : _delete,
+                          style: TextButton.styleFrom(
+                            foregroundColor: theme.colorScheme.error,
+                          ),
+                          icon: const Icon(LucideIcons.trash2, size: 18),
+                          label: const Text('ไม่เล่นแล้ว ลบห้องนี้'),
+                        ),
+                      ],
                     )
                   : Column(
                       mainAxisSize: MainAxisSize.min,

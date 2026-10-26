@@ -392,6 +392,32 @@ class FirestoreRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<void> deleteRoom(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    if (meta.ownerUid != uid) throw const RoomException(RoomError.notOwner);
+    if (meta.status != RoomStatus.lobby) {
+      throw const RoomException(RoomError.alreadyStarted);
+    }
+    final members = await _guard(
+      () => _room(code).collection('members').get(),
+      RoomError.notOwner,
+    );
+    // Every seat, member and presence document, then the room, in one batch:
+    // the rules let the owner delete them only while the room is a lobby.
+    final batch = _db.batch();
+    for (var i = 1; i <= 8; i++) {
+      batch.delete(_seat(code, 'p$i'));
+    }
+    for (final d in members.docs) {
+      batch.delete(d.reference);
+      batch.delete(_presence(code, d.id));
+    }
+    batch.delete(_room(code));
+    await _guard(batch.commit, RoomError.notOwner);
+  }
+
+  @override
   Future<Member?> readMyMember(String code) async {
     final uid = await _auth.ensureSignedIn();
     await _readMeta(code);

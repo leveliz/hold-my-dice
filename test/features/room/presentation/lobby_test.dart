@@ -292,4 +292,68 @@ void main() {
     expect(find.byKey(const ValueKey('room-playing')), findsOneWidget);
     expect(find.byKey(const ValueKey('ticket')), findsNothing);
   });
+
+  group('taking the room down', () {
+    testWidgets('only the owner is offered it', (tester) async {
+      final store = FakeRoomStore();
+      final code = await makeRoom(store);
+      await repoOn(store, 'u2').joinAsPlayer(code: code, name: 'แพร', color: 1);
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      expect(find.byKey(const ValueKey('delete-room')), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await openApp(tester, store, '/room/$code', uid: 'owner');
+      expect(find.byKey(const ValueKey('delete-room')), findsOneWidget);
+    });
+
+    testWidgets('asks first, and backing out leaves the room as it was', (
+      tester,
+    ) async {
+      final store = FakeRoomStore();
+      final code = await makeRoom(store);
+      await openApp(tester, store, '/room/$code', uid: 'owner');
+      await tester.ensureVisible(find.byKey(const ValueKey('delete-room')));
+      await tester.tap(find.byKey(const ValueKey('delete-room')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('delete-room-dialog')), findsOneWidget);
+      expect(find.textContaining('เอากลับมาไม่ได้'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('delete-room-cancel')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('delete-room-dialog')), findsNothing);
+      expect(find.text('ห้องรอ'), findsOneWidget);
+      expect(await metaOf(tester, store, code), isNotNull);
+    });
+
+    testWidgets('confirming deletes the room and leaves the waiting room', (
+      tester,
+    ) async {
+      final store = FakeRoomStore();
+      final code = await makeRoom(store);
+      await openApp(tester, store, '/room/$code', uid: 'owner');
+      await tester.ensureVisible(find.byKey(const ValueKey('delete-room')));
+      await tester.tap(find.byKey(const ValueKey('delete-room')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('delete-room-confirm')));
+      await tester.pumpAndSettle();
+      expect(find.text('ห้องรอ'), findsNothing);
+      expect(
+        find.text('ห้องนี้จบแล้วหรือไม่มีอยู่'),
+        findsNothing,
+        reason: 'the owner goes home, not to the "gone" page',
+      );
+      expect(await metaOf(tester, store, code), isNull);
+    });
+
+    testWidgets('the others in the waiting room are told it is gone', (
+      tester,
+    ) async {
+      final store = FakeRoomStore();
+      final code = await makeRoom(store);
+      await repoOn(store, 'u2').joinAsPlayer(code: code, name: 'แพร', color: 1);
+      await openApp(tester, store, '/room/$code', uid: 'u2');
+      expect(find.text('ห้องรอ'), findsOneWidget);
+      await tester.runAsync(() => repoOn(store, 'owner').deleteRoom(code));
+      await tester.pumpAndSettle();
+      expect(find.text('ห้องนี้จบแล้วหรือไม่มีอยู่'), findsOneWidget);
+    });
+  });
 }

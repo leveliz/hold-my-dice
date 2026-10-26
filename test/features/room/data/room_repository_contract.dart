@@ -1562,6 +1562,96 @@ void roomRepositoryContract(RoomHarness Function() create) {
       });
     });
 
+    group('deleting a room that has not started', () {
+      test('the owner takes it down: nobody can find it any more', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.repoFor('owner').deleteRoom(meta.code);
+        expect(await h.repoFor('u2').watchMeta(meta.code).first, isNull);
+        await expectLater(
+          h.repoFor('someone').readSeats(meta.code),
+          _throws(RoomError.roomNotFound),
+        );
+        await expectLater(
+          _join(h, meta.code, 'u3'),
+          _throws(RoomError.roomNotFound),
+        );
+      });
+
+      test('somebody who is watching the room is told it is gone', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        final seen = <RoomMeta?>[];
+        final sub = h.repoFor('u2').watchMeta(meta.code).listen(seen.add);
+        addTearDown(sub.cancel);
+        await Future<void>.delayed(Duration.zero);
+        expect(seen.last, isNotNull);
+        await h.repoFor('owner').deleteRoom(meta.code);
+        await Future<void>.delayed(Duration.zero);
+        expect(seen.last, isNull);
+      });
+
+      test('a room with only its owner can go too', () async {
+        final h = create();
+        final meta = await _create(h);
+        await h.repoFor('owner').deleteRoom(meta.code);
+        expect(await h.repoFor('owner').watchMeta(meta.code).first, isNull);
+      });
+
+      test('a player cannot', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await expectLater(
+          h.repoFor('u2').deleteRoom(meta.code),
+          _throws(RoomError.notOwner),
+        );
+        expect(await h.repoFor('u2').watchMeta(meta.code).first, isNotNull);
+      });
+
+      test('a stranger cannot', () async {
+        final h = create();
+        final meta = await _create(h);
+        await expectLater(
+          h.repoFor('stranger').deleteRoom(meta.code),
+          _throws(RoomError.notOwner),
+        );
+      });
+
+      test('nobody can once the game has started', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.repoFor('owner').startGame(meta.code);
+        await expectLater(
+          h.repoFor('owner').deleteRoom(meta.code),
+          _throws(RoomError.alreadyStarted),
+        );
+        expect(await h.repoFor('u2').watchMeta(meta.code).first, isNotNull);
+      });
+
+      test('a room that is not there is not found', () async {
+        final h = create();
+        await expectLater(
+          h.repoFor('owner').deleteRoom('ZZZZZZ'),
+          _throws(RoomError.roomNotFound),
+        );
+      });
+
+      test('the one who took the room over can', () async {
+        final h = create();
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await h.repoFor('owner').heartbeat(meta.code);
+        await h.advance(const Duration(minutes: 3));
+        await h.repoFor('u2').claimOwnership(meta.code);
+        await h.repoFor('u2').deleteRoom(meta.code);
+        expect(await h.repoFor('u2').watchMeta(meta.code).first, isNull);
+      });
+    });
+
     group('when the owner is gone', () {
       test('a member cannot take the room while the owner is around', () async {
         final h = create();

@@ -280,6 +280,12 @@ abstract class RoomRepository {
   /// over the owner's seat does this too.
   Future<void> claimOwnership(String code);
 
+  /// The owner takes down a room that has not started: its seats, members and
+  /// presence go, then the room. [RoomError.notOwner] for anybody else,
+  /// [RoomError.alreadyStarted] once the game has begun (ending a game is
+  /// another matter), [RoomError.roomNotFound] when there is no such room.
+  Future<void> deleteRoom(String code);
+
   Stream<List<Member>> watchMembers(String code);
 
   /// Owner only: starts the game with the seats taken so far.

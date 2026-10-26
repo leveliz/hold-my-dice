@@ -323,6 +323,19 @@ class FakeRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<void> deleteRoom(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final room = _room(code);
+    if (room.ownerUid != uid) throw const RoomException(RoomError.notOwner);
+    if (room.status != RoomStatus.lobby) {
+      throw const RoomException(RoomError.alreadyStarted);
+    }
+    _store._rooms.remove(code);
+    room.meta.set(null);
+    room.members.set(const []);
+  }
+
+  @override
   Future<Member?> readMyMember(String code) async {
     final uid = await _auth.ensureSignedIn();
     return _room(code).memberByUid[uid];
