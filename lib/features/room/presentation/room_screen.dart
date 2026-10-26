@@ -7,6 +7,7 @@ import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
+import 'package:hold_my_dice/features/room/application/last_room.dart';
 import 'package:hold_my_dice/features/room/application/presence_beater.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
@@ -98,6 +99,10 @@ class _PresentState extends ConsumerState<_Present>
       onNotAMember: _lookAgain,
     )..start();
     WidgetsBinding.instance.addObserver(this);
+    // A provider is not changed while the tree is being built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(lastRoomProvider.notifier).remember(widget.code);
+    });
   }
 
   /// Asks the room who this person is now; if somebody took their seat over

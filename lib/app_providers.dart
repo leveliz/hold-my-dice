@@ -3,10 +3,12 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:hold_my_dice/core/firebase/auth_service.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
+import 'package:hold_my_dice/core/storage/json_store.dart';
 import 'package:hold_my_dice/core/settings/app_settings.dart';
 import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/point/data/point_storage.dart';
+import 'package:hold_my_dice/features/room/application/last_room.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/firestore_room_repository.dart';
 import 'package:hold_my_dice/features/score/data/score_storage.dart';
@@ -29,6 +31,9 @@ List<Override> productionOverrides(
       ),
     ),
   ],
+  lastRoomStorageProvider.overrideWithValue(
+    LastRoomStorage(PrefsJsonStore(prefs)),
+  ),
   appSettingsStorageProvider.overrideWithValue(PrefsAppSettingsStorage(prefs)),
   tourStorageProvider.overrideWithValue(PrefsTourStorage(prefs)),
   bankStorageProvider.overrideWithValue(PrefsBankStorage(prefs)),

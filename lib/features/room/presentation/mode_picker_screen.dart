@@ -7,7 +7,9 @@ import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/stamp.dart';
 import 'package:hold_my_dice/features/bank/presentation/setup_screen.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
+import 'package:hold_my_dice/features/room/application/last_room.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
+import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Where Pocket Banker starts: straight into the single-device setup, or, when
@@ -22,13 +24,24 @@ class BankEntryScreen extends ConsumerWidget {
       : const SetupScreen();
 }
 
-class ModePickerScreen extends StatelessWidget {
+class ModePickerScreen extends ConsumerWidget {
   const ModePickerScreen({super.key});
 
+  /// The room this device was last in, when it still exists and this device
+  /// still has a place in it; otherwise null.
+  static ({String code, RoomMeta meta})? _backTo(WidgetRef ref) {
+    final code = ref.watch(lastRoomProvider);
+    if (code == null) return null;
+    final meta = ref.watch(roomMetaProvider(code)).value;
+    final me = ref.watch(myMemberProvider(code)).value;
+    return meta == null || me == null ? null : (code: code, meta: meta);
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
     final accent = helperById('bank').color;
+    final back = _backTo(ref);
     return Scaffold(
       appBar: const HelperAppBar(title: Text('Pocket Banker')),
       body: SafeArea(
@@ -42,6 +55,19 @@ class ModePickerScreen extends StatelessWidget {
                 style: headingStyle(context, text.titleLarge),
               ),
               const SizedBox(height: 14),
+              if (back != null) ...[
+                _ModeCard(
+                  key: const ValueKey('mode-resume'),
+                  accent: accent,
+                  icon: LucideIcons.logIn,
+                  title: 'กลับเข้าห้อง ${back.code}',
+                  subtitle: back.meta.status == RoomStatus.lobby
+                      ? 'ห้องรอ ยังไม่เริ่มเกม'
+                      : 'เกมกำลังเล่นอยู่',
+                  onTap: () => context.push('/room/${back.code}'),
+                ),
+                const SizedBox(height: 14),
+              ],
               _ModeCard(
                 key: const ValueKey('mode-solo'),
                 accent: accent,
