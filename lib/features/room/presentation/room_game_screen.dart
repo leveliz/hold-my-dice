@@ -425,10 +425,11 @@ class _FriendRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    // The row reads as its name and balance; a button with a hint when it
+    // can be tapped.
     return Semantics(
       button: onTap != null,
-      label: onTap == null ? null : 'โอนให้ $name',
-      excludeSemantics: onTap != null,
+      hint: onTap == null ? null : 'แตะเพื่อโอนเงิน',
       child: InkWell(
         key: ValueKey('friend-$seat'),
         onTap: onTap,

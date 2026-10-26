@@ -276,9 +276,10 @@ try {
     }
     return false;
   };
+  await waitFor(async () => (await balancesOn(host)).P1 !== undefined);
   const before1 = (await balancesOn(host)).P1;
   const before2 = (await balancesOn(players[1])).P2;
-  await button(host, 'โอนให้ P2').click();
+  await button(host, /^P2 [\d,]+/).click();
   await keys(host, '500');
   await button(host, 'ตกลง').click();
   check(await seen(host, 'โอน 500 ให้P2แล้ว', 10000), 'the giver gets the bar to take the transfer back');
@@ -293,7 +294,7 @@ try {
 
   // A take-back against somebody else's press at the same moment: whatever
   // wins, every screen shows the same books and none cries "balances differ".
-  await button(host, 'โอนให้ P2').click();
+  await button(host, /^P2 [\d,]+/).click();
   await keys(host, '100');
   await button(host, 'ตกลง').click();
   await seen(host, 'โอน 100 ให้P2แล้ว', 10000);
