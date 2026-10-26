@@ -50,6 +50,9 @@ class DragTile extends StatelessWidget {
             return LongPressDraggable<String>(
               data: id,
               feedback: _Feedback(label: feedbackLabel, accent: accent),
+              // The name is a small chip, not the (wide) card: keep it under
+              // the finger, not at the offset where the card was held.
+              dragAnchorStrategy: (_, _, _) => _Feedback.anchor,
               childWhenDragging: Opacity(opacity: 0.35, child: child),
               onDragStarted: () => dragging.value = id,
               onDragEnd: (_) => dragging.value = null,
@@ -77,6 +80,12 @@ class DragTile extends StatelessWidget {
 class _Feedback extends StatelessWidget {
   const _Feedback({required this.label, required this.accent});
 
+  static const width = 150.0;
+  static const height = 48.0;
+
+  /// The finger is at the centre of the chip.
+  static const anchor = Offset(width / 2, height / 2);
+
   final String label;
   final Color accent;
 
@@ -85,7 +94,11 @@ class _Feedback extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        key: const ValueKey('drag-feedback'),
+        width: width,
+        height: height,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
         decoration: BoxDecoration(
           color: Color.alphaBlend(accent.withValues(alpha: 0.55), Colors.white),
           borderRadius: BorderRadius.circular(999),
@@ -100,6 +113,8 @@ class _Feedback extends StatelessWidget {
         ),
         child: Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             color: PaperStyle.maybeOf(context) != null
                 ? PaperStyle.ink

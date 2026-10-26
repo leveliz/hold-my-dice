@@ -207,6 +207,25 @@ void main() {
       expect(highlighted(tester, 'bank'), isFalse);
     });
 
+    testWidgets(
+      'the name that follows the finger is centred on it, wherever the card was held',
+      (tester) async {
+        await f.pumpAt(tester, '/bank/play', container: f.gameWith(3));
+        final card = tester.getRect(byKey('player-card-p1'));
+        // Held near the left edge of the wide card, far from its centre.
+        final start = Offset(card.left + 20, card.center.dy);
+        final g = await tester.startGesture(start);
+        await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+        final to = Offset(card.center.dx, card.bottom + 60);
+        await g.moveTo(to);
+        await tester.pump();
+        final chip = tester.getCenter(byKey('drag-feedback'));
+        expect((chip - to).distance, lessThan(1.5));
+        await g.up();
+        await settle(tester);
+      },
+    );
+
     testWidgets('a bankrupt player cannot be dragged or dropped on', (
       tester,
     ) async {
