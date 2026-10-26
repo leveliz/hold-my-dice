@@ -222,6 +222,49 @@ service cloud.firestore {
                            -old.amount));
     }
 
+    // A new request to pay: asked by the owner of [toSeat] of a player who is
+    // still in the game, with the id the pair has, stamped with the server's
+    // time. Nothing else is in it.
+    function validNewRequest(code, reqId, d) {
+      let state = get(statePath(code)).data;
+      return signedIn()
+        && d.keys().hasOnly(['fromSeat', 'toSeat', 'amount', 'status',
+                             'createdAt', 'paidSeq'])
+        && d.keys().hasAll(['fromSeat', 'toSeat', 'amount', 'status',
+                            'createdAt', 'paidSeq'])
+        && d.fromSeat is string && d.fromSeat.matches('p[1-8]')
+        && d.toSeat is string && d.toSeat.matches('p[1-8]')
+        && d.fromSeat != d.toSeat
+        && reqId == d.toSeat + '_' + d.fromSeat
+        && validMoney(d.amount)
+        && d.status == 'open'
+        && d.createdAt == request.time
+        && d.paidSeq == null
+        && get(roomDoc(code)).data.status == 'playing'
+        && get(seatDoc(code, d.toSeat)).data.uid == request.auth.uid
+        && d.fromSeat in state.seats && d.toSeat in state.seats
+        && !(d.fromSeat in state.bankrupt) && !(d.toSeat in state.bankrupt);
+    }
+
+    // The payer settles a request: only `status` and `paidSeq` change, in time,
+    // and the transfer that pays it is written in the same batch.
+    function validRequestPaid(code, old, d) {
+      let state = get(statePath(code)).data;
+      let paid = getAfter(entryPath(code, string(state.seq))).data;
+      return signedIn()
+        && d.diff(old).affectedKeys().hasOnly(['status', 'paidSeq'])
+        && old.status == 'open' && d.status == 'paid'
+        && d.paidSeq == state.seq
+        && get(roomDoc(code)).data.status == 'playing'
+        && get(seatDoc(code, old.fromSeat)).data.uid == request.auth.uid
+        && request.time < old.createdAt + duration.value(2, 'm')
+        && paid.kind == 'transfer'
+        && paid.from == old.fromSeat && paid.to == old.toSeat
+        && paid.amount == old.amount
+        && paid.reason == 'ตามคำขอเรียกเก็บ'
+        && paid.by == request.auth.uid;
+    }
+
     // ---- rooms/{code} --------------------------------------------------
 
     match /rooms/{code} {
@@ -428,6 +471,36 @@ service cloud.firestore {
         allow create: if validEntry(code, entryId, request.resource.data);
         allow update: if validVoid(code, entryId, resource.data,
                                    request.resource.data);
+        allow delete: if false;
+      }
+
+      // ---- requests ----------------------------------------------------
+      // One request to pay per pair (asker_payer). Asking again writes over
+      // the old one once it is closed or has run out.
+      match /requests/{reqId} {
+        allow read: if isMember(code);
+
+        allow create: if validNewRequest(code, reqId, request.resource.data);
+
+        allow update: if
+          // asking again
+          (validNewRequest(code, reqId, request.resource.data)
+            && (resource.data.status != 'open'
+                || resource.data.createdAt
+                     < request.time - duration.value(2, 'm')))
+          // the asker or the payer closes it
+          || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status'])
+            && resource.data.status == 'open'
+            && request.resource.data.status == 'cancelled'
+            && (get(seatDoc(code, resource.data.fromSeat)).data.uid
+                  == request.auth.uid
+                || get(seatDoc(code, resource.data.toSeat)).data.uid
+                  == request.auth.uid))
+          // the payer pays it
+          || validRequestPaid(code, resource.data, request.resource.data);
+
         allow delete: if false;
       }
     }

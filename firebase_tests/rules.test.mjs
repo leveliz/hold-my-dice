@@ -1536,6 +1536,250 @@ describe('taking back and pressing at the same time', () => {
   });
 });
 
+// ---- requests to pay
+
+const reqDoc = (db, id = 'p2_p1', code = CODE) => doc(db, 'rooms', code, 'requests', id);
+
+/** What the app writes to ask: p2 asks p1 for 300 unless told otherwise. */
+const requestData = (over = {}) => ({
+  fromSeat: 'p1',
+  toSeat: 'p2',
+  amount: 300,
+  status: 'open',
+  createdAt: serverTimestamp(),
+  paidSeq: null,
+  ...over,
+});
+
+/** A request that is already there (written past the rules). */
+async function seedRequest(over = {}, { age = 0, id = 'p2_p1' } = {}) {
+  await admin((db) =>
+    setDoc(reqDoc(db, id), requestData({ createdAt: Timestamp.fromMillis(Date.now() - age), ...over })),
+  );
+}
+
+const ask = (uid, over = {}, id = 'p2_p1') => setDoc(reqDoc(as(uid), id), requestData(over));
+
+/** The payer pays: the transfer, the new state and the request, in one batch. */
+function payRequest(uid, { id = 'p2_p1', amount = 300, from = 'p1', to = 'p2', paidSeq = 0, entry = {}, reqExtra = {}, balances, skipEntry = false, skipState = false, skipReq = false } = {}) {
+  const db = as(uid);
+  const t = transfer(from, to, amount);
+  const batch = writeBatch(db);
+  if (!skipEntry) {
+    batch.set(entryDoc(db, 0), entryData({ seq: 0, by: uid, ...t.entry, reason: 'ตามคำขอเรียกเก็บ', ...entry }));
+  }
+  if (!skipState) batch.update(stateDoc(db), { seq: 1, balances: balances ?? t.balances });
+  if (!skipReq) batch.update(reqDoc(db, id), { status: 'paid', paidSeq, ...reqExtra });
+  return batch.commit();
+}
+
+describe('requests to pay: asking', () => {
+  it('a player asks another for money', async () => {
+    await seedPlaying();
+    await assertSucceeds(ask('u2'));
+    const r = (await adminGet((db) => reqDoc(db))).data();
+    assert.equal(r.amount, 300);
+    assert.equal(r.status, 'open');
+  });
+
+  it('every player can ask every other player, each pair has its own place', async () => {
+    await seedPlaying();
+    for (const [to, uid] of Object.entries(uidOfSeat)) {
+      for (const from of Object.keys(uidOfSeat).filter((f) => f !== to)) {
+        await assertSucceeds(ask(uid, { fromSeat: from, toSeat: to }, `${to}_${from}`), `${to} asks ${from}`);
+      }
+    }
+  });
+
+  it('asking again over a request that is closed', async () => {
+    for (const status of ['cancelled', 'paid']) {
+      await env.clearFirestore();
+      await seedPlaying();
+      await seedRequest({ status, paidSeq: status === 'paid' ? 0 : null });
+      await assertSucceeds(ask('u2', { amount: 50 }), status);
+      assert.equal((await adminGet((db) => reqDoc(db))).data().status, 'open');
+    }
+  });
+
+  it('asking again over a request that has run out (2 minutes)', async () => {
+    await seedPlaying();
+    await seedRequest({}, { age: 3 * 60 * 1000 });
+    await assertSucceeds(ask('u2', { amount: 50 }));
+  });
+
+  it('the largest amount', async () => {
+    await seedPlaying();
+    await assertSucceeds(ask('u2', { amount: 999999999 }));
+  });
+});
+
+describe('requests to pay: asking is refused', () => {
+  const refuse = (title, run, setup) =>
+    it(title, async () => {
+      await (setup ?? seedPlaying)();
+      await assertFails(run());
+    });
+  const open = async () => {
+    await seedPlaying();
+    await seedRequest();
+  };
+
+  refuse('by somebody who is not the asker', () => ask('u3'));
+  refuse('by a stranger', () => ask('stranger'));
+  refuse('with the id of another pair', () => ask('u2', {}, 'p2_p3'));
+  refuse('with an id that is not a pair', () => ask('u2', {}, 'abc'));
+  refuse('to yourself', () => ask('u2', { fromSeat: 'p2' }, 'p2_p2'));
+  refuse('of a seat that is not in the game', () => ask('u2', { fromSeat: 'p9' }, 'p2_p9'));
+  refuse('of a player who is out', () => ask('u2'), () => seedPlaying({ stateOver: { bankrupt: ['p1'] } }));
+  refuse('by a player who is out', () => ask('u2'), () => seedPlaying({ stateOver: { bankrupt: ['p2'] } }));
+  refuse('when the game is not being played', () => ask('u2'), async () => {
+    await seedRoom({ status: 'lobby', seats: ['owner', 'u2'] });
+  });
+  refuse('an amount of 0', () => ask('u2', { amount: 0 }));
+  refuse('an amount that is too large', () => ask('u2', { amount: 1000000000 }));
+  refuse('a fractional amount', () => ask('u2', { amount: 10.5 }));
+  refuse('a request that is already paid', () => ask('u2', { status: 'paid', paidSeq: 0 }));
+  refuse('a request that is born cancelled', () => ask('u2', { status: 'cancelled' }));
+  refuse('when the game has ended', () => ask('u2'), async () => {
+    await seedPlaying();
+    await admin((db) => updateDoc(room(db), { status: 'ended' }));
+  });
+  refuse('of a seat that is not playing in this game', () => ask('u2', { fromSeat: 'p3' }, 'p2_p3'), () =>
+    seedPlaying({ seats: ['p1', 'p2'], balances: { p1: 1500, p2: 1500 } }),
+  );
+  refuse('with a payment number', () => ask('u2', { paidSeq: 3 }));
+  refuse('with a time of its own', () => ask('u2', { createdAt: Timestamp.now() }));
+  refuse('with an extra field', () => ask('u2', { note: 'x' }));
+  refuse('with a field missing', () => setDoc(reqDoc(as('u2')), (({ paidSeq, ...rest }) => rest)(requestData())));
+  refuse('over a request that is open and fresh', () => ask('u2', { amount: 50 }), open);
+  refuse('and nobody can delete one', () => deleteDoc(reqDoc(as('u2'))), open);
+});
+
+describe('requests to pay: closing', () => {
+  const open = async () => {
+    await seedPlaying();
+    await seedRequest();
+  };
+  const cancel = (uid, extra = {}) => updateDoc(reqDoc(as(uid)), { status: 'cancelled', ...extra });
+
+  it('the asker takes it back', async () => {
+    await open();
+    await assertSucceeds(cancel('u2'));
+    assert.equal((await adminGet((db) => reqDoc(db))).data().status, 'cancelled');
+  });
+
+  it('the payer says no', async () => {
+    await open();
+    await assertSucceeds(cancel('owner'));
+  });
+
+  it('a third player cannot close it, nor a stranger', async () => {
+    await open();
+    await assertFails(cancel('u3'));
+    await assertFails(cancel('stranger'));
+  });
+
+  it('a closed request cannot be closed again, a paid one cannot be cancelled', async () => {
+    await seedPlaying();
+    await seedRequest({ status: 'cancelled' });
+    await assertFails(cancel('u2'));
+    await env.clearFirestore();
+    await seedPlaying();
+    await seedRequest({ status: 'paid', paidSeq: 0 });
+    await assertFails(cancel('u2'));
+  });
+
+  it('closing cannot change anything else', async () => {
+    await open();
+    await assertFails(cancel('u2', { amount: 1 }));
+    await assertFails(cancel('u2', { fromSeat: 'p3' }));
+    await assertFails(updateDoc(reqDoc(as('u2')), { status: 'open', amount: 1 }));
+    await assertFails(updateDoc(reqDoc(as('u2')), { status: 'paid' }));
+  });
+});
+
+describe('requests to pay: paying', () => {
+  const open = async () => {
+    await seedPlaying();
+    await seedRequest();
+  };
+
+  it('the payer pays, the money moves and the request is closed', async () => {
+    await open();
+    await assertSucceeds(payRequest('owner'));
+    const r = (await adminGet((db) => reqDoc(db))).data();
+    assert.equal(r.status, 'paid');
+    assert.equal(r.paidSeq, 0);
+    const state = (await adminGet(stateDoc)).data();
+    assert.deepEqual(state.balances, { ...BASE, p1: 1200, p2: 1800 });
+  });
+
+  it('paying the whole balance, and the largest amount', async () => {
+    await seedPlaying({ balances: { p1: 999999999, p2: 1, p3: 1500, p4: 1500 } });
+    await seedRequest({ amount: 999999999 });
+    await assertSucceeds(
+      payRequest('owner', { amount: 999999999, balances: { p1: 0, p2: 1000000000, p3: 1500, p4: 1500 } }),
+    );
+  });
+
+  it('just inside the 2 minutes', async () => {
+    await seedPlaying();
+    await seedRequest({}, { age: 110 * 1000 });
+    await assertSucceeds(payRequest('owner'));
+  });
+
+  const refuse = (title, run, setup) =>
+    it(title, async () => {
+      await (setup ?? open)();
+      await assertFails(run());
+    });
+
+  refuse('by the asker', () => payRequest('u2'));
+  refuse('leaving it open although it is paid', () => payRequest('owner', { reqExtra: { status: 'open' } }));
+  refuse('by a stranger', () => payRequest('stranger'));
+  refuse('after 2 minutes', () => payRequest('owner'), async () => {
+    await seedPlaying();
+    await seedRequest({}, { age: 125 * 1000 });
+  });
+  refuse('after it was cancelled', () => payRequest('owner'), async () => {
+    await seedPlaying();
+    await seedRequest({ status: 'cancelled' });
+  });
+  refuse('twice', () => payRequest('owner'), async () => {
+    await seedPlaying();
+    await seedRequest({ status: 'paid', paidSeq: 0 });
+  });
+  refuse('without the transfer', () => payRequest('owner', { skipEntry: true }));
+  refuse('without the new state', () => payRequest('owner', { skipState: true }));
+  refuse('with a transfer of another amount', () => payRequest('owner', { entry: { amount: 100 }, balances: { ...BASE, p1: 1400, p2: 1600 } }));
+  refuse('with a transfer to somebody else', () => payRequest('owner', { entry: { to: 'p3' }, balances: { ...BASE, p1: 1200, p3: 1800 } }));
+  refuse('with a transfer that is not for this reason', () => payRequest('owner', { entry: { reason: null } }));
+  refuse('with the wrong number of the entry', () => payRequest('owner', { reqExtra: { paidSeq: 5 } }));
+  refuse('with no number of the entry', () => payRequest('owner', { reqExtra: { paidSeq: null } }));
+  refuse('changing the amount of the request too', () => payRequest('owner', { reqExtra: { amount: 1 } }));
+  refuse('changing who is asked too', () => payRequest('owner', { reqExtra: { fromSeat: 'p3' } }));
+  refuse('when the game is not being played', () => payRequest('owner'), async () => {
+    await seedPlaying();
+    await seedRequest();
+    await admin((db) => updateDoc(room(db), { status: 'ended' }));
+  });
+  refuse('the request closed without the transfer', () => payRequest('owner', { skipEntry: true, skipState: true }));
+});
+
+describe('who reads the requests', () => {
+  it('players and spectators read them, and a stranger does not', async () => {
+    await seedPlaying();
+    await seedRequest();
+    await admin((db) => setDoc(member(db, 's1'), memberData('ผู้ชม', { role: 'spectator', seat: null })));
+    for (const uid of ['owner', 'u2', 's1']) {
+      await assertSucceeds(getDoc(reqDoc(as(uid))), uid);
+      await assertSucceeds(getDocs(collection(as(uid), 'rooms', CODE, 'requests')), uid);
+    }
+    await assertFails(getDoc(reqDoc(as('stranger'))));
+    await assertFails(getDocs(collection(as('stranger'), 'rooms', CODE, 'requests')));
+  });
+});
+
 describe('who reads the entries', () => {
   async function onePress() {
     await seedPlaying();
