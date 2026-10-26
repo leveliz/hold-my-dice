@@ -36,6 +36,15 @@ service cloud.firestore {
       return /databases/$(database)/documents/rooms/$(code)/entries/$(id);
     }
 
+    // The owner of a room that has not started, who may take the room down:
+    // its seats, members, presence documents and then the room itself.
+    function ownerOfLobby(code) {
+      let room = get(roomDoc(code)).data;
+      return signedIn()
+        && room.ownerUid == request.auth.uid
+        && room.status == 'lobby';
+    }
+
     function isMember(code) {
       return signedIn() && exists(memberDoc(code, request.auth.uid));
     }
@@ -424,7 +433,11 @@ service cloud.firestore {
         && get(presenceDoc(code, resource.data.ownerUid)).data.lastSeen
              < request.time - duration.value(2, 'm');
 
-      allow delete: if false;
+      // The owner takes down a room that has not started (the app removes the
+      // seats, members and presence first, in the same batch).
+      allow delete: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && resource.data.status == 'lobby';
 
       // ---- seats -------------------------------------------------------
       // The seat says who sits where and is the authority for "who is p3".
@@ -467,7 +480,7 @@ service cloud.firestore {
           && get(presenceDoc(code, resource.data.uid)).data.lastSeen
                < request.time - duration.value(2, 'm');
 
-        allow delete: if false;
+        allow delete: if ownerOfLobby(code);
       }
 
       // ---- members -----------------------------------------------------
@@ -514,6 +527,9 @@ service cloud.firestore {
           && getAfter(seatDoc(code, resource.data.seat)).data.uid != memberId
           && getAfter(seatDoc(code, resource.data.seat)).data.uid
                == request.auth.uid;
+
+        // The owner of a room that has not started takes everybody out.
+        allow delete: if ownerOfLobby(code);
       }
 
       // ---- presence ----------------------------------------------------
@@ -530,7 +546,7 @@ service cloud.firestore {
           && request.resource.data.keys().hasAll(['lastSeen'])
           && request.resource.data.lastSeen == request.time;
 
-        allow delete: if false;
+        allow delete: if ownerOfLobby(code);
       }
 
       // ---- state -------------------------------------------------------

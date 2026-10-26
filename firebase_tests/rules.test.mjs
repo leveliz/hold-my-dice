@@ -257,9 +257,10 @@ describe('the room document (meta)', () => {
     await assertFails(updateDoc(room(as('stranger')), { settings: settings({ goAmount: 1 }) }));
   });
 
-  it('a room cannot be deleted by a player', async () => {
-    await seedRoom();
+  it('a room cannot be deleted by a player, nor by its owner once it has started', async () => {
+    await seedRoom({ status: 'playing' });
     await assertFails(deleteDoc(room(as('owner'))));
+    await assertFails(deleteDoc(room(as('stranger'))));
   });
 });
 
@@ -833,8 +834,9 @@ describe('a person who lost their identity leaves an old member document', () =>
 
   it('cannot be removed while its seat still belongs to it', async () => {
     await seedRoom(twoPlayers);
-    await assertFails(deleteDoc(member(as('owner'), 'u2')));
     await assertFails(deleteDoc(member(as('u2'), 'u2')));
+    await seedRoom({ ...twoPlayers, status: 'playing' });
+    await assertFails(deleteDoc(member(as('owner'), 'u2')));
   });
 
   it('cannot be removed by a person who does not hold the seat now', async () => {
@@ -865,6 +867,7 @@ describe('a person who lost their identity leaves an old member document', () =>
       setDoc(member(db, 's1'), memberData('ผู้ชม', { role: 'spectator', seat: null })),
     );
     await assertFails(deleteDoc(member(as('s1'), 's1')));
+    await admin((db) => updateDoc(room(db), { status: 'playing' }));
     await assertFails(deleteDoc(member(as('owner'), 's1')));
   });
 });
@@ -2257,6 +2260,96 @@ describe('taking the banker over: what is refused', () => {
   refuse('by a stranger', () => takeOver('stranger', 'p3'));
   refuse('with another thing of the state changing too', () => takeOver('u3', 'p3', { extra: { balances: { ...OUT4, p3: 1600 } } }));
   refuse('when there is no banker', () => takeOver('u3', 'p3'), { beatAgo: null, setup: () => seedPlaying() });
+});
+
+// ---- deleting a room that has not started
+
+describe('the owner deletes a room that has not started', () => {
+  const uids = ['owner', 'u2', 'u3'];
+
+  async function lobbyOf(list = uids, metaOver = {}) {
+    await seedRoom({ seats: list, metaOver });
+    await admin(async (db) => {
+      for (const uid of list) await setDoc(presence(db, uid), { lastSeen: Timestamp.now() });
+    });
+  }
+
+  /** What the app does: every seat, member and presence document, then the room. */
+  function wipe(uid, list = uids, only = null) {
+    const db = as(uid);
+    const batch = writeBatch(db);
+    if (only !== 'room') {
+      list.forEach((u, i) => {
+        batch.delete(seat(db, `p${i + 1}`));
+        batch.delete(member(db, u));
+        batch.delete(presence(db, u));
+      });
+    }
+    if (only !== 'subdocs') batch.delete(room(db));
+    return batch.commit();
+  }
+
+  it('removes the seats, the members, the presence and the room', async () => {
+    await lobbyOf();
+    await assertSucceeds(wipe('owner'));
+    assert.equal((await adminGet(room)).exists(), false);
+    assert.equal((await adminGet((db) => seat(db, 'p2'))).exists(), false);
+    assert.equal((await adminGet((db) => member(db, 'u2'))).exists(), false);
+    assert.equal((await adminGet((db) => presence(db, 'u3'))).exists(), false);
+  });
+
+  it('works for a full room of eight in one batch', async () => {
+    const eight = ['owner', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8'];
+    await lobbyOf(eight, { settings: settings({ maxPlayers: 8 }) });
+    await assertSucceeds(wipe('owner', eight));
+    assert.equal((await adminGet(room)).exists(), false);
+  });
+
+  it('works for the one who took the room over', async () => {
+    await lobbyOf();
+    await admin((db) => updateDoc(room(db), { ownerUid: 'u2' }));
+    await assertSucceeds(wipe('u2'));
+  });
+
+  it('a room without anyone but the owner can go too', async () => {
+    await lobbyOf(['owner']);
+    await assertSucceeds(wipe('owner', ['owner']));
+  });
+});
+
+describe('deleting a room: what is refused', () => {
+  const uids = ['owner', 'u2', 'u3'];
+  const refuse = (title, run, setup) =>
+    it(title, async () => {
+      await (setup ?? (async () => {
+        await seedRoom({ seats: uids });
+        await admin(async (db) => {
+          for (const uid of uids) await setDoc(presence(db, uid), { lastSeen: Timestamp.now() });
+        });
+      }))();
+      await assertFails(run());
+    });
+
+  refuse('the room by somebody who is not the owner', () => deleteDoc(room(as('u2'))));
+  refuse('the room by a stranger', () => deleteDoc(room(as('stranger'))));
+  refuse('the room by somebody who is not signed in', () => deleteDoc(room(anonymous())));
+  refuse('a seat by a player', () => deleteDoc(seat(as('u2'), 'p3')));
+  refuse('a seat by a stranger', () => deleteDoc(seat(as('stranger'), 'p3')));
+  refuse('the member document of another player, by a player', () => deleteDoc(member(as('u2'), 'u3')));
+  refuse('the presence of another player, by a player', () => deleteDoc(presence(as('u2'), 'u3')));
+  refuse('the own presence of a player on the way out', () => deleteDoc(presence(as('u2'), 'u2')));
+  refuse('the room once the game has started', () => deleteDoc(room(as('owner'))), () => seedPlaying());
+  refuse('a seat once the game has started', () => deleteDoc(seat(as('owner'), 'p2')), () => seedPlaying());
+  refuse('a member once the game has started', () => deleteDoc(member(as('owner'), 'u2')), () => seedPlaying());
+  refuse('the state of a game', () => deleteDoc(stateDoc(as('owner'))), () => seedPlaying());
+  refuse('an entry of a game', async () => {
+    await admin((db) => setDoc(entryDoc(db, 0), entryData({ seq: 0 })));
+    return deleteDoc(entryDoc(as('owner'), 0));
+  }, () => seedPlaying());
+  refuse('a request of a game', async () => {
+    await admin((db) => setDoc(reqDoc(db), requestData()));
+    return deleteDoc(reqDoc(as('owner')));
+  }, () => seedPlaying());
 });
 
 describe('the rules agree with the Ledger', () => {
