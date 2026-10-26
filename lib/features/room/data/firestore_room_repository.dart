@@ -86,6 +86,10 @@ class FirestoreRoomRepository implements RoomRepository {
       ownerUid: d['ownerUid'] as String,
       status: RoomStatus.values.byName(d['status'] as String),
       hasPassword: d['hasPassword'] as bool,
+      endedAt: switch (d['endedAt']) {
+        final Timestamp t => t.toDate(),
+        _ => null,
+      },
       settings: RoomSettings(
         startingCash: s['startingCash'] as int,
         goAmount: s['goAmount'] as int,
@@ -115,13 +119,14 @@ class FirestoreRoomRepository implements RoomRepository {
   static RoomState _stateOf(Map<String, dynamic> d) => RoomState.fromMap(d);
 
   /// The room as it is now; throws [RoomError.roomNotFound] when there is none
-  /// or it has ended.
-  Future<RoomMeta> _readMeta(String code) async {
+  /// or it has ended (unless [endedToo], for what a member reads of a game that
+  /// ended).
+  Future<RoomMeta> _readMeta(String code, {bool endedToo = false}) async {
     final snap = await _guard(() => _room(code).get(), RoomError.roomNotFound);
     final data = snap.data();
     if (data == null) throw const RoomException(RoomError.roomNotFound);
     final meta = _meta(code, data);
-    if (meta.status == RoomStatus.ended) {
+    if (!endedToo && meta.status == RoomStatus.ended) {
       throw const RoomException(RoomError.roomNotFound);
     }
     return meta;
@@ -392,6 +397,36 @@ class FirestoreRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<void> endGame(String code) async {
+    await _auth.ensureSignedIn();
+    final meta = await _readMeta(code, endedToo: true);
+    if (meta.status == RoomStatus.ended) return;
+    if (meta.status != RoomStatus.playing) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final me = await readMyMember(code);
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    if (me.role != MemberRole.player && me.uid != meta.ownerUid) {
+      throw const RoomException(RoomError.notAllowed);
+    }
+    try {
+      await (_db.batch()
+            ..update(_room(code), {
+              'status': 'ended',
+              'endedAt': FieldValue.serverTimestamp(),
+            })
+            ..update(_state(code), {'status': 'ended'}))
+          .commit();
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') throw _translate(e, RoomError.unknown);
+      // Somebody else may have ended it a moment ago.
+      final now = await _readMeta(code, endedToo: true);
+      if (now.status == RoomStatus.ended) return;
+      throw const RoomException(RoomError.notAllowed);
+    }
+  }
+
+  @override
   Future<void> deleteRoom(String code) async {
     final uid = await _auth.ensureSignedIn();
     final meta = await _readMeta(code);
@@ -420,7 +455,7 @@ class FirestoreRoomRepository implements RoomRepository {
   @override
   Future<Member?> readMyMember(String code) async {
     final uid = await _auth.ensureSignedIn();
-    await _readMeta(code);
+    await _readMeta(code, endedToo: true);
     try {
       final snap = await _member(code, uid).get();
       final data = snap.data();

@@ -58,6 +58,7 @@ class _Room {
   final RoomSettings settings;
   final String? passwordHash;
   var status = RoomStatus.lobby;
+  DateTime? endedAt;
   final seats = <String, Seat>{};
   final memberByUid = <String, Member>{};
   final presence = <String, DateTime>{};
@@ -77,6 +78,7 @@ class _Room {
     status: status,
     settings: settings,
     hasPassword: passwordHash != null,
+    endedAt: endedAt,
   );
 
   void publishMeta() => meta.set(metaNow);
@@ -116,6 +118,13 @@ class FakeRoomRepository implements RoomRepository {
     if (room == null || room.status == RoomStatus.ended) {
       throw const RoomException(RoomError.roomNotFound);
     }
+    return room;
+  }
+
+  /// The room whatever its status, also an ended one (what a member reads).
+  _Room _roomAny(String code) {
+    final room = _store._rooms[code];
+    if (room == null) throw const RoomException(RoomError.roomNotFound);
     return room;
   }
 
@@ -297,9 +306,9 @@ class FakeRoomRepository implements RoomRepository {
   }
 
   /// The room, if the signed-in person is in it; otherwise throws.
-  Future<_Room> _asMember(String code) async {
+  Future<_Room> _asMember(String code, {bool endedToo = false}) async {
     final uid = await _auth.ensureSignedIn();
-    final room = _room(code);
+    final room = endedToo ? _roomAny(code) : _room(code);
     if (!room.memberByUid.containsKey(uid)) {
       throw const RoomException(RoomError.notAMember);
     }
@@ -338,12 +347,12 @@ class FakeRoomRepository implements RoomRepository {
   @override
   Future<Member?> readMyMember(String code) async {
     final uid = await _auth.ensureSignedIn();
-    return _room(code).memberByUid[uid];
+    return _roomAny(code).memberByUid[uid];
   }
 
   @override
   Stream<List<Member>> watchMembers(String code) async* {
-    final room = await _asMember(code);
+    final room = await _asMember(code, endedToo: true);
     yield* room.members.watch();
   }
 
@@ -378,8 +387,54 @@ class FakeRoomRepository implements RoomRepository {
 
   @override
   Stream<RoomState?> watchState(String code) async* {
-    final room = await _asMember(code);
+    final room = await _asMember(code, endedToo: true);
     yield* room.state.watch();
+  }
+
+  @override
+  Future<void> endGame(String code) async {
+    final room = await _asMember(code, endedToo: true);
+    if (room.status == RoomStatus.ended) return;
+    final state = room.state.value;
+    if (room.status != RoomStatus.playing || state == null) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    final uid = await _auth.ensureSignedIn();
+    final me = room.memberByUid[uid]!;
+    bool gone(String forUid) {
+      final seen = room.presence[forUid];
+      return seen == null ||
+          _store.now().difference(seen) >= const Duration(minutes: 10);
+    }
+
+    final bankerSeat = state.bankerSeat;
+    final bankerUid = bankerSeat == null
+        ? null
+        : room.memberByUid.values
+              .where((m) => m.seat == bankerSeat)
+              .map((m) => m.uid)
+              .firstOrNull;
+    final allowed =
+        room.ownerUid == uid ||
+        (bankerSeat != null && me.seat == bankerSeat) ||
+        (me.role == MemberRole.player &&
+            me.seat != null &&
+            gone(room.ownerUid) &&
+            (bankerUid == null || gone(bankerUid)));
+    if (!allowed) throw const RoomException(RoomError.notAllowed);
+    room.status = RoomStatus.ended;
+    room.endedAt = _store.now();
+    room.state.set(
+      RoomState(
+        seq: state.seq,
+        seats: state.seats,
+        balances: state.balances,
+        bankrupt: state.bankrupt,
+        bankerSeat: state.bankerSeat,
+        status: RoomStatus.ended,
+      ),
+    );
+    room.publishMeta();
   }
 
   @override
@@ -387,7 +442,7 @@ class FakeRoomRepository implements RoomRepository {
 
   @override
   Stream<List<RoomEntry>> watchEntries(String code) async* {
-    final room = await _asMember(code);
+    final room = await _asMember(code, endedToo: true);
     yield* room.entryFeed.watch().map(
       (all) => all.length <= historyWindow
           ? all
@@ -675,7 +730,7 @@ class FakeRoomRepository implements RoomRepository {
 
   @override
   Stream<List<RoomRequest>> watchRequests(String code) async* {
-    final room = await _asMember(code);
+    final room = await _asMember(code, endedToo: true);
     yield* room.requestFeed.watch();
   }
 

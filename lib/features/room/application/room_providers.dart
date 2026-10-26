@@ -22,13 +22,10 @@ final roomRepositoryProvider = Provider<RoomRepository>(
 /// can have rooms, so `productionOverrides` turns it on then.
 final multiDeviceEnabledProvider = Provider<bool>((ref) => false);
 
-/// The room as it is now and as it changes; null when there is none or it has
-/// ended.
+/// The room as it is now and as it changes (also once it has ended, for the
+/// summary); null when there is none.
 final roomMetaProvider = StreamProvider.autoDispose.family<RoomMeta?, String>(
-  (ref, code) => ref
-      .watch(roomRepositoryProvider)
-      .watchMeta(code)
-      .map((meta) => meta?.status == RoomStatus.ended ? null : meta),
+  (ref, code) => ref.watch(roomRepositoryProvider).watchMeta(code),
 );
 
 /// Everyone in the room, live. Only members may read it.

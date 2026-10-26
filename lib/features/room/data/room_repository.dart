@@ -47,6 +47,10 @@ enum RoomError {
   /// A banker is in the game: the bank's buttons are theirs alone.
   bankerPresses,
 
+  /// This person may not do this now (ending a game while the owner or the
+  /// banker is around, or as a watcher).
+  notAllowed,
+
   /// Only the banker can do this (press for others, hand the seat on), and
   /// only for the bank's buttons.
   notBanker,
@@ -293,6 +297,12 @@ abstract class RoomRepository {
 
   /// Null until the game starts.
   Stream<RoomState?> watchState(String code);
+
+  /// Ends the game: the room and its state go to ended together, for everybody.
+  /// Allowed for the owner, for the banker, and for a player once the owner
+  /// and the banker have been gone for 10 minutes ([RoomError.notAllowed]
+  /// otherwise). Ending what already ended does nothing.
+  Future<void> endGame(String code);
 
   /// Writes what the person pressed, for their own seat, as the next line of
   /// the history and the matching change of the balances. Refused with a

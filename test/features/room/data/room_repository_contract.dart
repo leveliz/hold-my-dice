@@ -1562,6 +1562,166 @@ void roomRepositoryContract(RoomHarness Function() create) {
       });
     });
 
+    group('ending a game', () {
+      /// Three players, started; p3 is the banker if [banker].
+      Future<String> game(RoomHarness h, {bool banker = false}) async {
+        final meta = await _create(h);
+        await _join(h, meta.code, 'u2');
+        await _join(h, meta.code, 'u3');
+        await h.repoFor('owner').startGame(meta.code);
+        await h.repoFor('owner').submitEntry(meta.code, EntryDraft.passGo());
+        if (banker) {
+          await h
+              .repoFor('u3')
+              .submitEntry(meta.code, EntryDraft.bankrupt(2000));
+        }
+        return meta.code;
+      }
+
+      Future<RoomMeta?> metaOf(RoomHarness h, String code) =>
+          h.repoFor('owner').watchMeta(code).first;
+
+      test(
+        'the owner ends it: everybody sees it ended, with the money as it was',
+        () async {
+          final h = create();
+          final code = await game(h);
+          await h.repoFor('owner').endGame(code);
+          for (final uid in ['owner', 'u2', 'u3']) {
+            final meta = await h.repoFor(uid).watchMeta(code).first;
+            expect(meta?.status, RoomStatus.ended, reason: uid);
+            expect(meta?.endedAt, isNotNull, reason: uid);
+            final s = await h.repoFor(uid).watchState(code).first;
+            expect(s?.status, RoomStatus.ended, reason: uid);
+            expect(s?.balances['p1'], 1700, reason: uid);
+            expect(s?.seq, 1);
+            expect(
+              (await h.repoFor(uid).watchMembers(code).first).length,
+              3,
+              reason: uid,
+            );
+            expect((await h.repoFor(uid).watchEntries(code).first).length, 1);
+          }
+        },
+      );
+
+      test(
+        'a member can still read themselves in an ended game, a stranger cannot',
+        () async {
+          final h = create();
+          final code = await game(h);
+          await h.repoFor('owner').endGame(code);
+          expect((await h.repoFor('u2').readMyMember(code))?.seat, 'p2');
+          expect(await h.repoFor('stranger').readMyMember(code), isNull);
+        },
+      );
+
+      test('the banker ends it', () async {
+        final h = create();
+        final code = await game(h, banker: true);
+        await h.repoFor('u3').endGame(code);
+        expect((await metaOf(h, code))?.status, RoomStatus.ended);
+      });
+
+      test('nothing can be pressed once it has ended', () async {
+        final h = create();
+        final code = await game(h);
+        await h.repoFor('owner').endGame(code);
+        await expectLater(
+          h.repoFor('u2').submitEntry(code, EntryDraft.payBank(10)),
+          _throws(RoomError.roomNotFound),
+        );
+        await expectLater(
+          h.repoFor('owner').undoEntry(code, 0),
+          _throws(RoomError.roomNotFound),
+        );
+        await expectLater(
+          h.repoFor('u2').requestMoney(code, fromSeat: 'p1', amount: 10),
+          _throws(RoomError.roomNotFound),
+        );
+      });
+
+      test('ending it twice is fine', () async {
+        final h = create();
+        final code = await game(h);
+        await h.repoFor('owner').endGame(code);
+        await h.repoFor('owner').endGame(code);
+        await h.repoFor('u2').endGame(code);
+        expect((await metaOf(h, code))?.status, RoomStatus.ended);
+      });
+
+      test('a player cannot while the owner was seen a moment ago', () async {
+        final h = create();
+        final code = await game(h);
+        await expectLater(
+          h.repoFor('u2').endGame(code),
+          _throws(RoomError.notAllowed),
+        );
+        expect((await metaOf(h, code))?.status, RoomStatus.playing);
+      });
+
+      test(
+        'a player can once the owner has been gone for over 10 minutes',
+        () async {
+          final h = create();
+          final code = await game(h);
+          await h.advance(const Duration(minutes: 9));
+          await expectLater(
+            h.repoFor('u2').endGame(code),
+            _throws(RoomError.notAllowed),
+          );
+          await h.repoFor('u2').heartbeat(code);
+          await h.advance(const Duration(minutes: 2));
+          await h.repoFor('u2').endGame(code);
+          expect((await metaOf(h, code))?.status, RoomStatus.ended);
+        },
+      );
+
+      test(
+        'with a banker both the owner and the banker must have been gone',
+        () async {
+          final h = create();
+          final code = await game(h, banker: true);
+          await h.advance(const Duration(minutes: 8));
+          await h.repoFor('u3').heartbeat(code);
+          await h.advance(const Duration(minutes: 4));
+          // The owner has been gone for 12 minutes, the banker for 4.
+          await expectLater(
+            h.repoFor('u2').endGame(code),
+            _throws(RoomError.notAllowed),
+          );
+          await h.advance(const Duration(minutes: 7));
+          await h.repoFor('u2').endGame(code);
+          expect((await metaOf(h, code))?.status, RoomStatus.ended);
+        },
+      );
+
+      test(
+        'a watcher cannot, a stranger is not a member, and a game not started cannot end',
+        () async {
+          final h = create();
+          final code = await game(h);
+          await h.advance(const Duration(minutes: 11));
+          await h
+              .repoFor('s1')
+              .joinAsSpectator(code: code, name: 'ดู', color: 3);
+          await expectLater(
+            h.repoFor('s1').endGame(code),
+            _throws(RoomError.notAllowed),
+          );
+          await expectLater(
+            h.repoFor('stranger').endGame(code),
+            _throws(RoomError.notAMember),
+          );
+          final lobby = await _create(h, uid: 'owner2');
+          await expectLater(
+            h.repoFor('owner2').endGame(lobby.code),
+            _throws(RoomError.notStarted),
+          );
+        },
+      );
+    });
+
     group('deleting a room that has not started', () {
       test('the owner takes it down: nobody can find it any more', () async {
         final h = create();
