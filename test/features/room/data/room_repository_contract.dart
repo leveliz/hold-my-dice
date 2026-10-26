@@ -351,6 +351,160 @@ void roomRepositoryContract(RoomHarness Function() create) {
         },
       );
 
+      test(
+        'a transfer moves money between two players and is written down',
+        () async {
+          final h = create();
+          final code = await started(h, others: const ['u2', 'u3']);
+          await h
+              .repoFor('owner')
+              .submitEntry(code, EntryDraft.transfer('p3', 700));
+          final balances = (await state(h, code)).balances;
+          expect(balances, {'p1': 800, 'p2': 1500, 'p3': 2200});
+          final entry = (await history(h, code)).single;
+          expect(entry.kind, EntryKind.transfer);
+          expect(entry.seat, 'p1');
+          expect(entry.from, 'p1');
+          expect(entry.to, 'p3');
+          expect(entry.amount, 700);
+        },
+      );
+
+      test(
+        'a transfer cannot go to oneself, to the bank or to nobody',
+        () async {
+          final h = create();
+          final code = await started(h);
+          final owner = h.repoFor('owner');
+          for (final to in ['p1', 'bank', 'p9']) {
+            await expectLater(
+              owner.submitEntry(code, EntryDraft.transfer(to, 100)),
+              _throws(RoomError.invalidParties),
+              reason: to,
+            );
+          }
+          expect(await history(h, code), isEmpty);
+        },
+      );
+
+      test('a transfer of more than the giver has is refused', () async {
+        final h = create();
+        final code = await started(h);
+        await expectLater(
+          h.repoFor('owner').submitEntry(code, EntryDraft.transfer('p2', 1501)),
+          _throws(RoomError.insufficientFunds),
+        );
+        expect((await state(h, code)).balances, {'p1': 1500, 'p2': 1500});
+      });
+
+      test('taking back gives the balances back and marks the entry', () async {
+        final h = create();
+        final code = await started(h);
+        final owner = h.repoFor('owner');
+        await owner.submitEntry(code, EntryDraft.receive(300, 'ค่าเช่า'));
+        await owner.undoEntry(code, 0);
+        final entry = (await history(h, code)).single;
+        expect(entry.voided, isTrue);
+        final s = await state(h, code);
+        expect(s.balances['p1'], 1500);
+        expect(s.seq, 1, reason: 'the counter does not move');
+      });
+
+      test(
+        'taking back a transfer takes the money from the receiver',
+        () async {
+          final h = create();
+          final code = await started(h);
+          final owner = h.repoFor('owner');
+          await owner.submitEntry(code, EntryDraft.transfer('p2', 700));
+          await owner.undoEntry(code, 0);
+          expect((await state(h, code)).balances, {'p1': 1500, 'p2': 1500});
+        },
+      );
+
+      test('after taking back, the next press gets the next number', () async {
+        final h = create();
+        final code = await started(h);
+        await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+        await h.repoFor('owner').undoEntry(code, 0);
+        await h.repoFor('u2').submitEntry(code, EntryDraft.passGo());
+        final entries = await history(h, code);
+        expect(entries.map((e) => (e.seq, e.voided)), [(0, true), (1, false)]);
+        expect((await state(h, code)).balances, {'p1': 1500, 'p2': 1700});
+      });
+
+      test('taking back the same entry twice is quietly the same', () async {
+        final h = create();
+        final code = await started(h);
+        final owner = h.repoFor('owner');
+        await owner.submitEntry(code, EntryDraft.passGo());
+        await owner.undoEntry(code, 0);
+        await owner.undoEntry(code, 0);
+        expect((await state(h, code)).balances['p1'], 1500);
+      });
+
+      test('only your own entry can be taken back', () async {
+        final h = create();
+        final code = await started(h);
+        await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+        await expectLater(
+          h.repoFor('u2').undoEntry(code, 0),
+          _throws(RoomError.tooLate),
+        );
+        expect((await state(h, code)).balances['p1'], 1700);
+      });
+
+      test('an entry with another one after it cannot be taken back', () async {
+        final h = create();
+        final code = await started(h);
+        await h.repoFor('owner').submitEntry(code, EntryDraft.passGo());
+        await h.repoFor('u2').submitEntry(code, EntryDraft.passGo());
+        await expectLater(
+          h.repoFor('owner').undoEntry(code, 0),
+          _throws(RoomError.tooLate),
+        );
+        expect((await state(h, code)).balances, {'p1': 1700, 'p2': 1700});
+      });
+
+      test('an entry cannot be taken back after the time is up', () async {
+        final h = create();
+        final code = await started(h);
+        final owner = h.repoFor('owner');
+        await owner.submitEntry(code, EntryDraft.passGo());
+        await h.advance(const Duration(seconds: 6));
+        await owner.undoEntry(code, 0);
+        await owner.submitEntry(code, EntryDraft.passGo());
+        await h.advance(const Duration(seconds: 7));
+        await expectLater(owner.undoEntry(code, 1), _throws(RoomError.tooLate));
+        expect((await state(h, code)).balances['p1'], 1700);
+      });
+
+      test('a bank with a limit gets its money back too', () async {
+        final h = create();
+        final code = await started(
+          h,
+          settings: const RoomSettings(
+            startingCash: 1500,
+            goAmount: 200,
+            maxPlayers: 4,
+            bankLimit: 5000,
+          ),
+        );
+        final owner = h.repoFor('owner');
+        await owner.submitEntry(code, EntryDraft.receive(300, 'ค่าเช่า'));
+        await owner.undoEntry(code, 0);
+        expect((await state(h, code)).balances['bank'], 5000);
+      });
+
+      test('taking back an entry that does not exist is too late', () async {
+        final h = create();
+        final code = await started(h);
+        await expectLater(
+          h.repoFor('owner').undoEntry(code, 5),
+          _throws(RoomError.tooLate),
+        );
+      });
+
       test('a press sent twice with the same code is written once', () async {
         final h = create();
         final code = await started(h);

@@ -395,6 +395,12 @@ class FakeRoomRepository implements RoomRepository {
     if (room.entries.any((e) => e.cid == draft.cid && e.seat == seat)) return;
 
     final reason = storedReason(draft);
+    final ledger = state.toLedger(room.settings);
+    final toSeat = draft.toSeat;
+    if (draft.kind == EntryKind.transfer &&
+        (toSeat == null || toSeat == seat || !ledger.isActive(toSeat))) {
+      throw const RoomException(RoomError.invalidParties);
+    }
     final entry = RoomEntry(
       seq: state.seq,
       kind: draft.kind,
@@ -402,14 +408,20 @@ class FakeRoomRepository implements RoomRepository {
       by: uid,
       at: _store.now(),
       cid: draft.cid,
-      from: draft.kind == EntryKind.payBank ? seat : Transaction.bank,
-      to: draft.kind == EntryKind.payBank ? Transaction.bank : seat,
+      from: draft.kind == EntryKind.payBank || draft.kind == EntryKind.transfer
+          ? seat
+          : Transaction.bank,
+      to: draft.kind == EntryKind.payBank
+          ? Transaction.bank
+          : draft.kind == EntryKind.transfer
+          ? toSeat
+          : seat,
       amount: draft.kind == EntryKind.passGo
           ? room.settings.goAmount
           : draft.amount,
       reason: reason,
     );
-    final result = Ledger.apply(state.toLedger(room.settings), entry);
+    final result = Ledger.apply(ledger, entry);
     if (result is Rejected) {
       throw RoomException(roomErrorOf(result.reason));
     }
@@ -418,6 +430,46 @@ class FakeRoomRepository implements RoomRepository {
     room.state.set(
       RoomState(
         seq: state.seq + 1,
+        seats: state.seats,
+        balances: (result as Applied).state.balances,
+        bankrupt: state.bankrupt,
+        bankerSeat: state.bankerSeat,
+        status: state.status,
+      ),
+    );
+  }
+
+  @override
+  Future<void> undoEntry(String code, int seq) async {
+    final uid = await _auth.ensureSignedIn();
+    final room = _room(code);
+    final me = room.memberByUid[uid];
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final state = room.state.value;
+    if (room.status != RoomStatus.playing || state == null) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    if (seq < 0 || seq >= room.entries.length) {
+      throw const RoomException(RoomError.tooLate);
+    }
+    final entry = room.entries[seq];
+    // Taking back what this person already took back is the same, not an error.
+    if (entry.voided && entry.by == uid) return;
+    final at = entry.at;
+    if (entry.by != uid ||
+        entry.voided ||
+        seq != state.seq - 1 ||
+        at == null ||
+        _store.now().difference(at) >= undoWindow) {
+      throw const RoomException(RoomError.tooLate);
+    }
+    final result = Ledger.undo(state.toLedger(room.settings), entry);
+    if (result is Rejected) throw const RoomException(RoomError.tooLate);
+    room.entries[seq] = entry.copyWith(voided: true);
+    room.entryFeed.set(List.unmodifiable(room.entries));
+    room.state.set(
+      RoomState(
+        seq: state.seq,
         seats: state.seats,
         balances: (result as Applied).state.balances,
         bankrupt: state.bankrupt,

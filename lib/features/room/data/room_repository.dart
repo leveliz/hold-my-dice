@@ -89,6 +89,10 @@ class RoomException implements Exception {
       'RoomException($error${detail == null ? '' : ': $detail'})';
 }
 
+/// How long after it was written an entry can be taken back, by the room's
+/// clock (the rules allow 6.5 seconds; the screen shows less).
+const undoWindow = Duration(milliseconds: 6500);
+
 /// How many of the newest entries a device listens to.
 const historyWindow = 30;
 
@@ -171,6 +175,14 @@ abstract class RoomRepository {
   /// the history and the matching change of the balances. Refused with a
   /// [RoomException] (nothing is written) when it cannot be done.
   Future<void> submitEntry(String code, EntryDraft draft);
+
+  /// Takes back the entry [seq], the person's own and the latest of the game,
+  /// within a few seconds of the time the room's clock gave it: the balances
+  /// go back and the entry stays in the history as undone. Taking back what
+  /// was already taken back by this person does nothing. Refused with
+  /// [RoomError.tooLate] when something came after it, it is not theirs, or
+  /// the time is up.
+  Future<void> undoEntry(String code, int seq);
 
   /// The newest [historyWindow] entries of the game, oldest first, live.
   /// Members only. A long game is not read whole: every device would pay for

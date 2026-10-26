@@ -441,6 +441,11 @@ class FirestoreRoomRepository implements RoomRepository {
     final amount = draft.kind == EntryKind.passGo
         ? meta.settings.goAmount
         : draft.amount;
+    final toSeat = draft.toSeat;
+    if (draft.kind == EntryKind.transfer &&
+        (toSeat == null || toSeat == seat)) {
+      throw const RoomException(RoomError.invalidParties);
+    }
 
     // The place this press last tried to take. The SDK runs the transaction
     // again after an error it takes for retryable, even one that came after
@@ -467,6 +472,11 @@ class FirestoreRoomRepository implements RoomRepository {
             return;
           }
           final state = RoomState.fromMap(data);
+          if (draft.kind == EntryKind.transfer &&
+              !state.toLedger(meta.settings).isActive(toSeat!)) {
+            refused = RoomError.invalidParties;
+            return;
+          }
           triedSeq = state.seq;
           final earlier = lastPlace;
           if (earlier != null && earlier != state.seq) {
@@ -487,10 +497,16 @@ class FirestoreRoomRepository implements RoomRepository {
             seat: seat,
             by: uid,
             cid: draft.cid,
-            from: draft.kind == EntryKind.payBank
+            from:
+                draft.kind == EntryKind.payBank ||
+                    draft.kind == EntryKind.transfer
                 ? seat
                 : bank.Transaction.bank,
-            to: draft.kind == EntryKind.payBank ? bank.Transaction.bank : seat,
+            to: draft.kind == EntryKind.payBank
+                ? bank.Transaction.bank
+                : draft.kind == EntryKind.transfer
+                ? toSeat
+                : seat,
             amount: amount,
             reason: reason,
           );
@@ -538,6 +554,76 @@ class FirestoreRoomRepository implements RoomRepository {
         }
       }
     }
+  }
+
+  @override
+  Future<void> undoEntry(String code, int seq) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code);
+    if (meta.status != RoomStatus.playing) {
+      throw const RoomException(RoomError.notStarted);
+    }
+    // As in submitEntry, what the attempt finds out is recorded and returned:
+    // an error thrown inside the transaction does not arrive as it was thrown.
+    RoomError? refused;
+    var alreadyDone = false;
+    try {
+      final running = _db.runTransaction<void>((tx) async {
+        refused = null;
+        alreadyDone = false;
+        final data = (await tx.get(_state(code))).data();
+        if (data == null) {
+          refused = RoomError.notStarted;
+          return;
+        }
+        final state = RoomState.fromMap(data);
+        final raw = (await tx.get(_entry(code, seq))).data();
+        if (raw == null) {
+          refused = RoomError.tooLate;
+          return;
+        }
+        final entry = _entryOf(raw);
+        // Taking back what this person already took back is the same.
+        if (entry.voided && entry.by == uid) {
+          alreadyDone = true;
+          return;
+        }
+        if (entry.by != uid || entry.voided || seq != state.seq - 1) {
+          refused = RoomError.tooLate;
+          return;
+        }
+        final result = Ledger.undo(state.toLedger(meta.settings), entry);
+        if (result is Rejected) {
+          refused = RoomError.tooLate;
+          return;
+        }
+        tx.update(_entry(code, seq), {'voided': true});
+        tx.update(_state(code), {
+          'balances': (result as Applied).state.balances,
+        });
+      });
+      await running.timeout(
+        _writeTimeout,
+        onTimeout: () =>
+            throw UnsureException(running.then((_) {}, onError: (Object _) {})),
+      );
+      if (refused case final error?) throw RoomException(error);
+    } on FirebaseException catch (e) {
+      // The rules say no when the time is up or something came first. If the
+      // entry is undone by this person all the same (an answer that got lost,
+      // another tab), it is done.
+      if (e.code != 'permission-denied' && e.code != 'aborted') {
+        throw _translate(e, RoomError.tooLate);
+      }
+      final now = await _guard(
+        () => _entry(code, seq).get(),
+        RoomError.unknown,
+      );
+      final d = now.data();
+      if (d != null && d['voided'] == true && d['by'] == uid) return;
+      throw const RoomException(RoomError.tooLate);
+    }
+    if (alreadyDone) return;
   }
 
   @override
