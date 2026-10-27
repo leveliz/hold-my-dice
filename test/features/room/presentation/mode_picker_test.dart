@@ -50,6 +50,30 @@ void main() {
     expect(find.byKey(const ValueKey('code-field')), findsOneWidget);
   });
 
+  group('the example in the empty code field', () {
+    testWidgets('says it is an example, and is faint next to what is typed', (
+      tester,
+    ) async {
+      await openApp(tester, FakeRoomStore(), '/room/join');
+      final field = tester.widget<TextField>(
+        find.byKey(const ValueKey('code-field')),
+      );
+      expect(field.decoration?.hintText, 'เช่น K7M2QX');
+      final hint = field.decoration!.hintStyle!.color!;
+      final typed =
+          field.style?.color ??
+          Theme.of(
+            tester.element(find.byType(TextField)),
+          ).colorScheme.onSurface;
+      expect(
+        hint.a,
+        lessThan(0.5),
+        reason: 'a placeholder, not something that looks typed',
+      );
+      expect(typed.a, greaterThan(hint.a));
+    });
+  });
+
   group('typing a code', () {
     testWidgets('the button waits for a complete code', (tester) async {
       await openApp(tester, FakeRoomStore(), '/room/join');

@@ -48,7 +48,14 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
                 textCapitalization: TextCapitalization.characters,
                 textAlign: TextAlign.center,
                 style: text.headlineMedium?.copyWith(letterSpacing: 4),
-                decoration: const InputDecoration(hintText: 'K7M2QX'),
+                // An example, not something typed: it says so and is faint.
+                decoration: InputDecoration(
+                  hintText: 'เช่น K7M2QX',
+                  hintStyle: text.titleLarge?.copyWith(
+                    letterSpacing: 2,
+                    color: text.bodyMedium?.color?.withValues(alpha: 0.3),
+                  ),
+                ),
                 onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _enter(),
               ),
