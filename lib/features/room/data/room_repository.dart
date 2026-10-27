@@ -58,6 +58,10 @@ enum RoomError {
   /// The banker was seen less than 2 minutes ago: the seat cannot be taken.
   bankerStillActive,
 
+  /// The banker's seat is for somebody who is out of the game, not for a
+  /// player who still plays.
+  bankerMustBeOut,
+
   /// Other presses kept getting in first and the press was given up.
   conflict,
 
@@ -425,15 +429,24 @@ abstract class RoomRepository {
   /// the time is up.
   Future<void> undoEntry(String code, int seq);
 
-  /// The banker hands the banker's seat on to the seat [toSeat] of the game.
+  /// The banker hands the banker's seat on to the seat [toSeat] of the game,
+  /// which must be out of the game ([RoomError.bankerMustBeOut] otherwise).
   /// [RoomError.notBanker] for anybody else, [RoomError.invalidParties] for a
   /// seat that is not another seat of the game.
   Future<void> passBanker(String code, String toSeat);
 
-  /// A person with a seat takes the banker's seat over from a banker who has
-  /// not been seen for 2 minutes ([RoomError.bankerStillActive] otherwise).
+  /// A person who is out of the game takes the banker's seat over from a
+  /// banker who has not been seen for 2 minutes ([RoomError.bankerStillActive]
+  /// otherwise, [RoomError.bankerMustBeOut] for a player who still plays).
   /// Their own presence is written with it.
   Future<void> takeOverBanker(String code);
+
+  /// Gives the banker's seat up: nobody is the banker and every player presses
+  /// the bank's buttons for themselves again (the next to go out becomes the
+  /// banker). The banker may at any time; a person with a seat when the banker
+  /// has not been seen for 2 minutes ([RoomError.bankerStillActive]
+  /// otherwise). [RoomError.notBanker] when there is no banker.
+  Future<void> releaseBanker(String code);
 
   /// Asks the person at [fromSeat] to pay [amount] to this person. Each pair
   /// has room for one request: asking while the last one is open (and not

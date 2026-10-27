@@ -503,11 +503,14 @@ try {
   await p6.page.getByRole('button', { name: 'GO', exact: true }).first().click();
   check(await waitFor(async () => (await balancesOn(host)).P1 === hostBeforeGo + 200), 'the banker pressed GO for the first friend');
   check(await seen(host, 'นายธนาคาร P6 กด GO ให้คุณ +200', 8000), 'who is told it was the banker');
+  check(await seen(host, 'เลิกมีนายธนาคาร', 5000), 'a player who still plays is offered to give the seat up');
+  check((await host.page.getByText('รับตำแหน่งแทน').count()) === 0, 'and not to take it over');
   await button(p6, 'ส่งต่อ').click();
-  await seen(p6, 'ส่งต่อตำแหน่งนายธนาคารให้', 5000);
-  await p6.page.getByText('P1', { exact: true }).last().click();
-  check(await seen(host, 'คุณเป็นนายธนาคาร', 8000), 'the seat is handed to a friend, who is the banker now');
-  check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) >= 1, 'who has the GO button of their own again');
+  check(await seen(p6, 'ส่งต่อตำแหน่งนายธนาคารให้', 5000), 'the banker opens the sheet to hand the seat on');
+  check(await seen(p6, 'ยังไม่มีคนอื่นที่ออกจากเกม', 5000), 'which names nobody who still plays');
+  await p6.page.getByText('เลิกมีนายธนาคาร').first().click();
+  check(await gone(host, 'เลิกมีนายธนาคาร', 8000), 'the banker gives the seat up and the band of the banker goes');
+  check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) >= 1, 'and the players have the GO button of their own again');
 
   // 6g2. A player may not end the game while the owner and the banker are about:
   // they are told so at once, with nothing to confirm.

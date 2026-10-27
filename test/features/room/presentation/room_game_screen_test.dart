@@ -620,32 +620,72 @@ void main() {
     });
 
     testWidgets(
-      'the banker hands the seat to a friend, who gets the banker\'s bar',
+      'the banker who has nobody else out gives the seat up, and the players press for themselves',
       (tester) async {
         await banked();
         await openApp(tester, store, '/room/$code', uid: 'u2');
         await tester.tap(key('banker-pass'));
         await tester.pumpAndSettle();
-        await tester.tap(key('banker-pass-p1'));
+        expect(key('banker-pass-none'), findsOneWidget);
+        expect(key('banker-pass-p1'), findsNothing, reason: 'still plays');
+        await tester.tap(key('banker-pass-release'));
         await tester.pumpAndSettle();
         expect(key('band-banker'), findsNothing);
-        expect(key('band-banker-presses'), findsOneWidget);
+        expect(key('band-banker-presses'), findsNothing);
         await leave(tester);
         await openApp(tester, store, '/room/$code', uid: _owner);
-        expect(key('band-banker'), findsOneWidget);
-        expect(find.textContaining('คุณเป็นนายธนาคาร'), findsOneWidget);
+        expect(key('band-banker-presses'), findsNothing);
         expect(
           key('press-pay'),
           findsOneWidget,
-          reason: 'a banker who still plays has their own buttons',
+          reason: 'with no banker a player has their own buttons',
         );
-        expect(key('banker-go-p2'), findsNothing);
         await leave(tester);
       },
     );
 
+    /// Three players: p2 goes out first and is the banker, and declares p3
+    /// out as well; p1 (owner) plays on.
+    Future<String> bankedThree() async {
+      final room = await makeRoom(store);
+      for (final uid in ['u2', 'u3']) {
+        await repoOn(
+          store,
+          uid,
+        ).joinAsPlayer(code: room, name: uid, color: 0xFFE11D48);
+      }
+      await repoOn(store, _owner).startGame(room);
+      await repoOn(store, 'u2').submitEntry(room, EntryDraft.bankrupt(2000));
+      await repoOn(
+        store,
+        'u2',
+      ).submitEntry(room, EntryDraft.bankrupt(2000).onBehalfOf('p3'));
+      return room;
+    }
+
     testWidgets(
-      'a player is always offered the banker seat, and the room says if it is too soon',
+      'the banker hands the seat to another player who is out, who gets the banker\'s bar',
+      (tester) async {
+        final room = await bankedThree();
+        await openApp(tester, store, '/room/$room', uid: 'u2');
+        await tester.tap(key('banker-pass'));
+        await tester.pumpAndSettle();
+        expect(key('banker-pass-p3'), findsOneWidget);
+        expect(key('banker-pass-p1'), findsNothing, reason: 'still plays');
+        expect(key('banker-pass-none'), findsNothing);
+        await tester.tap(key('banker-pass-p3'));
+        await tester.pumpAndSettle();
+        expect(key('band-banker'), findsNothing);
+        expect(key('band-banker-presses'), findsOneWidget);
+        await leave(tester);
+        await openApp(tester, store, '/room/$room', uid: 'u3');
+        expect(key('band-banker'), findsOneWidget);
+        expect(find.textContaining('คุณเป็นนายธนาคาร'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+    testWidgets(
+      'a player who still plays is offered to give the seat up, and the room says if it is too soon',
       (tester) async {
         await banked();
         await openApp(
@@ -655,16 +695,37 @@ void main() {
           uid: _owner,
           overrides: [roomClockProvider.overrideWithValue(() => clock)],
         );
+        expect(key('banker-release'), findsOneWidget);
+        expect(key('banker-takeover'), findsNothing);
+        await tester.tap(key('banker-release'));
+        await tester.pumpAndSettle();
+        expect(snackText(tester), 'นายธนาคารยังออนไลน์อยู่');
+        expect(key('band-banker-presses'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'a player who is out is offered the seat, and the room says if it is too soon',
+      (tester) async {
+        final room = await bankedThree();
+        await openApp(
+          tester,
+          store,
+          '/room/$room',
+          uid: 'u3',
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
         expect(key('banker-takeover'), findsOneWidget);
+        expect(key('banker-release'), findsNothing);
         await tester.tap(key('banker-takeover'));
         await tester.pumpAndSettle();
         expect(snackText(tester), 'นายธนาคารยังออนไลน์อยู่');
         await leave(tester);
       },
     );
-
     testWidgets(
-      'taking it over is refused in words while the banker is there',
+      'giving the seat up is refused in words while the banker is there',
       (tester) async {
         await banked();
         clock = clock.add(const Duration(minutes: 3));
@@ -676,16 +737,15 @@ void main() {
           uid: _owner,
           overrides: [roomClockProvider.overrideWithValue(() => clock)],
         );
-        await tester.tap(key('banker-takeover'));
+        await tester.tap(key('banker-release'));
         await tester.pumpAndSettle();
         expect(snackText(tester), 'นายธนาคารยังออนไลน์อยู่');
         expect(key('band-banker-presses'), findsOneWidget);
         await leave(tester);
       },
     );
-
     testWidgets(
-      'a banker who is gone is replaced by the one who takes the seat',
+      'a banker who is gone: a player who still plays gives the seat up and has their buttons back',
       (tester) async {
         await banked();
         clock = clock.add(const Duration(minutes: 3));
@@ -696,15 +756,35 @@ void main() {
           uid: _owner,
           overrides: [roomClockProvider.overrideWithValue(() => clock)],
         );
-        await tester.tap(key('banker-takeover'));
+        await tester.tap(key('banker-release'));
         await tester.pumpAndSettle();
-        expect(key('band-banker'), findsOneWidget);
+        expect(key('band-banker-presses'), findsNothing);
+        expect(key('band-banker'), findsNothing);
         expect(key('press-pay'), findsOneWidget);
-        expect(key('banker-takeover'), findsNothing);
+        expect(key('banker-release'), findsNothing);
         await leave(tester);
       },
     );
 
+    testWidgets(
+      'a banker who is gone is replaced by a player who is out and takes the seat',
+      (tester) async {
+        final room = await bankedThree();
+        clock = clock.add(const Duration(minutes: 3));
+        await openApp(
+          tester,
+          store,
+          '/room/$room',
+          uid: 'u3',
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
+        await tester.tap(key('banker-takeover'));
+        await tester.pumpAndSettle();
+        expect(key('band-banker'), findsOneWidget);
+        expect(key('banker-takeover'), findsNothing);
+        await leave(tester);
+      },
+    );
     testWidgets('a friend of the banker is told what the banker did for them', (
       tester,
     ) async {
@@ -761,18 +841,17 @@ void main() {
       },
     );
 
-    testWidgets('a banker who still plays can mortgage for their own payment', (
+    testWidgets('once the banker has given the seat up a player can mortgage', (
       tester,
     ) async {
       final room = await threeWithBanker();
-      await repoOn(store, 'u3').passBanker(room, 'p1');
+      await repoOn(store, 'u3').releaseBanker(room);
       await openApp(tester, store, '/room/$room', uid: _owner);
       await payFriend(tester, '2000');
       expect(key('mortgage-input'), findsOneWidget);
       expect(key('mortgage-blocked'), findsNothing);
       await leave(tester);
     });
-
     testWidgets(
       'money that arrives meanwhile makes the payment possible again',
       (tester) async {

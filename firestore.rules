@@ -210,6 +210,16 @@ service cloud.firestore {
         && (!('bank' in state.balances) || state.balances.bank >= d.mortgage);
     }
 
+    // Whether the person writing sits at one of [seats] of the game as a player.
+    function seatsInGame(code, seats) {
+      let me = get(memberDoc(code, request.auth.uid)).data;
+      return exists(memberDoc(code, request.auth.uid))
+        && me.role == 'player'
+        && me.seat is string
+        && me.seat in seats
+        && ownsSeat(code, me.seat);
+    }
+
     function ownsSeat(code, seat) {
       return get(seatDoc(code, seat)).data.uid == request.auth.uid;
     }
@@ -678,7 +688,8 @@ service cloud.firestore {
                == true;
 
         // Handing the banker's seat on: only that, by the person at the banker
-        // seat, to another seat of the game.
+        // seat, to another seat of the game that is out (a banker is somebody
+        // who does not play).
         allow update: if signedIn()
           && docId == 'current'
           && get(roomDoc(code)).data.status == 'playing'
@@ -688,10 +699,41 @@ service cloud.firestore {
           && ownsSeat(code, resource.data.bankerSeat)
           && request.resource.data.bankerSeat is string
           && request.resource.data.bankerSeat != resource.data.bankerSeat
-          && request.resource.data.bankerSeat in resource.data.seats;
+          && request.resource.data.bankerSeat in resource.data.seats
+          && request.resource.data.bankerSeat in resource.data.bankrupt;
+
+        // Giving the banker's seat up: nobody is the banker, everybody presses
+        // for themselves again (the next to go out becomes the banker). Only
+        // that changes. The banker may do it at any time.
+        allow update: if signedIn()
+          && docId == 'current'
+          && get(roomDoc(code)).data.status == 'playing'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['bankerSeat'])
+          && resource.data.bankerSeat != null
+          && ownsSeat(code, resource.data.bankerSeat)
+          && request.resource.data.bankerSeat == null;
+
+        // The same by a player of the game when the banker has not been seen for
+        // 2 minutes, with their own presence written in the same batch.
+        allow update: if signedIn()
+          && docId == 'current'
+          && get(roomDoc(code)).data.status == 'playing'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['bankerSeat'])
+          && resource.data.bankerSeat != null
+          && request.resource.data.bankerSeat == null
+          && seatsInGame(code, resource.data.seats)
+          && getAfter(presenceDoc(code, request.auth.uid)).data.lastSeen
+               == request.time
+          && (!exists(presenceDoc(code,
+                get(seatDoc(code, resource.data.bankerSeat)).data.uid))
+              || get(presenceDoc(code,
+                   get(seatDoc(code, resource.data.bankerSeat)).data.uid))
+                   .data.lastSeen < request.time - duration.value(2, 'm'));
 
         // Taking the banker's seat over from a banker who has not been seen for
-        // 2 minutes: only that, to the taker's own seat, with the taker's own
+        // 2 minutes: only that, to the taker's own seat (which is out), with the taker's own
         // presence written in the same batch (a person who is not there cannot
         // take it).
         allow update: if signedIn()
@@ -703,6 +745,7 @@ service cloud.firestore {
           && request.resource.data.bankerSeat is string
           && request.resource.data.bankerSeat != resource.data.bankerSeat
           && request.resource.data.bankerSeat in resource.data.seats
+          && request.resource.data.bankerSeat in resource.data.bankrupt
           && ownsSeat(code, request.resource.data.bankerSeat)
           && getAfter(presenceDoc(code, request.auth.uid)).data.lastSeen
                == request.time

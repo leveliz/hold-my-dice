@@ -47,6 +47,8 @@ String roomErrorText(Object error) {
     RoomError.notBanker =>
       'เฉพาะนายธนาคารที่กดแทนคนอื่นได้ และกดแทนได้เฉพาะเรื่องเงินจากธนาคาร',
     RoomError.bankerStillActive => 'นายธนาคารยังออนไลน์อยู่',
+    RoomError.bankerMustBeOut =>
+      'นายธนาคารต้องเป็นคนที่ออกจากเกมแล้ว ผู้เล่นที่ยังเล่นอยู่เป็นไม่ได้',
     RoomError.notAllowed =>
       'ตอนนี้ทำไม่ได้: ให้เจ้าของห้องหรือนายธนาคารเป็นคนทำ',
     RoomError.conflict => 'มีคนกดพร้อมกันหลายคน ลองอีกครั้ง',

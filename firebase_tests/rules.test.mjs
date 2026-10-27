@@ -2199,69 +2199,72 @@ const takeOver = (uid, to, { beat = true, extra = {} } = {}) => {
   if (beat) batch.set(presence(db, uid), { lastSeen: serverTimestamp() });
   return batch.commit();
 };
+/** Giving the banker's seat up: nobody is the banker, everybody presses for themselves. */
+const release = (uid, { beat = false, extra = {}, to = null } = {}) => {
+  const db = as(uid);
+  const batch = writeBatch(db);
+  batch.update(stateDoc(db), { bankerSeat: to, ...extra });
+  if (beat) batch.set(presence(db, uid), { lastSeen: serverTimestamp() });
+  return batch.commit();
+};
+/** p4 is the banker and p3 is out too: somebody else who may be given the seat. */
+const twoOut = () => seedPlaying({ ...BANKED, stateOver: { bankrupt: ['p4', 'p3'], bankerSeat: 'p4' } });
 
 describe('handing the banker on', () => {
-  it('the banker gives it to another seat of the game, and that person presses next', async () => {
-    await withBanker()();
-    await assertSucceeds(passBanker('u4', 'p1'));
-    assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p1');
-    await assertSucceeds(put('owner', receive('p2', 100, OUT4), { entry: { reason: null } }));
-    await assertFails(put('u4', receive('p2', 100, { ...OUT4, p2: 1600 }), { entry: { seq: 1, reason: null }, id: 1, seqAfter: 2 }));
-  });
-
-  it('a seat that is out may be given it too', async () => {
-    await seedPlaying({ ...BANKED, stateOver: { bankrupt: ['p4', 'p3'], bankerSeat: 'p4' } });
+  it('the banker gives it to another seat that is out, and that person presses next', async () => {
+    await twoOut();
     await assertSucceeds(passBanker('u4', 'p3'));
+    assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p3');
+    await assertSucceeds(put('u3', receive('p2', 100, OUT4), { entry: { reason: null, by: 'u3', seat: 'p2' } }));
+    await assertFails(put('u4', receive('p1', 100, { ...OUT4, p1: 1600 }), { entry: { seq: 1, reason: null }, id: 1, seqAfter: 2 }));
   });
 });
 
 describe('handing the banker on: what is refused', () => {
-  const refuse = (title, run, setup = withBanker()) =>
+  const refuse = (title, run, setup = twoOut) =>
     it(title, async () => {
       await setup();
       await assertFails(run());
     });
 
-  refuse('by somebody who is not the banker', () => passBanker('u2', 'p2'));
+  refuse('to a seat that still plays', () => passBanker('u4', 'p1'));
+  refuse('to a seat that still plays, when it is the only other seat that is out', () => passBanker('u4', 'p2'), withBanker());
+  refuse('by somebody who is not the banker', () => passBanker('u2', 'p3'));
+  refuse('by another seat that is out', () => passBanker('u3', 'p3'));
   refuse('to the banker itself, which changes nothing', () => passBanker('u4', 'p4'));
-  refuse('to nobody', () => passBanker('u4', null));
   refuse('to a seat that is not in the game', () => passBanker('u4', 'p9'));
   refuse('to something that is not a seat', () => passBanker('u4', 7));
-  refuse('with another thing of the state changing too', () => passBanker('u4', 'p1', { balances: { ...OUT4, p1: 1600 } }));
-  refuse('with the counter moving', () => passBanker('u4', 'p1', { seq: 1 }));
-  refuse('when there is no banker yet', () => passBanker('owner', 'p1'), () => seedPlaying());
-  refuse('by a stranger', () => passBanker('stranger', 'p1'));
+  refuse('with another thing of the state changing too', () => passBanker('u4', 'p3', { balances: { ...OUT4, p3: 1600 } }));
+  refuse('with the counter moving', () => passBanker('u4', 'p3', { seq: 1 }));
+  refuse('when there is no banker yet', () => passBanker('owner', 'p3'), () => seedPlaying());
+  refuse('by a stranger', () => passBanker('stranger', 'p3'));
 });
 
 describe('taking the banker over from one who is gone', () => {
-  it('a player takes it after 2 minutes, with their own presence written in the same batch', async () => {
-    await withBanker()();
+  it('a player who is out takes it after 2 minutes, with their own presence written in the same batch', async () => {
+    await twoOut();
     await staleBeat('u4');
     await assertSucceeds(takeOver('u3', 'p3'));
     assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p3');
   });
 
-  it('a seat that is out can take it too', async () => {
-    await seedPlaying({ ...BANKED, stateOver: { bankrupt: ['p4', 'p2'], bankerSeat: 'p4' } });
-    await staleBeat('u4');
-    await assertSucceeds(takeOver('u2', 'p2'));
-  });
-
   it('a banker who has no presence document at all can be replaced at once', async () => {
-    await withBanker()();
+    await twoOut();
     await assertSucceeds(takeOver('u3', 'p3'));
     assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p3');
   });
 });
 
 describe('taking the banker over: what is refused', () => {
-  const refuse = (title, run, { beatAgo = 3 * 60 * 1000, setup = withBanker() } = {}) =>
+  const refuse = (title, run, { beatAgo = 3 * 60 * 1000, setup = twoOut } = {}) =>
     it(title, async () => {
       await setup();
       if (beatAgo !== null) await staleBeat('u4', beatAgo);
       await assertFails(run());
     });
 
+  refuse('by a player who still plays', () => takeOver('u2', 'p2'));
+  refuse('by a player who still plays, with the banker the only one out', () => takeOver('u3', 'p3'), { setup: withBanker() });
   refuse('while the banker was seen less than 2 minutes ago', () => takeOver('u3', 'p3'), { beatAgo: 100 * 1000 });
   refuse('without writing their own presence', () => takeOver('u3', 'p3', { beat: false }));
   refuse('for somebody else\'s seat', () => takeOver('u3', 'p2'));
@@ -2269,6 +2272,86 @@ describe('taking the banker over: what is refused', () => {
   refuse('by a stranger', () => takeOver('stranger', 'p3'));
   refuse('with another thing of the state changing too', () => takeOver('u3', 'p3', { extra: { balances: { ...OUT4, p3: 1600 } } }));
   refuse('when there is no banker', () => takeOver('u3', 'p3'), { beatAgo: null, setup: () => seedPlaying() });
+});
+
+describe('giving the banker up', () => {
+  it('the banker may at any time: nobody is the banker, and a player presses for themselves again', async () => {
+    await withBanker()();
+    await assertSucceeds(release('u4'));
+    assert.equal((await adminGet(stateDoc)).data().bankerSeat, null);
+    assert.deepEqual((await adminGet(stateDoc)).data().bankrupt, ['p4']);
+    await assertSucceeds(put('u2', receive('p2', 100, OUT4)));
+  });
+
+  it('a player who still plays may when the banker has been gone for 2 minutes, with their own presence', async () => {
+    await withBanker()();
+    await staleBeat('u4');
+    await assertSucceeds(release('u2', { beat: true }));
+    assert.equal((await adminGet(stateDoc)).data().bankerSeat, null);
+  });
+
+  it('so may one who is out', async () => {
+    await twoOut();
+    await staleBeat('u4');
+    await assertSucceeds(release('u3', { beat: true }));
+  });
+
+  it('a banker with no presence document at all can be given up at once', async () => {
+    await withBanker()();
+    await assertSucceeds(release('owner', { beat: true }));
+  });
+
+  it('the next to go out is the banker again', async () => {
+    await withBanker()();
+    await assertSucceeds(release('u4'));
+    await assertSucceeds(goOut('u2', bankrupt('p2', null, 2000, OUT4, ['p4'], null)));
+    assert.equal((await adminGet(stateDoc)).data().bankerSeat, 'p2');
+  });
+});
+
+describe('giving the banker up: what is refused', () => {
+  const refuse = (title, run, { beatAgo = 3 * 60 * 1000, setup = withBanker() } = {}) =>
+    it(title, async () => {
+      await setup();
+      if (beatAgo !== null) await staleBeat('u4', beatAgo);
+      await assertFails(run());
+    });
+
+  refuse('by a player while the banker was seen less than 2 minutes ago', () => release('u2', { beat: true }), { beatAgo: 100 * 1000 });
+  refuse('by a player who does not write their own presence', () => release('u2'));
+  refuse('by a watcher', () => release('s1', { beat: true }), {
+    setup: async () => {
+      await withBanker()();
+      await admin((db) => setDoc(member(db, 's1'), memberData('ดู', { role: 'spectator', seat: null })));
+    },
+  });
+  refuse('by a stranger', () => release('stranger', { beat: true }));
+  refuse('by a member whose seat is not in the game', () => release('late', { beat: true }), {
+    setup: async () => {
+      await withBanker()();
+      await admin(async (db) => {
+        await setDoc(seat(db, 'p5'), seatData('late', 'สาย', { joinedAt: Timestamp.now() }));
+        await setDoc(member(db, 'late'), memberData('สาย', { seat: 'p5' }));
+      });
+    },
+  });
+  refuse('by somebody whose member document names a seat that belongs to another person', () => release('ghost', { beat: true }), {
+    setup: async () => {
+      await withBanker()();
+      await admin((db) => setDoc(member(db, 'ghost'), memberData('ผี', { seat: 'p2' })));
+    },
+  });
+  refuse('by a member who is no player, whatever seat is written on them', () => release('u2', { beat: true }), {
+    setup: async () => {
+      await withBanker()();
+      await admin((db) => setDoc(member(db, 'u2'), memberData('คน 2', { role: 'spectator', seat: 'p2' })));
+    },
+  });
+  refuse('with another thing of the state changing too', () => release('u4', { extra: { balances: { ...OUT4, p1: 1600 } } }));
+  refuse('with the counter moving', () => release('u4', { extra: { seq: 1 } }));
+  refuse('when there is no banker', () => release('owner', { beat: true }), { beatAgo: null, setup: () => seedPlaying() });
+  refuse('with the bankrupt list changing too', () => release('u4', { extra: { bankrupt: [] } }));
+  refuse('as a way to give the seat to a seat that still plays', () => release('u4', { to: 'p1' }));
 });
 
 // ---- deleting a room that has not started

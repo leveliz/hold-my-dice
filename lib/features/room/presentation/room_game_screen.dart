@@ -628,8 +628,9 @@ class _GameBody extends ConsumerWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
+            // A banker is somebody who does not play: only seats that are out.
             for (final seat in view.seats)
-              if (seat != view.mySeat)
+              if (seat != view.mySeat && view.state.bankrupt.contains(seat))
                 ListTile(
                   key: ValueKey('banker-pass-$seat'),
                   leading: PlayerAvatar(
@@ -638,18 +639,51 @@ class _GameBody extends ConsumerWidget {
                     size: 28,
                   ),
                   title: Text(view.nameOf(seat)),
-                  trailing: view.state.bankrupt.contains(seat)
-                      ? const RoomChip('ออกจากเกม')
-                      : const Icon(LucideIcons.chevronRight, size: 18),
+                  trailing: const RoomChip('ออกจากเกม'),
                   onTap: () => Navigator.pop(context, seat),
                 ),
+            if (!view.seats.any(
+              (s) => s != view.mySeat && view.state.bankrupt.contains(s),
+            ))
+              Padding(
+                key: const ValueKey('banker-pass-none'),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  'ยังไม่มีคนอื่นที่ออกจากเกม ผู้เล่นที่ยังเล่นอยู่เป็นนายธนาคารไม่ได้',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ListTile(
+              key: const ValueKey('banker-pass-release'),
+              leading: const Icon(LucideIcons.userRoundX),
+              title: const Text('เลิกมีนายธนาคาร'),
+              subtitle: const Text('ให้ทุกคนกดรับ จ่าย และ GO กับธนาคารเอง'),
+              onTap: () => Navigator.pop(context, _releaseChoice),
+            ),
           ],
         ),
       ),
     );
     if (chosen == null || !context.mounted) return;
     try {
-      await ref.read(roomRepositoryProvider).passBanker(code, chosen);
+      final repo = ref.read(roomRepositoryProvider);
+      chosen == _releaseChoice
+          ? await repo.releaseBanker(code)
+          : await repo.passBanker(code, chosen);
+    } catch (e) {
+      if (context.mounted) _say(context, roomErrorText(e));
+    }
+  }
+
+  /// What the sheet answers when the banker gives the seat up instead of
+  /// handing it on (no seat is called this).
+  static const _releaseChoice = 'release';
+
+  /// A player who still plays cannot take the seat over, but can give it up
+  /// when the banker is gone: everybody presses for themselves again.
+  Future<void> _bankerRelease(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(roomRepositoryProvider).releaseBanker(code);
     } catch (e) {
       if (context.mounted) _say(context, roomErrorText(e));
     }
@@ -707,6 +741,7 @@ class _GameBody extends ConsumerWidget {
                   view: view,
                   onPass: () => _bankerPass(context, ref),
                   onTakeOver: () => _bankerTakeOver(context, ref),
+                  onRelease: () => _bankerRelease(context, ref),
                 ),
                 if ((view.iAmOwner || view.iAmBanker) && view.playersIn <= 1)
                   _LastOneBand(
@@ -1633,11 +1668,13 @@ class _BankerBar extends StatelessWidget {
     required this.view,
     required this.onPass,
     required this.onTakeOver,
+    required this.onRelease,
   });
 
   final RoomGameView view;
   final VoidCallback onPass;
   final VoidCallback onTakeOver;
+  final VoidCallback onRelease;
 
   @override
   Widget build(BuildContext context) {
@@ -1699,6 +1736,14 @@ class _BankerBar extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                 ),
                 child: const Text('ส่งต่อ'),
+              )
+            else if (view.seatActive)
+              // Somebody who still plays cannot be the banker; if the banker
+              // is gone they can have the seat given up instead.
+              TextButton(
+                key: const ValueKey('banker-release'),
+                onPressed: onRelease,
+                child: const Text('เลิกมีนายธนาคาร'),
               )
             else
               TextButton(
