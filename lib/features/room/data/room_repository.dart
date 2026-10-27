@@ -90,6 +90,18 @@ enum RoomError {
   unknown,
 }
 
+/// The layout of a room document this app knows (its `v`). A room written by a
+/// newer app has a higher one, and this app must not guess at it.
+const supportedRoomVersion = 1;
+
+/// Throws [RoomError.unsupportedVersion] when a room document with the version
+/// [v] is not one this app can read: a newer layout, or none at all.
+void checkRoomVersion(Object? v) {
+  if (v is! int || v > supportedRoomVersion) {
+    throw const RoomException(RoomError.unsupportedVersion);
+  }
+}
+
 /// The reason of a press as it is stored: trimmed, cut to the limit (without
 /// splitting an emoji), a GO's own words. A receive without one is refused; a
 /// payment without one has none.

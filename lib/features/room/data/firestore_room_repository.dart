@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:hold_my_dice/features/room/application/connection_status.dart';
 import 'package:hold_my_dice/features/room/application/room_code.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
@@ -79,7 +80,13 @@ class FirestoreRoomRepository implements RoomRepository {
 
   // ---- reading documents ------------------------------------------------
 
+  /// What the room document [d] says, or [RoomError.unsupportedVersion] when a
+  /// newer app wrote it. Every way into a room reads it through here.
+  @visibleForTesting
+  static RoomMeta metaOf(String code, Map<String, dynamic> d) => _meta(code, d);
+
   static RoomMeta _meta(String code, Map<String, dynamic> d) {
+    checkRoomVersion(d['v']);
     final s = d['settings'] as Map<String, dynamic>;
     return RoomMeta(
       code: code,

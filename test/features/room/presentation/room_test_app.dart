@@ -48,6 +48,7 @@ Future<void> openApp(
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     ProviderScope(
+      retry: roomRetry,
       overrides: [
         authServiceProvider.overrideWithValue(FakeAuthService(uid)),
         roomRepositoryProvider.overrideWithValue(repo ?? repoOn(store, uid)),

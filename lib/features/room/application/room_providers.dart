@@ -6,6 +6,20 @@ import 'package:hold_my_dice/features/room/domain/room_entry.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
+/// When a provider that failed is tried again by itself. Riverpod's own rule
+/// tries ten times, and each try of a room read costs quota, so a room that is
+/// not there, a newer layout or a refusal is not tried again: the page says so
+/// and offers its own button. Only a lost connection is waited out. Other
+/// errors keep Riverpod's rule.
+Duration? roomRetry(int retryCount, Object error) {
+  if (error is RoomException) {
+    return error.error == RoomError.offline
+        ? ProviderContainer.defaultRetry(retryCount, error)
+        : null;
+  }
+  return ProviderContainer.defaultRetry(retryCount, error);
+}
+
 /// Who this device is. Tests get a made-up person; `productionOverrides`
 /// swaps in Firebase Auth once Firebase is set up.
 final authServiceProvider = Provider<AuthService>(

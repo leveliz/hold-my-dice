@@ -41,6 +41,9 @@ class RoomScreen extends ConsumerWidget {
     Widget failed(Object error) =>
         error is RoomException && error.error == RoomError.roomNotFound
         ? const _Message(_gone, home: true)
+        // Trying again cannot help: only a newer app can read this room.
+        : error is RoomException && error.error == RoomError.unsupportedVersion
+        ? _Message(roomErrorText(error), home: true)
         : _Message(
             roomErrorText(error),
             retry: () {
