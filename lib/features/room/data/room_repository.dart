@@ -194,6 +194,36 @@ class UnsureException extends RoomException {
 bool entryIsMine(Map<String, Object?>? data, String cid, String uid) =>
     data != null && data['cid'] == cid && data['by'] == uid;
 
+/// Why the room refused a press that pays [request] (null: it is not there),
+/// told from the request as it stands now, or null when the press lost a race
+/// and should be built again: the request is open and fresh and the game moved
+/// on since the press was made. A request that ran out, was taken back or was
+/// paid is told apart in a busy game as well as in a quiet one, so the person
+/// is not told "somebody pressed at the same time" for what is a request that
+/// is gone.
+RoomError? requestRefusal(
+  RoomRequest? request, {
+  required bool stateMoved,
+  required DateTime now,
+}) {
+  if (request == null) return RoomError.requestGone;
+  switch (request.status) {
+    case RequestStatus.paid:
+      return RoomError.alreadyPaid;
+    case RequestStatus.cancelled:
+      return RoomError.requestGone;
+    case RequestStatus.open:
+      break;
+  }
+  final at = request.createdAt;
+  if (at != null && now.difference(at) >= requestLifetime) {
+    return RoomError.requestGone;
+  }
+  // Open and fresh: with the game where it was, something else is the
+  // reason; with the game moved on, it was a race.
+  return stateMoved ? null : RoomError.requestGone;
+}
+
 /// The entry a [draft] becomes when pressed by [uid] for [seat], as the next
 /// line [seq]. [cash] is what the seat holds now (the facts of a bankruptcy).
 RoomEntry entryOfDraft(

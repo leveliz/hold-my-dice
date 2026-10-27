@@ -772,17 +772,19 @@ class FirestoreRoomRepository implements RoomRepository {
         if (await _alreadyWritten(code, draft.cid)) return;
         final now = await _guard(() => _state(code).get(), RoomError.unknown);
         final moved = (now.data()?['seq'] as int?) != triedSeq;
-        if (!moved && requestId != null) {
-          // Refused with the state where it was: the request is the reason
-          // (closed, ran out, paid by somebody in the meantime).
+        if (requestId != null) {
+          // The request may be the reason (closed, ran out, paid by somebody
+          // in the meantime), also in a game that moves on all the time.
           final raw = (await _guard(
             () => _request(code, requestId).get(),
             RoomError.unknown,
           )).data();
-          final paid = raw != null && raw['status'] == 'paid';
-          throw RoomException(
-            paid ? RoomError.alreadyPaid : RoomError.requestGone,
+          final refusal = requestRefusal(
+            raw == null ? null : _requestOf(requestId, raw),
+            stateMoved: moved,
+            now: DateTime.now(),
           );
+          if (refusal != null) throw RoomException(refusal);
         }
         if (!moved || attempt >= _pressTries) {
           throw RoomException(

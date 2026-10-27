@@ -1246,6 +1246,11 @@ class _RequestCard extends ConsumerStatefulWidget {
 class _RequestCardState extends ConsumerState<_RequestCard> {
   static const _guard = Duration(milliseconds: 600);
   var _armed = false;
+
+  /// A payment went through. The card goes when the news comes that the
+  /// request is paid; a tap before that would pay a second time and be told
+  /// "already paid" for it.
+  var _paid = false;
   Timer? _tick;
   Timer? _arm;
 
@@ -1301,7 +1306,10 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
             )
           : await press.payRequest(id, mortgage: choice.mortgage);
     }
-    if (error == null) return;
+    if (error == null) {
+      if (mounted) setState(() => _paid = true);
+      return;
+    }
     _dropIfGone(requests, id, error);
     say(roomErrorText(RoomException(error)));
   }
@@ -1335,7 +1343,10 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     final mine = view.myBalance ?? 0;
     final enough = mine >= r.amount;
     final canPay =
-        _armed && left > Duration.zero && view.block == PressBlock.none;
+        _armed &&
+        !_paid &&
+        left > Duration.zero &&
+        view.block == PressBlock.none;
     return Padding(
       padding: const EdgeInsets.only(top: 10, bottom: 6),
       child: Container(

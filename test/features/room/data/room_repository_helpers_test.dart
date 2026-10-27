@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/ledger.dart';
+import 'package:hold_my_dice/features/room/domain/room_request.dart';
 
 Matcher _throws(RoomError error) =>
     throwsA(isA<RoomException>().having((e) => e.error, 'error', error));
@@ -91,6 +92,102 @@ void main() {
         RoomError.invalidParties,
       );
       expect(roomErrorOf(LedgerRejection.notUndoable), RoomError.tooLate);
+    });
+  });
+
+  group('requestRefusal: why a payment of a request was refused', () {
+    final now = DateTime.utc(2026, 10, 27, 12);
+    RoomRequest request({
+      RequestStatus status = RequestStatus.open,
+      Duration age = const Duration(seconds: 30),
+      bool noTime = false,
+    }) => RoomRequest(
+      id: 'p2_p1',
+      fromSeat: 'p1',
+      toSeat: 'p2',
+      amount: 300,
+      status: status,
+      createdAt: noTime ? null : now.subtract(age),
+    );
+
+    test('a request that is not there is gone, busy game or not', () {
+      for (final moved in [true, false]) {
+        expect(
+          requestRefusal(null, stateMoved: moved, now: now),
+          RoomError.requestGone,
+        );
+      }
+    });
+
+    test('a request that was taken back is gone', () {
+      for (final moved in [true, false]) {
+        expect(
+          requestRefusal(
+            request(status: RequestStatus.cancelled),
+            stateMoved: moved,
+            now: now,
+          ),
+          RoomError.requestGone,
+        );
+      }
+    });
+
+    test('a request that was paid is already paid', () {
+      for (final moved in [true, false]) {
+        expect(
+          requestRefusal(
+            request(status: RequestStatus.paid),
+            stateMoved: moved,
+            now: now,
+          ),
+          RoomError.alreadyPaid,
+        );
+      }
+    });
+
+    test('a request that ran out is gone, also when the game moved on', () {
+      for (final moved in [true, false]) {
+        expect(
+          requestRefusal(
+            request(age: requestLifetime),
+            stateMoved: moved,
+            now: now,
+          ),
+          RoomError.requestGone,
+          reason: 'moved: $moved',
+        );
+        expect(
+          requestRefusal(
+            request(age: const Duration(minutes: 5)),
+            stateMoved: moved,
+            now: now,
+          ),
+          RoomError.requestGone,
+        );
+      }
+    });
+
+    test('one second before it runs out it still stands', () {
+      final almost = request(age: requestLifetime - const Duration(seconds: 1));
+      expect(requestRefusal(almost, stateMoved: true, now: now), isNull);
+    });
+
+    test('an open request in a game that moved on is a race to try again', () {
+      expect(requestRefusal(request(), stateMoved: true, now: now), isNull);
+    });
+
+    test('an open request in a game that did not move is the reason', () {
+      expect(
+        requestRefusal(request(), stateMoved: false, now: now),
+        RoomError.requestGone,
+      );
+    });
+
+    test('a request the server has not stamped yet counts as fresh', () {
+      expect(
+        requestRefusal(request(noTime: true), stateMoved: true, now: now),
+        isNull,
+      );
     });
   });
 }

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hold_my_dice/features/room/application/incoming_events.dart';
+import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/application/undo_offer.dart';
@@ -63,6 +66,32 @@ class _Pending extends FakeRoomRepository {
             ),
         ],
       );
+}
+
+/// Holds the news of the entries back until [release]: a slow connection.
+class _Late extends FakeRoomRepository {
+  _Late(super.store, super.auth);
+
+  var _gate = Future<void>.value();
+  Completer<void>? _held;
+
+  void hold() {
+    final held = Completer<void>();
+    _held = held;
+    _gate = held.future;
+  }
+
+  void release() {
+    _held?.complete();
+    _held = null;
+  }
+
+  @override
+  Stream<List<RoomEntry>> watchEntries(String code) =>
+      super.watchEntries(code).asyncMap((all) async {
+        await _gate;
+        return all;
+      });
 }
 
 Future<_Game> _game() async {
@@ -265,5 +294,105 @@ void main() {
       await _settle(c, g.code);
       expect(c.read(incomingEventsProvider(g.code)), isNull);
     });
+  });
+
+  group('how long the offer lasts when the news comes late', () {
+    // The room takes a press back until 6.5 seconds after its time (the room's
+    // clock); the offer is 4 seconds from when the news arrives, less when it
+    // arrives late, and not at all when too little is left to be of use.
+    late DateTime clock;
+    late FakeRoomStore store;
+    late String code;
+    late _Late repo;
+    late ProviderContainer c;
+
+    setUp(() async {
+      clock = DateTime.utc(2026, 10, 27, 12);
+      store = FakeRoomStore(now: () => clock);
+      final owner = FakeRoomRepository(store, FakeAuthService('owner'));
+      final meta = await owner.createRoom(
+        settings: _settings,
+        name: 'ต้น',
+        color: 0xFF3D5AFE,
+      );
+      await FakeRoomRepository(
+        store,
+        FakeAuthService('u2'),
+      ).joinAsPlayer(code: meta.code, name: 'แพร', color: 0xFFE11D48);
+      await owner.startGame(meta.code);
+      code = meta.code;
+      repo = _Late(store, FakeAuthService('owner'));
+      c = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWithValue(FakeAuthService('owner')),
+          roomRepositoryProvider.overrideWithValue(repo),
+          roomClockProvider.overrideWithValue(() => clock),
+        ],
+      );
+      addTearDown(c.dispose);
+      c.listen(roomGameProvider(code), (_, _) {});
+      c.listen(undoOfferProvider(code), (_, _) {});
+      await _settle(c, code);
+    });
+
+    /// Presses GO now, and lets the news arrive [late] afterwards.
+    Future<UndoOffer?> pressAndHear(Duration late) async {
+      repo.hold();
+      await FakeRoomRepository(
+        store,
+        FakeAuthService('owner'),
+      ).submitEntry(code, EntryDraft.passGo());
+      clock = clock.add(late);
+      repo.release();
+      await _settle(c, code);
+      return c.read(undoOfferProvider(code));
+    }
+
+    test('news at once: the full 4 seconds', () async {
+      final offer = await pressAndHear(Duration.zero);
+      expect(offer?.window, const Duration(seconds: 4));
+    });
+
+    test(
+      'news 1 second late: still the 4 seconds (4.5 are left of the 6.5)',
+      () async {
+        final offer = await pressAndHear(const Duration(seconds: 1));
+        expect(offer?.window, const Duration(seconds: 4));
+      },
+    );
+
+    test('news 3 seconds late: only what is left of the room time', () async {
+      final offer = await pressAndHear(const Duration(seconds: 3));
+      expect(offer?.window, const Duration(milliseconds: 2500));
+    });
+
+    test(
+      'news 4.5 seconds late: one second is the least that is offered',
+      () async {
+        final offer = await pressAndHear(const Duration(milliseconds: 4500));
+        expect(offer?.window, const Duration(seconds: 1));
+      },
+    );
+
+    test(
+      'news 4.6 seconds late: too little is left, nothing is offered',
+      () async {
+        final offer = await pressAndHear(const Duration(milliseconds: 4600));
+        expect(offer, isNull);
+      },
+    );
+
+    test('news after the room time has gone: nothing is offered', () async {
+      final offer = await pressAndHear(const Duration(seconds: 10));
+      expect(offer, isNull);
+    });
+
+    test(
+      'a clock far from the room\'s is not believed: the 4 seconds',
+      () async {
+        final offer = await pressAndHear(const Duration(minutes: 5));
+        expect(offer?.window, const Duration(seconds: 4));
+      },
+    );
   });
 }
