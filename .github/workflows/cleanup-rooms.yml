@@ -1,0 +1,80 @@
+name: Clean up rooms
+
+# Takes down the rooms of the prod Firebase project that nobody needs any more
+# (tool/cleanup/select.mjs says which: a game that ended over 6 hours ago, a
+# room over 24 hours old that nobody is in, what is left of a deleted room).
+#
+# Every night at 03:00 in Bangkok (20:00 UTC) it only REPORTS, until the
+# repository variable CLEANUP_DELETE is set to "true". Run by hand (Actions >
+# Clean up rooms > Run workflow, from main) to choose: dry_run on reports, off
+# deletes up to max_delete rooms. The report is in the summary of the run.
+#
+# The key of the service account is the secret FIREBASE_SERVICE_ACCOUNT of the
+# environment prod-cleanup, which only main can use.
+
+on:
+  schedule:
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only report, delete nothing
+        type: boolean
+        default: true
+      max_delete:
+        description: Most rooms to delete in this run
+        type: string
+        default: '20'
+
+concurrency:
+  group: cleanup-rooms
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: prod-cleanup
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        working-directory: tool/cleanup
+        run: npm ci
+
+      # The rules of choosing a room are tested before they are trusted.
+      - name: Test the rules of choosing
+        working-directory: tool/cleanup
+        run: node --test select.test.mjs
+
+      - name: Decide dry run or real run
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_MAX: ${{ inputs.max_delete }}
+          DELETE_VARIABLE: ${{ vars.CLEANUP_DELETE }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "DRY_RUN=$INPUT_DRY_RUN" >> "$GITHUB_ENV"
+            echo "MAX_DELETE=${INPUT_MAX:-20}" >> "$GITHUB_ENV"
+          elif [ "$DELETE_VARIABLE" = "true" ]; then
+            echo "DRY_RUN=false" >> "$GITHUB_ENV"
+            echo "MAX_DELETE=20" >> "$GITHUB_ENV"
+          else
+            echo "DRY_RUN=true" >> "$GITHUB_ENV"
+            echo "MAX_DELETE=20" >> "$GITHUB_ENV"
+          fi
+
+      - name: Clean up
+        working-directory: tool/cleanup
+        env:
+          PROJECT_ID: hold-my-dice
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node cleanup.mjs

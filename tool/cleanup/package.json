@@ -1,0 +1,11 @@
+{
+  "name": "hold-my-dice-cleanup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "firebase-admin": "13.6.0"
+  }
+}

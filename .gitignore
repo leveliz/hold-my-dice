@@ -57,3 +57,4 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 tool/e2e/node_modules
+tool/cleanup/node_modules
