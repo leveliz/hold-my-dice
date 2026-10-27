@@ -140,8 +140,8 @@ class _GameScreenState extends ConsumerState<GameScreen>
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('leave-dialog'),
-        title: const Text('ออกจากเกมนี้?'),
-        content: const Text('เกมที่กำลังเล่นอยู่จะหายไป'),
+        title: const Text('ออกจากหน้าเกม?'),
+        content: const Text('เกมจะถูกเก็บไว้ในเมนูเกมค้าง กลับมาเล่นต่อได้'),
         actions: [
           TextButton.icon(
             key: const ValueKey('leave-stay'),
@@ -153,13 +153,13 @@ class _GameScreenState extends ConsumerState<GameScreen>
             key: const ValueKey('leave-confirm'),
             onPressed: () => Navigator.pop(context, true),
             icon: const Icon(LucideIcons.logOut),
-            label: const Text('ออกจากเกม'),
+            label: const Text('ออกไปก่อน'),
           ),
         ],
       ),
     );
     if (leave == true && mounted) {
-      ref.read(bankProvider.notifier).end();
+      ref.read(bankProvider.notifier).leave();
       context.go('/');
     }
   }

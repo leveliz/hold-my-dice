@@ -571,8 +571,8 @@ void main() {
     });
   });
 
-  group('leaving a game removes its backup', () {
-    testWidgets('confirming the exit dialog', (tester) async {
+  group('leaving a game', () {
+    testWidgets('confirming the exit dialog keeps its backup', (tester) async {
       final storage = MemoryBankStorage();
       final c = containerWith(storage: storage);
       c
@@ -583,7 +583,7 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       await tapKey(tester, 'leave-confirm');
-      expect(storage.loadGame(), isNull);
+      expect(storage.loadGame(), isNotNull);
     });
 
     testWidgets('staying keeps the backup', (tester) async {

@@ -9,6 +9,7 @@ import 'package:hold_my_dice/core/widgets/stamp.dart';
 import 'package:hold_my_dice/features/hub/helpers.dart';
 import 'package:hold_my_dice/features/hub/about_tab.dart';
 import 'package:hold_my_dice/features/hub/hub_nav_bar.dart';
+import 'package:hold_my_dice/core/resume_offer.dart';
 import 'package:hold_my_dice/features/hub/saved_games.dart';
 import 'package:hold_my_dice/features/hub/saved_games_tab.dart';
 import 'package:hold_my_dice/features/hub/start_sheet.dart';
@@ -41,6 +42,8 @@ class _HubScreenState extends ConsumerState<HubScreen> {
   /// Each helper with one is asked about in turn; resuming one opens it and
   /// leaves any other backup for the next launch.
   Future<void> _offerResume() async {
+    if (ref.read(resumeOfferedProvider)) return;
+    ref.read(resumeOfferedProvider.notifier).mark();
     final games = await loadSavedGames(ref.read);
     for (final game in games) {
       if (!mounted) return;

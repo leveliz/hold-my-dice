@@ -8,6 +8,7 @@ import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/thousands_formatter.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_setup.dart';
+import 'package:hold_my_dice/core/widgets/replace_saved_game_dialog.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:hold_my_dice/features/bank/application/bank_session.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
@@ -50,7 +51,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   bool get _canStart => _players.hasEnough && _startValue > 0 && _goValue > 0;
 
-  void _start() {
+  Future<void> _start() async {
+    final saved = ref.read(bankStorageProvider).loadGame();
+    if (saved != null && !saved.isOver) {
+      if (!await confirmReplaceSavedGame(context, 'Pocket Banker')) return;
+      if (!mounted) return;
+    }
     unawaited(
       ref
           .read(bankStorageProvider)

@@ -597,7 +597,7 @@ void main() {
       expect(find.textContaining('ผู้เล่น 2'), findsWidgets);
     });
 
-    testWidgets('back asks before leaving, and leaving drops the game', (
+    testWidgets('back asks before leaving, and leaving keeps the backup', (
       tester,
     ) async {
       final storage = MemoryScoreStorage();
@@ -614,7 +614,7 @@ void main() {
       await tapKey(tester, 'leave-confirm');
       expect(find.text('Hold My Dice'), findsOneWidget);
       expect(c.read(scoreProvider), isNull);
-      expect(storage.loadGame(), isNull);
+      expect(storage.loadGame(), isNotNull);
     });
 
     testWidgets('the screen stays on only while the board is open', (

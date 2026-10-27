@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hold_my_dice/core/resume_offer.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
 import 'package:hold_my_dice/features/bank/application/entry_labels.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
@@ -85,6 +86,13 @@ class BankNotifier extends Notifier<BankSession?> {
 
   void declareBankrupt(String id, {required int owed, String? creditorId}) {
     _commit(_game.declareBankrupt(id, owed: owed, creditorId: creditorId));
+  }
+
+  /// Leaves the game screen but keeps the backup, so the game can be carried
+  /// on from the saved games.
+  void leave() {
+    ref.read(resumeOfferedProvider.notifier).mark();
+    state = null;
   }
 
   /// The game is over (or abandoned): drop it and its backup.

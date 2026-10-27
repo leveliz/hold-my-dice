@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hold_my_dice/core/resume_offer.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
 import 'package:hold_my_dice/features/score/data/score_storage.dart';
 import 'package:hold_my_dice/features/score/domain/score_game.dart';
@@ -48,6 +49,13 @@ class ScoreNotifier extends Notifier<ScoreGame?> {
   void endNow() {
     state = _game.endNow();
     _changed();
+  }
+
+  /// Leaves the game screen but keeps the backup, so the game can be carried
+  /// on from the saved games.
+  void leave() {
+    ref.read(resumeOfferedProvider.notifier).mark();
+    state = null;
   }
 
   /// The game is over (or abandoned): drop it and its backup.

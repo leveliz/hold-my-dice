@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hold_my_dice/core/resume_offer.dart';
 import 'package:hold_my_dice/core/platform_services.dart';
 import 'package:hold_my_dice/features/point/data/point_storage.dart';
 import 'package:hold_my_dice/features/point/domain/point_game.dart';
@@ -74,6 +75,13 @@ class PointNotifier extends Notifier<PointGame?> {
   void endGame() {
     state = _game.endGame();
     _backUp();
+  }
+
+  /// Leaves the game screen but keeps the backup, so the game can be carried
+  /// on from the saved games.
+  void leave() {
+    ref.read(resumeOfferedProvider.notifier).mark();
+    state = null;
   }
 
   /// The game is over (or abandoned): drop it and its backup.

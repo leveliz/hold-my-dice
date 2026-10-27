@@ -8,6 +8,7 @@ import 'package:hold_my_dice/core/palette.dart';
 import 'package:hold_my_dice/core/theme.dart';
 import 'package:hold_my_dice/core/thousands_formatter.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
+import 'package:hold_my_dice/core/widgets/replace_saved_game_dialog.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:hold_my_dice/features/point/application/point_session.dart';
 import 'package:hold_my_dice/features/point/data/point_storage.dart';
@@ -66,7 +67,12 @@ class _PointSetupScreenState extends ConsumerState<PointSetupScreen> {
   PointRules get _rules =>
       PointRules(target: _targetValue, deuce: _deuceOn, cap: _capValue);
 
-  void _start() {
+  Future<void> _start() async {
+    final saved = ref.read(pointStorageProvider).loadGame();
+    if (saved != null && !saved.isOver) {
+      if (!await confirmReplaceSavedGame(context, 'Point Blank')) return;
+      if (!mounted) return;
+    }
     final rules = _rules;
     final red = _redName.text.trim();
     final blue = _blueName.text.trim();
