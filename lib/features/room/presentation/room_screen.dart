@@ -9,6 +9,7 @@ import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:hold_my_dice/features/room/application/last_room.dart';
 import 'package:hold_my_dice/features/room/application/presence_beater.dart';
+import 'package:hold_my_dice/features/room/application/room_password.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
@@ -217,6 +218,15 @@ class _Lobby extends ConsumerStatefulWidget {
 class _LobbyState extends ConsumerState<_Lobby> {
   var _busy = false;
 
+  /// Whether the room code and the password are shown as dots (for a screen
+  /// that others can see).
+  var _hidden = false;
+
+  Future<void> _copy(String what, String done) async {
+    await Clipboard.setData(ClipboardData(text: what));
+    if (mounted) _say(context, done);
+  }
+
   Future<void> _claimOwnership() async {
     try {
       await ref.read(roomRepositoryProvider).claimOwnership(widget.meta.code);
@@ -268,6 +278,7 @@ class _LobbyState extends ConsumerState<_Lobby> {
     setState(() => _busy = true);
     try {
       await ref.read(roomRepositoryProvider).deleteRoom(widget.meta.code);
+      ref.read(roomPasswordStorageProvider).forget(widget.meta.code);
       if (mounted) context.go('/');
     } catch (e) {
       if (mounted) {
@@ -292,6 +303,10 @@ class _LobbyState extends ConsumerState<_Lobby> {
     final owner = members.where((m) => m.uid == meta.ownerUid).firstOrNull;
     final isOwner = widget.me.uid == meta.ownerUid;
     final link = roomShareLink(meta.code);
+    // Only the device that made the room can know the password.
+    final password = isOwner && meta.hasPassword
+        ? ref.watch(roomPasswordStorageProvider).read(meta.code)
+        : null;
     final line = paper
         ? PaperStyle.dash
         : theme.colorScheme.onSurface.withValues(alpha: 0.25);
@@ -324,8 +339,87 @@ class _LobbyState extends ConsumerState<_Lobby> {
                           const SizedBox(height: 8),
                           RoomCodeTiles(
                             code: meta.code,
+                            hidden: _hidden,
                             onCopied: () => _say(context, 'คัดลอกรหัสแล้ว'),
                           ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: [
+                              OutlinedButton.icon(
+                                key: const ValueKey('copy-code'),
+                                onPressed: () =>
+                                    _copy(meta.code, 'คัดลอกรหัสแล้ว'),
+                                icon: const Icon(LucideIcons.copy, size: 18),
+                                label: const Text('คัดลอกรหัส'),
+                              ),
+                              TextButton.icon(
+                                key: const ValueKey('toggle-secret'),
+                                onPressed: () =>
+                                    setState(() => _hidden = !_hidden),
+                                icon: Icon(
+                                  _hidden
+                                      ? LucideIcons.eye
+                                      : LucideIcons.eyeOff,
+                                  size: 18,
+                                ),
+                                label: Text(_hidden ? 'แสดงรหัส' : 'ซ่อนรหัส'),
+                              ),
+                            ],
+                          ),
+                          if (isOwner && meta.hasPassword) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              key: const ValueKey('room-password-row'),
+                              children: [
+                                const Icon(LucideIcons.lock, size: 16),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: password == null
+                                      ? Text(
+                                          'ไม่ทราบรหัสผ่านบนเครื่องนี้',
+                                          style: text.bodyMedium,
+                                        )
+                                      : Semantics(
+                                          container: true,
+                                          child: Text.rich(
+                                            key: const ValueKey(
+                                              'room-password-text',
+                                            ),
+                                            TextSpan(
+                                              children: [
+                                                TextSpan(
+                                                  text: 'รหัสผ่านห้อง  ',
+                                                  style: text.bodyMedium,
+                                                ),
+                                                TextSpan(
+                                                  text: _hidden
+                                                      ? '••••••'
+                                                      : password,
+                                                  style: serifStyle(
+                                                    text.titleMedium,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                                if (password != null)
+                                  IconButton(
+                                    key: const ValueKey('copy-password'),
+                                    tooltip: 'คัดลอกรหัสผ่าน',
+                                    onPressed: () =>
+                                        _copy(password, 'คัดลอกรหัสผ่านแล้ว'),
+                                    icon: const Icon(
+                                      LucideIcons.copy,
+                                      size: 18,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),

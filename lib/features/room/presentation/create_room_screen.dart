@@ -7,6 +7,7 @@ import 'package:hold_my_dice/core/thousands_formatter.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
+import 'package:hold_my_dice/features/room/application/room_password.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:hold_my_dice/features/room/presentation/room_error_text.dart';
@@ -83,6 +84,9 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
             name: _name.text.trim(),
             color: _color.toARGB32(),
           );
+      if (_usePassword) {
+        ref.read(roomPasswordStorageProvider).save(meta.code, _password.text);
+      }
       if (mounted) context.pushReplacement('/room/${meta.code}');
     } catch (e) {
       if (!mounted) return;

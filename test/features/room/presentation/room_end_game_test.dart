@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/features/room/application/room_clock.dart';
+import 'package:hold_my_dice/features/room/application/room_password.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
@@ -432,7 +433,17 @@ void main() {
       ).joinAsPlayer(code: locked, name: 'แพร', color: 1, password: 'secret');
       await repoOn(store, _owner).startGame(locked);
       await repoOn(store, _owner).endGame(locked);
-      await open(tester, _owner, at: locked);
+      final passwords = MemoryRoomPasswordStorage();
+      await openApp(
+        tester,
+        store,
+        '/room/$locked',
+        uid: _owner,
+        overrides: [
+          roomClockProvider.overrideWithValue(() => clock),
+          roomPasswordStorageProvider.overrideWithValue(passwords),
+        ],
+      );
       await tester.tap(key('summary-again'));
       await tester.pumpAndSettle();
       expect(key('again-dialog'), findsOneWidget);
@@ -447,6 +458,9 @@ void main() {
       final next = (await metaOf(tester, locked))?.nextCode;
       expect((await metaOf(tester, next!))?.hasPassword, isTrue);
       expect(key('ticket'), findsOneWidget);
+      // The owner can read the password of the new room in its waiting room.
+      expect(passwords.read(next), 'newone');
+      expect(find.textContaining('newone'), findsOneWidget);
       await leave(tester);
     });
 

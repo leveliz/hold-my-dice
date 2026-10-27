@@ -10,6 +10,7 @@ import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_game.dart';
+import 'package:hold_my_dice/features/room/application/room_password.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
@@ -126,6 +127,9 @@ class _SummaryState extends ConsumerState<_Summary> {
       final next = await ref
           .read(roomRepositoryProvider)
           .playAgain(code, password: password);
+      if (password != null) {
+        ref.read(roomPasswordStorageProvider).save(next.code, password);
+      }
       if (mounted) context.go('/room/${next.code}');
     });
   }

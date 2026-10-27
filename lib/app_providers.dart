@@ -9,6 +9,7 @@ import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/features/bank/data/bank_storage.dart';
 import 'package:hold_my_dice/features/point/data/point_storage.dart';
 import 'package:hold_my_dice/features/room/application/last_room.dart';
+import 'package:hold_my_dice/features/room/application/room_password.dart';
 import 'package:hold_my_dice/features/room/application/room_providers.dart';
 import 'package:hold_my_dice/features/room/data/firestore_room_repository.dart';
 import 'package:hold_my_dice/features/score/data/score_storage.dart';
@@ -33,6 +34,9 @@ List<Override> productionOverrides(
   ],
   lastRoomStorageProvider.overrideWithValue(
     LastRoomStorage(PrefsJsonStore(prefs)),
+  ),
+  roomPasswordStorageProvider.overrideWithValue(
+    RoomPasswordStorage(PrefsJsonStore(prefs)),
   ),
   appSettingsStorageProvider.overrideWithValue(PrefsAppSettingsStorage(prefs)),
   tourStorageProvider.overrideWithValue(PrefsTourStorage(prefs)),

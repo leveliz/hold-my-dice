@@ -103,6 +103,12 @@ try {
   await secretOwner.page.waitForURL(/\/room\/[A-Z0-9]{6}$/, { timeout: 30000 });
   const secretCode = secretOwner.page.url().split('/').pop();
   check(await seen(secretOwner, 'ห้องรอ'), `an owner can open a room with a password (${secretCode})`);
+  check(await seen(secretOwner, 'abcd', 5000), 'the owner reads the password they set in the waiting room');
+  await button(secretOwner, 'ซ่อนรหัส').click();
+  check(await seen(secretOwner, '••••••', 5000), 'hiding shows the password as dots');
+  check(!(await seen(secretOwner, 'abcd', 2000)), 'and the password is not on the screen any more');
+  await button(secretOwner, 'แสดงรหัส').click();
+  check(await seen(secretOwner, 'abcd', 5000), 'showing brings it back');
   const visitor = await person('visitor');
   await open(visitor, `/room/${secretCode}`);
   check(await seen(visitor, 'มีรหัสผ่าน'), 'the join form says the room has a password');

@@ -55,12 +55,19 @@ class ColorSwatches extends StatelessWidget {
   }
 }
 
-/// The room code as six big letters on tiles; tap to copy the code.
+/// The room code as six big letters on tiles; tap to copy the code. With
+/// [hidden] the tiles show dots (the code is still what a tap copies).
 class RoomCodeTiles extends StatelessWidget {
-  const RoomCodeTiles({super.key, required this.code, this.onCopied});
+  const RoomCodeTiles({
+    super.key,
+    required this.code,
+    this.onCopied,
+    this.hidden = false,
+  });
 
   final String code;
   final VoidCallback? onCopied;
+  final bool hidden;
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +78,7 @@ class RoomCodeTiles extends StatelessWidget {
         : theme.colorScheme.onSurface.withValues(alpha: 0.3);
     return Semantics(
       button: true,
-      label: 'คัดลอกรหัสห้อง $code',
+      label: hidden ? 'คัดลอกรหัสห้อง' : 'คัดลอกรหัสห้อง $code',
       child: GestureDetector(
         key: const ValueKey('code-tiles'),
         behavior: HitTestBehavior.opaque,
@@ -93,7 +100,7 @@ class RoomCodeTiles extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    letter,
+                    hidden ? '•' : letter,
                     style: serifStyle(theme.textTheme.headlineSmall),
                   ),
                 ),
