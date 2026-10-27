@@ -190,4 +190,88 @@ void main() {
       );
     });
   });
+
+  group('endGameVerdict: may this person end the game now', () {
+    final now = DateTime.utc(2026, 10, 27, 12);
+    DateTime ago(Duration d) => now.subtract(d);
+    EndGameVerdict verdict({
+      bool owner = false,
+      bool banker = false,
+      bool seated = true,
+      bool hasBanker = false,
+      Duration? ownerAgo,
+      Duration? bankerAgo,
+    }) => endGameVerdict(
+      iAmOwner: owner,
+      iAmBanker: banker,
+      iAmSeated: seated,
+      hasBanker: hasBanker,
+      ownerSeen: ownerAgo == null ? null : ago(ownerAgo),
+      bankerSeen: bankerAgo == null ? null : ago(bankerAgo),
+      now: now,
+    );
+    const fresh = Duration(seconds: 30);
+    const stale = Duration(minutes: 11);
+
+    test('the owner and the banker may at any time', () {
+      expect(verdict(owner: true, ownerAgo: fresh).allowed, isTrue);
+      expect(
+        verdict(banker: true, hasBanker: true, ownerAgo: fresh).allowed,
+        isTrue,
+      );
+    });
+
+    test(
+      'a player may when the owner has been gone and there is no banker',
+      () {
+        expect(verdict(ownerAgo: stale).allowed, isTrue);
+        expect(verdict().allowed, isTrue, reason: 'never seen counts as gone');
+      },
+    );
+
+    test('a player may when both have been gone', () {
+      expect(
+        verdict(hasBanker: true, ownerAgo: stale, bankerAgo: stale).allowed,
+        isTrue,
+      );
+    });
+
+    test('a player may not while the owner is about, and is told who is', () {
+      final v = verdict(ownerAgo: fresh);
+      expect(v.allowed, isFalse);
+      expect(v.ownerHere, isTrue);
+      expect(v.bankerHere, isFalse);
+    });
+
+    test('with a banker, the banker being about is enough to say no', () {
+      final v = verdict(hasBanker: true, ownerAgo: stale, bankerAgo: fresh);
+      expect(v.allowed, isFalse);
+      expect(v.ownerHere, isFalse);
+      expect(v.bankerHere, isTrue);
+    });
+
+    test('both about: both are named', () {
+      final v = verdict(hasBanker: true, ownerAgo: fresh, bankerAgo: fresh);
+      expect(v.allowed, isFalse);
+      expect([v.ownerHere, v.bankerHere], [true, true]);
+    });
+
+    test('a banker who is not there is not asked about', () {
+      // No banker in the game: a stale reading of a seat nobody holds is
+      // not a reason.
+      expect(verdict(ownerAgo: stale, bankerAgo: fresh).allowed, isTrue);
+    });
+
+    test('ten minutes is the line', () {
+      expect(
+        verdict(ownerAgo: const Duration(minutes: 9, seconds: 59)).allowed,
+        isFalse,
+      );
+      expect(verdict(ownerAgo: const Duration(minutes: 10)).allowed, isTrue);
+    });
+
+    test('somebody without a seat may not, whoever is about', () {
+      expect(verdict(seated: false, ownerAgo: stale).allowed, isFalse);
+    });
+  });
 }

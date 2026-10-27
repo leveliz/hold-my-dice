@@ -397,6 +397,29 @@ class FakeRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<EndGameVerdict> checkEndGame(String code) async {
+    final room = await _asMember(code, endedToo: true);
+    final uid = await _auth.ensureSignedIn();
+    final me = room.memberByUid[uid]!;
+    final bankerSeat = room.state.value?.bankerSeat;
+    final bankerUid = bankerSeat == null
+        ? null
+        : room.memberByUid.values
+              .where((m) => m.seat == bankerSeat)
+              .map((m) => m.uid)
+              .firstOrNull;
+    return endGameVerdict(
+      iAmOwner: room.ownerUid == uid,
+      iAmBanker: bankerSeat != null && me.seat == bankerSeat,
+      iAmSeated: me.role == MemberRole.player && me.seat != null,
+      hasBanker: bankerSeat != null,
+      ownerSeen: room.presence[room.ownerUid],
+      bankerSeen: bankerUid == null ? null : room.presence[bankerUid],
+      now: _store.now(),
+    );
+  }
+
+  @override
   Future<void> endGame(String code) async {
     final room = await _asMember(code, endedToo: true);
     if (room.status == RoomStatus.ended) return;

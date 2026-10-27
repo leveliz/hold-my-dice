@@ -180,9 +180,54 @@ class _RoomGameScreenState extends ConsumerState<RoomGameScreen>
   }
 }
 
+/// Tells a player who may not end the game yet who is in the way, in place of
+/// asking them to confirm what the room would refuse.
+Future<void> _tellNotYet(
+  BuildContext context,
+  RoomGameView view,
+  EndGameVerdict verdict,
+) {
+  String? seatName(String? uid) {
+    for (final e in view.seatUids.entries) {
+      if (e.value == uid) return view.nameOf(e.key);
+    }
+    return null;
+  }
+
+  final bankerSeat = view.bankerSeat;
+  final here = [
+    if (verdict.ownerHere) 'เจ้าของห้อง${_inBrackets(seatName(view.ownerUid))}',
+    if (verdict.bankerHere)
+      'นายธนาคาร${_inBrackets(bankerSeat == null ? null : view.nameOf(bankerSeat))}',
+  ];
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      key: const ValueKey('end-game-blocked'),
+      title: const Text('ยังจบเกมไม่ได้'),
+      content: Text(
+        here.isEmpty
+            ? 'เฉพาะผู้เล่นที่มีที่นั่งที่จบเกมได้'
+            : 'ปกติเจ้าของห้องหรือนายธนาคารเป็นคนจบเกม ผู้เล่นจบได้เมื่อทั้งสอง'
+                  'คนหายไปเกิน 10 นาที ตอนนี้${here.join(' และ ')}ยังอยู่ในห้อง '
+                  'ขอให้เขากดจบเกม',
+      ),
+      actions: [
+        FilledButton(
+          key: const ValueKey('end-game-blocked-ok'),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ตกลง'),
+        ),
+      ],
+    ),
+  );
+}
+
+String _inBrackets(String? name) => name == null ? '' : ' ($name)';
+
 /// Asks once, then ends the game for everybody. The owner and the banker may
-/// at any time; a player when both have been gone for 10 minutes (the room
-/// says no otherwise, and that is told in words).
+/// at any time; a player when both have been gone for 10 minutes (before
+/// asking, a player is told who is in the way if they may not yet).
 Future<void> _confirmEndGame(
   BuildContext context,
   WidgetRef ref,
@@ -190,6 +235,19 @@ Future<void> _confirmEndGame(
   RoomGameView view,
 ) async {
   final ownerOrBanker = view.iAmOwner || view.iAmBanker;
+  if (!ownerOrBanker) {
+    EndGameVerdict? verdict;
+    try {
+      verdict = await ref.read(roomRepositoryProvider).checkEndGame(code);
+    } catch (_) {
+      // Without an answer the room itself says no, if it must.
+    }
+    if (!context.mounted) return;
+    if (verdict != null && !verdict.allowed) {
+      await _tellNotYet(context, view, verdict);
+      return;
+    }
+  }
   final ok = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(

@@ -405,6 +405,49 @@ class FirestoreRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<EndGameVerdict> checkEndGame(String code) async {
+    final uid = await _auth.ensureSignedIn();
+    final meta = await _readMeta(code, endedToo: true);
+    final me = await readMyMember(code);
+    if (me == null) throw const RoomException(RoomError.notAMember);
+    final state = await _guard(() => _state(code).get(), RoomError.unknown);
+    final bankerSeat = state.data()?['bankerSeat'] as String?;
+    Future<DateTime?> seenOf(String? who) async {
+      if (who == null) return null;
+      final beat = await _guard(
+        () => _presence(code, who).get(),
+        RoomError.unknown,
+      );
+      return switch (beat.data()?['lastSeen']) {
+        final Timestamp t => t.toDate(),
+        _ => null,
+      };
+    }
+
+    String? bankerUid;
+    if (bankerSeat != null) {
+      final seat = await _guard(
+        () => _seat(code, bankerSeat).get(),
+        RoomError.unknown,
+      );
+      bankerUid = seat.data()?['uid'] as String?;
+    }
+    final amBanker = bankerSeat != null && me.seat == bankerSeat;
+    final owner = meta.ownerUid == uid;
+    // Whoever may at any time needs no look at anybody else.
+    final needLook = !owner && !amBanker;
+    return endGameVerdict(
+      iAmOwner: owner,
+      iAmBanker: amBanker,
+      iAmSeated: me.role == MemberRole.player && me.seat != null,
+      hasBanker: bankerSeat != null,
+      ownerSeen: needLook ? await seenOf(meta.ownerUid) : null,
+      bankerSeen: needLook ? await seenOf(bankerUid) : null,
+      now: DateTime.now(),
+    );
+  }
+
+  @override
   Future<void> endGame(String code) async {
     await _auth.ensureSignedIn();
     final meta = await _readMeta(code, endedToo: true);

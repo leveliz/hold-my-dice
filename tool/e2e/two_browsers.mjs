@@ -509,6 +509,13 @@ try {
   check(await seen(host, 'คุณเป็นนายธนาคาร', 8000), 'the seat is handed to a friend, who is the banker now');
   check((await host.page.getByRole('button', { name: 'GO', exact: true }).count()) >= 1, 'who has the GO button of their own again');
 
+  // 6g2. A player may not end the game while the owner and the banker are about:
+  // they are told so at once, with nothing to confirm.
+  await button(players[1], 'จบเกม', true).click();
+  check(await seen(players[1], 'ยังจบเกมไม่ได้', 10000), 'a player who may not end the game yet is told who is in the way');
+  await players[1].page.getByRole('button', { name: 'ตกลง', exact: true }).click();
+  check(await gone(players[1], 'ยังจบเกมไม่ได้', 5000), 'and closes the message');
+
   // 6h. The owner ends the game: everybody, the watcher too, sees the summary.
   await button(host, 'จบเกม', true).click();
   check(await seen(host, 'จบเกมนี้?', 5000), 'ending the game asks first');

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/features/room/application/room_clock.dart';
 import 'package:hold_my_dice/features/room/application/room_password.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
+import 'package:hold_my_dice/features/room/data/room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/entry_draft.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -12,6 +13,20 @@ import 'room_test_app.dart';
 
 const _owner = 'owner';
 final _t0 = DateTime.utc(2026, 10, 26, 12);
+
+/// A repository that cannot say whether ending the game is allowed (the
+/// room says no when the person tries), and counts how often it was asked.
+class _NoCheck extends FakeRoomRepository {
+  _NoCheck(super.store, super.auth);
+
+  var checks = 0;
+
+  @override
+  Future<EndGameVerdict> checkEndGame(String code) async {
+    checks++;
+    throw const RoomException(RoomError.offline);
+  }
+}
 
 void main() {
   late DateTime clock;
@@ -88,15 +103,88 @@ void main() {
     });
 
     testWidgets(
-      'a player has the button too, and is told it is not for them now',
+      'a player has the button too, and is told at once who is in the way',
       (tester) async {
         await open(tester, 'u2');
         await pressEnd(tester);
-        expect(find.textContaining('เจ้าของห้องหรือนายธนาคาร'), findsWidgets);
+        expect(key('end-game-blocked'), findsOneWidget);
+        expect(
+          key('end-game-dialog'),
+          findsNothing,
+          reason: 'nothing to confirm',
+        );
+        expect(find.textContaining('เจ้าของห้อง (ต้น)'), findsOneWidget);
+        expect(find.textContaining('นายธนาคาร ('), findsNothing);
+        await tester.tap(key('end-game-blocked-ok'));
+        await tester.pumpAndSettle();
+        expect(key('end-game-blocked'), findsNothing);
+        expect(key('room-playing'), findsOneWidget);
+        expect(find.byType(SnackBar), findsNothing);
+        await leave(tester);
+      },
+    );
+
+    testWidgets('with a banker about, the banker is named too', (tester) async {
+      await repoOn(store, 'u3').submitEntry(code, EntryDraft.bankrupt(2000));
+      await open(tester, 'u2');
+      await pressEnd(tester);
+      expect(find.textContaining('เจ้าของห้อง (ต้น)'), findsOneWidget);
+      expect(find.textContaining('นายธนาคาร (มด)'), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets('only the banker is named when the owner has been gone', (
+      tester,
+    ) async {
+      await repoOn(store, 'u3').submitEntry(code, EntryDraft.bankrupt(2000));
+      await open(tester, 'u2');
+      clock = clock.add(const Duration(minutes: 8));
+      await repoOn(store, 'u3').heartbeat(code);
+      clock = clock.add(const Duration(minutes: 4));
+      await pressEnd(tester);
+      expect(key('end-game-blocked'), findsOneWidget);
+      expect(find.textContaining('เจ้าของห้อง ('), findsNothing);
+      expect(find.textContaining('นายธนาคาร (มด)'), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets(
+      'when the check cannot be made the player is asked as before, and the room says',
+      (tester) async {
+        await openApp(
+          tester,
+          store,
+          '/room/$code',
+          uid: 'u2',
+          repo: _NoCheck(store, FakeAuthService('u2')),
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
+        await pressEnd(tester);
+        expect(key('end-game-dialog'), findsOneWidget);
         await tester.tap(key('end-game-confirm'));
         await tester.pumpAndSettle();
         expect(snackText(tester), contains('ตอนนี้ทำไม่ได้'));
         expect(key('room-playing'), findsOneWidget);
+        await leave(tester);
+      },
+    );
+
+    testWidgets(
+      'the owner is asked to confirm at once, with no look at others',
+      (tester) async {
+        final repo = _NoCheck(store, FakeAuthService(_owner));
+        await openApp(
+          tester,
+          store,
+          '/room/$code',
+          uid: _owner,
+          repo: repo,
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
+        await pressEnd(tester);
+        expect(key('end-game-dialog'), findsOneWidget);
+        expect(key('end-game-blocked'), findsNothing);
+        expect(repo.checks, 0);
         await leave(tester);
       },
     );
@@ -131,7 +219,14 @@ void main() {
     testWidgets(
       'a message left over from the game does not cover the summary',
       (tester) async {
-        await open(tester, 'u2');
+        await openApp(
+          tester,
+          store,
+          '/room/$code',
+          uid: 'u2',
+          repo: _NoCheck(store, FakeAuthService('u2')),
+          overrides: [roomClockProvider.overrideWithValue(() => clock)],
+        );
         await pressEnd(tester);
         await tester.tap(key('end-game-confirm'));
         await tester.pumpAndSettle();

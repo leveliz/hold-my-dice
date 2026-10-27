@@ -224,6 +224,52 @@ RoomError? requestRefusal(
   return stateMoved ? null : RoomError.requestGone;
 }
 
+/// How long the owner and the banker must have been gone before a player may
+/// end the game.
+const endGameQuiet = Duration(minutes: 10);
+
+/// Whether a person may end the game now, and who is in the way if not.
+class EndGameVerdict {
+  const EndGameVerdict({
+    required this.allowed,
+    this.ownerHere = false,
+    this.bankerHere = false,
+  });
+
+  final bool allowed;
+
+  /// The owner was seen within [endGameQuiet] (they are why a player may not).
+  final bool ownerHere;
+
+  /// The same for the banker, when there is one.
+  final bool bankerHere;
+}
+
+/// The rule of ending a game, as the rules of the room have it: the owner and
+/// the banker may at any time; a player with a seat once the owner, and the
+/// banker if there is one, have been gone for [endGameQuiet] (never seen
+/// counts as gone). [ownerSeen] and [bankerSeen] are when each last beat.
+EndGameVerdict endGameVerdict({
+  required bool iAmOwner,
+  required bool iAmBanker,
+  required bool iAmSeated,
+  required bool hasBanker,
+  required DateTime? ownerSeen,
+  required DateTime? bankerSeen,
+  required DateTime now,
+}) {
+  if (iAmOwner || iAmBanker) return const EndGameVerdict(allowed: true);
+  bool about(DateTime? seen) =>
+      seen != null && now.difference(seen) < endGameQuiet;
+  final ownerHere = about(ownerSeen);
+  final bankerHere = hasBanker && about(bankerSeen);
+  return EndGameVerdict(
+    allowed: iAmSeated && !ownerHere && !bankerHere,
+    ownerHere: ownerHere,
+    bankerHere: bankerHere,
+  );
+}
+
 /// The entry a [draft] becomes when pressed by [uid] for [seat], as the next
 /// line [seq]. [cash] is what the seat holds now (the facts of a bankruptcy).
 RoomEntry entryOfDraft(
@@ -345,6 +391,11 @@ abstract class RoomRepository {
   /// and the banker have been gone for 10 minutes ([RoomError.notAllowed]
   /// otherwise). Ending what already ended does nothing.
   Future<void> endGame(String code);
+
+  /// Whether this person may end the game now, and which of the owner and the
+  /// banker are in the way if not: what [endGame] would say, without trying.
+  /// [RoomError.notAMember] for somebody who is not in the room.
+  Future<EndGameVerdict> checkEndGame(String code);
 
   /// Takes a game that ended down for everybody: its entries, requests and
   /// state, then the seats, members and presence, then the room. Allowed for

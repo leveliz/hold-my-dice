@@ -1697,6 +1697,57 @@ void roomRepositoryContract(RoomHarness Function() create) {
       );
 
       test(
+        'checkEndGame: the owner and the banker are told they may',
+        () async {
+          final h = create();
+          final code = await game(h, banker: true);
+          for (final uid in ['owner', 'u3']) {
+            final v = await h.repoFor(uid).checkEndGame(code);
+            expect(v.allowed, isTrue, reason: uid);
+          }
+        },
+      );
+
+      test('checkEndGame: a player is told who is in the way', () async {
+        final h = create();
+        final code = await game(h, banker: true);
+        var v = await h.repoFor('u2').checkEndGame(code);
+        expect(v.allowed, isFalse);
+        expect([v.ownerHere, v.bankerHere], [true, true]);
+        await h.advance(const Duration(minutes: 8));
+        await h.repoFor('u3').heartbeat(code);
+        await h.advance(const Duration(minutes: 4));
+        v = await h.repoFor('u2').checkEndGame(code);
+        expect(v.allowed, isFalse);
+        expect([v.ownerHere, v.bankerHere], [false, true]);
+        await h.advance(const Duration(minutes: 7));
+        v = await h.repoFor('u2').checkEndGame(code);
+        expect(v.allowed, isTrue);
+      });
+
+      test('checkEndGame says what endGame would do', () async {
+        final h = create();
+        final code = await game(h);
+        expect((await h.repoFor('u2').checkEndGame(code)).allowed, isFalse);
+        await expectLater(
+          h.repoFor('u2').endGame(code),
+          _throws(RoomError.notAllowed),
+        );
+        await h.advance(const Duration(minutes: 11));
+        expect((await h.repoFor('u2').checkEndGame(code)).allowed, isTrue);
+        await h.repoFor('u2').endGame(code);
+      });
+
+      test('checkEndGame: a stranger is no member', () async {
+        final h = create();
+        final code = await game(h);
+        await expectLater(
+          h.repoFor('stranger').checkEndGame(code),
+          _throws(RoomError.notAMember),
+        );
+      });
+
+      test(
         'a watcher cannot, a stranger is not a member, and a game not started cannot end',
         () async {
           final h = create();
