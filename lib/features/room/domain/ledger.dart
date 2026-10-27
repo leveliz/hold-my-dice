@@ -16,7 +16,7 @@ enum LedgerRejection {
   invalidBankrupt,
 
   /// A mortgage on a payment that does not need one, that does not cover what
-  /// is missing, or that leaves more over than a fifth of the starting cash.
+  /// is missing, or that leaves more over than half the starting cash.
   invalidMortgage,
 
   /// Who pays and who receives do not fit the kind of entry.
@@ -197,7 +197,7 @@ class Ledger {
 
   /// The check of a mortgage raised together with the payment of [amount] by
   /// a seat holding [cash]: it must be needed, cover what is missing, and
-  /// leave no more over than a fifth of the starting cash. Null when fine.
+  /// leave no more over than half the starting cash. Null when fine.
   static Rejected? _badMortgage(
     LedgerState s,
     int mortgage,
@@ -211,7 +211,7 @@ class Ledger {
     if (cash + mortgage < amount) {
       return const Rejected(LedgerRejection.insufficient);
     }
-    if (cash + mortgage - amount > s.startingCash ~/ 5) {
+    if (cash + mortgage - amount > s.startingCash ~/ 2) {
       return const Rejected(LedgerRejection.invalidMortgage);
     }
     if (s.bankHasLimit && s.balances[Transaction.bank]! < mortgage) {

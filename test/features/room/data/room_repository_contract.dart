@@ -604,11 +604,11 @@ void roomRepositoryContract(RoomHarness Function() create) {
             );
           });
 
-          test('when more is left over than a fifth of the starting cash', () {
+          test('when more is left over than half the starting cash', () {
             return refused(
               (h, c) => h
                   .repoFor('owner')
-                  .submitEntry(c, EntryDraft.payBank(700, mortgage: 901)),
+                  .submitEntry(c, EntryDraft.payBank(700, mortgage: 1351)),
               RoomError.invalidMortgage,
             );
           });

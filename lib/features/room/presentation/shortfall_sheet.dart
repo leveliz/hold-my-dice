@@ -40,7 +40,7 @@ Future<ShortfallResult?> showShortfallSheet(
 );
 
 /// The "not enough money" sheet of a room: mortgage properties until the live
-/// total covers what is missing (and leaves no more over than a fifth of the
+/// total covers what is missing (and leaves no more over than half the
 /// starting cash) and pay in one step, or go bankrupt. The cash is read live:
 /// money that arrives while the sheet is open counts.
 class ShortfallSheet extends ConsumerStatefulWidget {
@@ -141,7 +141,7 @@ class _ShortfallSheetState extends ConsumerState<ShortfallSheet> {
     final shortfall = amount - cash;
     final total = covered ? 0 : _mortgages.fold(0, (a, b) => a + b);
     final left = cash + total - amount;
-    final cap = view.settings.startingCash ~/ 5;
+    final cap = view.settings.startingCash ~/ 2;
     final bank = view.balances[Transaction.bank];
     final bankShort = !covered && bank != null && bank < total;
     final tooMuch = !covered && total >= shortfall && left > cap;

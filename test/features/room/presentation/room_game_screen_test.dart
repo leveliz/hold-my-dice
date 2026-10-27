@@ -142,7 +142,7 @@ void main() {
         await openApp(tester, store, '/room/$code', uid: _owner);
         await payBankSheet(tester, '2000');
         expect(find.text('ขาด 500'), findsOneWidget);
-        expect(find.text('เหลือหลังจ่ายได้ไม่เกิน 300'), findsOneWidget);
+        expect(find.text('เหลือหลังจ่ายได้ไม่เกิน 750'), findsOneWidget);
         expect(find.text('จ่ายธนาคาร 2,000 · มีอยู่ 1,500'), findsOneWidget);
         expect(enabled(tester, 'mortgage-confirm'), isFalse);
         expect(status(tester), contains('ยังขาดอีก 500'));
@@ -164,24 +164,23 @@ void main() {
       },
     );
 
-    testWidgets(
-      'a mortgage that leaves more than a fifth of the start is refused',
-      (tester) async {
-        await openApp(tester, store, '/room/$code', uid: _owner);
-        await payBankSheet(tester, '2000');
-        await mortgage(tester, '800');
-        expect(status(tester), 'รวมจำนอง 800 · พอจ่ายแล้ว เหลือ 300');
-        expect(
-          enabled(tester, 'mortgage-confirm'),
-          isTrue,
-          reason: 'exactly 300',
-        );
-        await mortgage(tester, '1');
-        expect(status(tester), contains('จำนองเกินไป'));
-        expect(enabled(tester, 'mortgage-confirm'), isFalse);
-        await leave(tester);
-      },
-    );
+    testWidgets('a mortgage that leaves more than half the start is refused', (
+      tester,
+    ) async {
+      await openApp(tester, store, '/room/$code', uid: _owner);
+      await payBankSheet(tester, '2000');
+      await mortgage(tester, '1250');
+      expect(status(tester), 'รวมจำนอง 1,250 · พอจ่ายแล้ว เหลือ 750');
+      expect(
+        enabled(tester, 'mortgage-confirm'),
+        isTrue,
+        reason: 'exactly 750',
+      );
+      await mortgage(tester, '1');
+      expect(status(tester), contains('จำนองเกินไป'));
+      expect(enabled(tester, 'mortgage-confirm'), isFalse);
+      await leave(tester);
+    });
 
     testWidgets('paying exactly what they hold needs no sheet', (tester) async {
       await openApp(tester, store, '/room/$code', uid: _owner);

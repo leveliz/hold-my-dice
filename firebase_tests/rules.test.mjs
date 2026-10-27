@@ -1882,9 +1882,15 @@ describe('a mortgage with a payment: what is accepted', () => {
     assert.equal((await adminGet(stateDoc)).data().balances.bank, 5000 - 360);
   });
 
-  it('what is left over may be a fifth of the starting cash, 300, exactly', async () => {
+  it('what is left over may be half the starting cash, 750, exactly', async () => {
     await poorRoom();
-    await assertSucceeds(put('owner', mortgagePay('p1', 'bank', 700, 600)));
+    await assertSucceeds(put('owner', mortgagePay('p1', 'bank', 700, 1050)));
+    assert.equal((await adminGet(stateDoc)).data().balances.p1, 750);
+  });
+
+  it('what is left over may be more than a fifth of it, 600', async () => {
+    await poorRoom();
+    await assertSucceeds(put('owner', mortgagePay('p1', 'bank', 700, 900)));
   });
 
   it('a mortgage of just what is missing', async () => {
@@ -1911,8 +1917,8 @@ describe('a mortgage with a payment: what is refused', () => {
   refuse('when the cash covers the payment', () => put('owner', mortgagePay('p1', 'bank', 400, 100)));
   refuse('when the cash covers it by a coin', () => put('owner', mortgagePay('p1', 'bank', 300, 100)));
   refuse('a mortgage that does not cover what is missing', () => put('owner', mortgagePay('p1', 'bank', 700, 299)));
-  refuse('what is left over is 301', () => put('owner', mortgagePay('p1', 'bank', 700, 601)));
-  refuse('what is left over is 301 on a transfer', () => put('owner', mortgagePay('p1', 'p2', 700, 601)));
+  refuse('what is left over is 751', () => put('owner', mortgagePay('p1', 'bank', 700, 1051)));
+  refuse('what is left over is 751 on a transfer', () => put('owner', mortgagePay('p1', 'p2', 700, 1051)));
   refuse('a mortgage of 0', () => put('owner', mortgagePay('p1', 'bank', 700, 0)));
   refuse('a negative mortgage', () => put('owner', mortgagePay('p1', 'bank', 700, -5)));
   refuse('a mortgage that is text', () => put('owner', mortgagePay('p1', 'bank', 700, 360), { entry: { mortgage: '360' } }));

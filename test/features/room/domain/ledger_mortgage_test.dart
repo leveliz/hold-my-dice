@@ -110,24 +110,21 @@ void main() {
       );
     });
 
-    test(
-      'when what is left over is more than a fifth of the starting cash',
-      () {
-        // 400 + 600 - 700 = 300 is exactly a fifth of 1500
-        expect(
-          Ledger.apply(poor, _payBank('p2', 700, mortgage: 600)),
-          isA<Applied>(),
-        );
-        expect(
-          _why(Ledger.apply(poor, _payBank('p2', 700, mortgage: 601))),
-          LedgerRejection.invalidMortgage,
-        );
-        expect(
-          _why(Ledger.apply(poor, _transfer('p2', 'p3', 700, mortgage: 601))),
-          LedgerRejection.invalidMortgage,
-        );
-      },
-    );
+    test('when what is left over is more than half the starting cash', () {
+      // 400 + 1050 - 700 = 750 is exactly half of 1500
+      expect(
+        Ledger.apply(poor, _payBank('p2', 700, mortgage: 1050)),
+        isA<Applied>(),
+      );
+      expect(
+        _why(Ledger.apply(poor, _payBank('p2', 700, mortgage: 1051))),
+        LedgerRejection.invalidMortgage,
+      );
+      expect(
+        _why(Ledger.apply(poor, _transfer('p2', 'p3', 700, mortgage: 1051))),
+        LedgerRejection.invalidMortgage,
+      );
+    });
 
     test('when it is zero, negative or too large', () {
       for (final m in [0, -5, maxEntryAmount + 1]) {

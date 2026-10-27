@@ -198,15 +198,15 @@ service cloud.firestore {
     }
 
     // A mortgage raised together with the payment [d] by a seat that cannot
-    // pay it: needed, enough, leaving no more over than a fifth of the starting
-    // cash (5 * left <= cash, the same as left <= cash ~/ 5), and the bank
+    // pay it: needed, enough, leaving no more over than half the starting
+    // cash (2 * left <= cash, the same as left <= cash ~/ 2), and the bank
     // must hold what it is asked to pay out.
     function mortgageOk(state, room, d) {
       let cash = state.balances[d.seat];
       return validMoney(d.mortgage)
         && d.amount > cash
         && cash + d.mortgage >= d.amount
-        && 5 * (cash + d.mortgage - d.amount) <= room.settings.startingCash
+        && 2 * (cash + d.mortgage - d.amount) <= room.settings.startingCash
         && (!('bank' in state.balances) || state.balances.bank >= d.mortgage);
     }
 

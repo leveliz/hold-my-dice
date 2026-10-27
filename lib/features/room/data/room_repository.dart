@@ -34,7 +34,7 @@ enum RoomError {
   invalidAmount,
 
   /// A mortgage that is not needed, does not cover what is missing, or leaves
-  /// more over than a fifth of the starting cash.
+  /// more over than half the starting cash.
   invalidMortgage,
 
   /// A bankruptcy of a person who can pay the debt, or of a debt over ten
