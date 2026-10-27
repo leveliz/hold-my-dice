@@ -105,6 +105,25 @@ class AboutTab extends ConsumerWidget {
         ),
         const SizedBox(height: 22),
         card(
+          key: const ValueKey('about-why'),
+          children: [
+            Text(
+              'ทำไมถึงทำแอพนี้',
+              style: headingStyle(context, text.titleMedium),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'แอพนี้เกิดจากปัญหาส่วนตัวของผู้พัฒนาเอง เวลาเล่นบอร์ดเกมกับเพื่อน '
+              'มักเจอเรื่องเดิม ๆ ซ้ำ ๆ แบงก์กระดาษหายหรือนับผิด จำไม่ได้ว่าใคร'
+              'จ่ายใครไปเท่าไร นับคะแนนรายรอบแล้วเถียงกัน เลยลงมือทำแอพนี้ขึ้นมา'
+              'แก้ปัญหาพวกนั้น ให้เกมเดินต่อได้โดยกดน้อยที่สุด',
+              key: const ValueKey('about-why-text'),
+              style: text.bodyLarge,
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        card(
           key: const ValueKey('about-developer'),
           children: [
             Text('ผู้พัฒนา', style: headingStyle(context, text.titleMedium)),

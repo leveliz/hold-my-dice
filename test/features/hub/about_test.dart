@@ -255,6 +255,44 @@ void main() {
       expect(find.text('ตัวช่วยสำหรับเล่นบอร์ดเกม'), findsOneWidget);
     });
 
+    testWidgets('says why the app was made, between the app and its maker', (
+      tester,
+    ) async {
+      await openAbout(tester);
+      expect(
+        find.descendant(
+          of: byKey('about-why'),
+          matching: find.text('ทำไมถึงทำแอพนี้'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<Text>(byKey('about-why-text')).data,
+        allOf(contains('ปัญหาส่วนตัว'), contains('บอร์ดเกมกับเพื่อน')),
+      );
+      final app = tester.getTopLeft(byKey('about-app')).dy;
+      final why = tester.getTopLeft(byKey('about-why')).dy;
+      final dev = tester.getTopLeft(byKey('about-developer')).dy;
+      expect(app, lessThan(why));
+      expect(why, lessThan(dev));
+    });
+
+    testWidgets('the reason fits a small screen and the dark theme', (
+      tester,
+    ) async {
+      await f.pumpAt(
+        tester,
+        '/',
+        container: containerWith(),
+        brightness: Brightness.dark,
+        size: const Size(320, 640),
+      );
+      await tapKey(tester, 'nav-about');
+      await tester.ensureVisible(byKey('about-why'));
+      expect(byKey('about-why-text'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('shows the version of the installed app', (tester) async {
       await openAbout(tester);
       expect(
