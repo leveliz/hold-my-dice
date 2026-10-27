@@ -9,13 +9,15 @@ abstract final class TourIds {
   static const bank = 'bank';
   static const score = 'score';
   static const point = 'point';
+  static const roomLobby = 'room-lobby';
+  static const roomPlay = 'room-play';
   static const bankMoneyTip = 'bank-tip-money';
   static const bankUndoTip = 'bank-tip-undo';
   static const bankTips = [bankMoneyTip, bankUndoTip];
 
   /// Everything shown for one helper: its tour and the tips that go with it.
   static List<String> of(String helperId) => switch (helperId) {
-    bank => [bank, ...bankTips],
+    bank => [bank, ...bankTips, roomLobby, roomPlay],
     _ => [helperId],
   };
 }

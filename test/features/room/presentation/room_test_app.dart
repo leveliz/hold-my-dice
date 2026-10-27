@@ -42,6 +42,10 @@ Future<void> openApp(
   bool enabled = true,
   List<Override> overrides = const [],
   RoomRepository? repo,
+
+  /// Something on the page never stops moving (a tour's hand), so it cannot
+  /// settle: give it a few frames instead.
+  bool animated = false,
 }) async {
   tester.view.physicalSize = const Size(400, 900);
   tester.view.devicePixelRatio = 1;
@@ -61,7 +65,12 @@ Future<void> openApp(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (animated) {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+  } else {
+    await tester.pumpAndSettle();
+  }
 }
 
 /// The text of the snack bar on screen, or null.

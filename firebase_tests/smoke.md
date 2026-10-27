@@ -149,6 +149,9 @@ internet should be a real one, not the office Wi-Fi alone.
 1. Open Pocket Banker: the choice "เครื่องเดียว / หลายเครื่อง" appears.
 2. Create a room; the waiting room shows the code, a QR and your seat. Copy
    the link and send it by a chat app.
+   A phone that has not seen the tours is shown one in the waiting room and
+   another when the game starts (Settings can show them again, with the one
+   of Pocket Banker).
 3. On another phone, scan the QR or open the link: the join form opens with
    the room code and the owner's name. Join; the owner's list shows the
    newcomer without reloading.

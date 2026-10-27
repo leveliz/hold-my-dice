@@ -20,8 +20,16 @@ function check(ok, what) {
 
 const browser = await chromium.launch();
 
-async function person(label) {
+/** [tours]: leave the first-run tours to show (by default they count as seen, so they do not cover the buttons). */
+async function person(label, { tours = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+  if (!tours) {
+    // shared_preferences on the web keeps a JSON text under "flutter.<key>".
+    await ctx.addInitScript(() => {
+      const seen = JSON.stringify({ seen: ['room-lobby', 'room-play', 'bank', 'bank-tip-money', 'bank-tip-undo', 'score', 'point'] });
+      localStorage.setItem('flutter.app.tour.v1', JSON.stringify(seen));
+    });
+  }
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log(`[${label}] page error: ${e.message}`));
   return { ctx, page, label };
@@ -69,6 +77,14 @@ try {
   await owner.page.waitForURL(/\/room\/[A-Z0-9]{6}$/, { timeout: 30000 });
   const code = owner.page.url().split('/').pop();
   check(await seen(owner, 'ห้องรอ'), `owner is in the waiting room ${code}`);
+
+  // 1b. Somebody who has not seen the tours is shown the one of the waiting room.
+  const tourist = await person('tourist', { tours: true });
+  await open(tourist, '/room/create');
+  await typeName(tourist, 'Tourist');
+  await button(tourist, 'ออกตั๋วห้อง').click();
+  check(await seen(tourist, 'ให้เพื่อนกรอกรหัสนี้ในแอพ', 20000), 'a first-timer is shown the tour of the waiting room');
+  await tourist.ctx.close();
 
   // 2. A guest joins from the link (typed in lower case), the owner sees them live.
   const guest = await person('guest');

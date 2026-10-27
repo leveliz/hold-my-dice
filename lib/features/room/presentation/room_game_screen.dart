@@ -6,6 +6,9 @@ import 'package:hold_my_dice/core/format.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/players/player.dart';
 import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/tour/tour_host.dart';
+import 'package:hold_my_dice/core/tour/tour_step.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/features/bank/presentation/money_sheet.dart';
@@ -37,13 +40,86 @@ const _minusColor = Color(0xFFD6336C);
 
 /// The screen of a started game: my balance, the others, the history and the
 /// buttons that write to the room.
-class RoomGameScreen extends ConsumerWidget {
+class RoomGameScreen extends ConsumerStatefulWidget {
   const RoomGameScreen({super.key, required this.code});
 
   final String code;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RoomGameScreen> createState() => _RoomGameScreenState();
+}
+
+/// What the first-run tour of the game lights up.
+class _TourKeys {
+  final end = GlobalKey();
+  final balance = GlobalKey();
+  final friend = GlobalKey();
+  final history = GlobalKey();
+  final dock = GlobalKey();
+}
+
+class _RoomGameScreenState extends ConsumerState<RoomGameScreen>
+    with TourHost<RoomGameScreen> {
+  final _keys = _TourKeys();
+  var _offered = false;
+
+  String get code => widget.code;
+
+  @override
+  void initState() {
+    super.initState();
+    // Offered once the game has been read: before that nothing is on screen
+    // to light up.
+    ref.listenManual(roomGameProvider(code), (_, now) {
+      if (_offered || !now.hasValue) return;
+      _offered = true;
+      offerTour(
+        storage: ref.read(tourStorageProvider),
+        id: TourIds.roomPlay,
+        steps: _tourSteps,
+      );
+    }, fireImmediately: true);
+  }
+
+  /// All the steps; the tour leaves out those whose thing is not on this
+  /// person's screen (a watcher has no balance or money buttons).
+  List<TourStep> _tourSteps() {
+    return [
+      TourStep(
+        title: 'ยอดของฉัน',
+        body: 'ตัวเลขใหญ่คือเงินของคุณ ทุกเครื่องในห้องเห็นตรงกันทันที',
+        target: _keys.balance,
+      ),
+      TourStep(
+        title: 'รับ จ่าย และ GO',
+        body:
+            'ใช้กับธนาคาร: รับเงิน จ่ายธนาคาร และ GO ผ่านจุดเริ่ม '
+            'พอมีนายธนาคาร ปุ่มพวกนี้จะเป็นของนายธนาคารคนเดียว',
+        target: _keys.dock,
+        gesture: TourGesture.tap,
+      ),
+      TourStep(
+        title: 'โอนและเรียกเก็บ',
+        body: 'แตะชื่อเพื่อนเพื่อโอนเงินให้ หรือขอเงินจากเขา',
+        target: _keys.friend,
+        gesture: TourGesture.tap,
+      ),
+      TourStep(
+        title: 'ประวัติ',
+        body: 'รายการล่าสุดของทุกคน แตะเพื่อดูทั้งหมด',
+        target: _keys.history,
+        gesture: TourGesture.tap,
+      ),
+      TourStep(
+        title: 'จบเกม',
+        body: 'เล่นจบแล้วกดตรงนี้ ทุกคนจะเห็นหน้าสรุปอันดับ',
+        target: _keys.end,
+      ),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final game = ref.watch(roomGameProvider(code));
     final now = game.value;
     return Scaffold(
@@ -52,11 +128,14 @@ class RoomGameScreen extends ConsumerWidget {
         title: Text('โต๊ะ $code'),
         actions: [
           if (now != null && (now.mySeat != null || now.iAmOwner))
-            TextButton.icon(
-              key: const ValueKey('end-game'),
-              icon: const Icon(LucideIcons.flagTriangleRight, size: 18),
-              label: const Text('จบเกม'),
-              onPressed: () => _confirmEndGame(context, ref, code, now),
+            KeyedSubtree(
+              key: _keys.end,
+              child: TextButton.icon(
+                key: const ValueKey('end-game'),
+                icon: const Icon(LucideIcons.flagTriangleRight, size: 18),
+                label: const Text('จบเกม'),
+                onPressed: () => _confirmEndGame(context, ref, code, now),
+              ),
             ),
           if (game.value?.online ?? false)
             Padding(
@@ -95,7 +174,7 @@ class RoomGameScreen extends ConsumerWidget {
             ],
           ),
         ),
-        data: (view) => _GameBody(code: code, view: view),
+        data: (view) => _GameBody(code: code, view: view, keys: _keys),
       ),
     );
   }
@@ -214,10 +293,13 @@ class _LastOneBandState extends State<_LastOneBand> {
 }
 
 class _GameBody extends ConsumerWidget {
-  const _GameBody({required this.code, required this.view});
+  const _GameBody({required this.code, required this.view, this.keys});
 
   final String code;
   final RoomGameView view;
+
+  /// What the first-run tour lights up; null where there is no tour.
+  final _TourKeys? keys;
 
   Color _color(String seat) => Color(view.colorOf(seat) ?? 0xFF8A8A8A);
 
@@ -580,44 +662,49 @@ class _GameBody extends ConsumerWidget {
                     onSay: (m) => _say(context, m),
                   ),
                 if (view.mySeat case final seat?) ...[
-                  Container(
-                    key: const ValueKey('my-balance-card'),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: tileDecoration(context),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            PlayerAvatar(
-                              name: view.nameOf(seat),
-                              color: _color(seat),
-                              size: 22,
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'ยอดของฉัน · ${view.nameOf(seat)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: text.bodyMedium?.copyWith(color: muted),
+                  KeyedSubtree(
+                    key: keys?.balance,
+                    child: Container(
+                      key: const ValueKey('my-balance-card'),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: tileDecoration(context),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              PlayerAvatar(
+                                name: view.nameOf(seat),
+                                color: _color(seat),
+                                size: 22,
                               ),
-                            ),
-                          ],
-                        ),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            formatMoney(view.myBalance ?? 0),
-                            key: const ValueKey('my-balance'),
-                            style: serifStyle(
-                              text.displayLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  'ยอดของฉัน · ${view.nameOf(seat)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodyMedium?.copyWith(
+                                    color: muted,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              formatMoney(view.myBalance ?? 0),
+                              key: const ValueKey('my-balance'),
+                              style: serifStyle(
+                                text.displayLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -638,28 +725,32 @@ class _GameBody extends ConsumerWidget {
                     ),
                   ),
                 ],
-                for (final seat in view.isSpectator ? view.seats : others) ...[
-                  _FriendRow(
-                    seat: seat,
-                    name: view.nameOf(seat),
-                    color: _color(seat),
-                    balance: view.balances[seat] ?? 0,
-                    hidden: !view.balanceShown(seat),
-                    out: view.state.bankrupt.contains(seat),
-                    onTap: canTransfer && !view.state.bankrupt.contains(seat)
-                        ? () => _friend(context, ref, seat)
-                        : null,
-                    bankerActions:
-                        view.iAmBanker && !view.state.bankrupt.contains(seat),
-                    onBankerReceive: canPress
-                        ? () => _bankerReceive(context, ref, seat)
-                        : null,
-                    onBankerPay: canPress
-                        ? () => _bankerPay(context, ref, seat)
-                        : null,
-                    onBankerGo: canPress
-                        ? () => _bankerGo(context, ref, seat)
-                        : null,
+                for (final (i, seat)
+                    in (view.isSpectator ? view.seats : others).indexed) ...[
+                  KeyedSubtree(
+                    key: i == 0 ? keys?.friend : null,
+                    child: _FriendRow(
+                      seat: seat,
+                      name: view.nameOf(seat),
+                      color: _color(seat),
+                      balance: view.balances[seat] ?? 0,
+                      hidden: !view.balanceShown(seat),
+                      out: view.state.bankrupt.contains(seat),
+                      onTap: canTransfer && !view.state.bankrupt.contains(seat)
+                          ? () => _friend(context, ref, seat)
+                          : null,
+                      bankerActions:
+                          view.iAmBanker && !view.state.bankrupt.contains(seat),
+                      onBankerReceive: canPress
+                          ? () => _bankerReceive(context, ref, seat)
+                          : null,
+                      onBankerPay: canPress
+                          ? () => _bankerPay(context, ref, seat)
+                          : null,
+                      onBankerGo: canPress
+                          ? () => _bankerGo(context, ref, seat)
+                          : null,
+                    ),
                   ),
                   const SizedBox(height: 6),
                 ],
@@ -670,10 +761,13 @@ class _GameBody extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
             child: Column(
               children: [
-                _HistoryStrip(
-                  code: code,
-                  view: view,
-                  onOpen: () => _openHistory(context),
+                KeyedSubtree(
+                  key: keys?.history,
+                  child: _HistoryStrip(
+                    code: code,
+                    view: view,
+                    onOpen: () => _openHistory(context),
+                  ),
                 ),
                 if (requests.incoming.isNotEmpty && view.seatActive)
                   _RequestCard(
@@ -703,6 +797,7 @@ class _GameBody extends ConsumerWidget {
                         (view.iAmBanker && view.seatActive))) ...[
                   const SizedBox(height: 10),
                   Row(
+                    key: keys?.dock,
                     children: [
                       _DockButton(
                         id: 'press-pay',

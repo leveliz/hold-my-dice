@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hold_my_dice/core/paper_style.dart';
 import 'package:hold_my_dice/core/theme.dart';
+import 'package:hold_my_dice/core/tour/tour_host.dart';
+import 'package:hold_my_dice/core/tour/tour_step.dart';
+import 'package:hold_my_dice/core/tour/tour_store.dart';
 import 'package:hold_my_dice/core/widgets/helper_scope.dart';
 import 'package:hold_my_dice/core/widgets/player_avatar.dart';
 import 'package:hold_my_dice/core/widgets/section_label.dart';
@@ -215,8 +218,53 @@ class _Lobby extends ConsumerStatefulWidget {
   ConsumerState<_Lobby> createState() => _LobbyState();
 }
 
-class _LobbyState extends ConsumerState<_Lobby> {
+class _LobbyState extends ConsumerState<_Lobby> with TourHost<_Lobby> {
   var _busy = false;
+
+  final _codeKey = GlobalKey();
+  final _actionsKey = GlobalKey();
+  final _qrKey = GlobalKey();
+  final _seatsKey = GlobalKey();
+  final _startKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    offerTour(
+      storage: ref.read(tourStorageProvider),
+      id: TourIds.roomLobby,
+      steps: _tourSteps,
+    );
+  }
+
+  List<TourStep> _tourSteps() => [
+    TourStep(
+      title: 'รหัสห้อง',
+      body: 'ให้เพื่อนกรอกรหัสนี้ในแอพเพื่อเข้าห้อง แตะที่รหัสเพื่อคัดลอก',
+      target: _codeKey,
+      gesture: TourGesture.tap,
+    ),
+    TourStep(
+      title: 'คัดลอกและซ่อนรหัส',
+      body: 'คัดลอกรหัสส่งให้เพื่อน หรือซ่อนรหัสเวลาเปิดจอให้คนอื่นเห็น',
+      target: _actionsKey,
+    ),
+    TourStep(
+      title: 'QR และลิงก์',
+      body: 'เพื่อนสแกน QR หรือเปิดลิงก์ได้เลย ไม่ต้องลงแอพ',
+      target: _qrKey,
+    ),
+    TourStep(
+      title: 'ที่นั่ง',
+      body: 'เพื่อนที่เข้าห้องจะขึ้นที่นี่ทันที ไม่ต้องรีเฟรช',
+      target: _seatsKey,
+    ),
+    TourStep(
+      title: 'เริ่มเกม',
+      body: 'เจ้าของห้องกดเริ่มเมื่อมีผู้เล่นอย่างน้อย 2 คน',
+      target: _startKey,
+    ),
+  ];
 
   /// Whether the room code and the password are shown as dots (for a screen
   /// that others can see).
@@ -337,13 +385,17 @@ class _LobbyState extends ConsumerState<_Lobby> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          RoomCodeTiles(
-                            code: meta.code,
-                            hidden: _hidden,
-                            onCopied: () => _say(context, 'คัดลอกรหัสแล้ว'),
+                          KeyedSubtree(
+                            key: _codeKey,
+                            child: RoomCodeTiles(
+                              code: meta.code,
+                              hidden: _hidden,
+                              onCopied: () => _say(context, 'คัดลอกรหัสแล้ว'),
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Wrap(
+                            key: _actionsKey,
                             spacing: 8,
                             runSpacing: 4,
                             children: [
@@ -427,7 +479,13 @@ class _LobbyState extends ConsumerState<_Lobby> {
                       padding: const EdgeInsets.all(14),
                       child: Row(
                         children: [
-                          RoomQr(key: const ValueKey('room-qr'), data: link),
+                          KeyedSubtree(
+                            key: _qrKey,
+                            child: RoomQr(
+                              key: const ValueKey('room-qr'),
+                              data: link,
+                            ),
+                          ),
                           const SizedBox(width: 14),
                           Expanded(
                             child: Column(
@@ -460,6 +518,7 @@ class _LobbyState extends ConsumerState<_Lobby> {
                   ),
                   const SizedBox(height: 14),
                   Row(
+                    key: _seatsKey,
                     children: [
                       Text('ที่นั่ง', style: text.titleMedium),
                       const SizedBox(width: 8),
@@ -499,17 +558,20 @@ class _LobbyState extends ConsumerState<_Lobby> {
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        FilledButton.icon(
-                          key: const ValueKey('start-room'),
-                          onPressed: !_busy && bySeat.length >= 2
-                              ? _start
-                              : null,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(56),
-                            textStyle: text.titleLarge,
+                        KeyedSubtree(
+                          key: _startKey,
+                          child: FilledButton.icon(
+                            key: const ValueKey('start-room'),
+                            onPressed: !_busy && bySeat.length >= 2
+                                ? _start
+                                : null,
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(56),
+                              textStyle: text.titleLarge,
+                            ),
+                            icon: const Icon(LucideIcons.play),
+                            label: Text('เริ่มเกม (${bySeat.length} คน)'),
                           ),
-                          icon: const Icon(LucideIcons.play),
-                          label: Text('เริ่มเกม (${bySeat.length} คน)'),
                         ),
                         TextButton.icon(
                           key: const ValueKey('delete-room'),
