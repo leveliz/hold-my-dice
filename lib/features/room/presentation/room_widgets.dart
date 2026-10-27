@@ -7,9 +7,9 @@ import 'package:hold_my_dice/core/widgets/dashed_line.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-/// The six colours offered when choosing yours (the palette keeps the rest for
-/// the single-device mode).
-final roomColorChoices = playerPalette.take(6).toList();
+/// The colours offered when choosing yours: the whole palette, so that every
+/// one of the eight seats of a room can have a colour of its own.
+final roomColorChoices = List<Color>.unmodifiable(playerPalette);
 
 /// Colour circles to pick one from; the chosen one has a ring.
 class ColorSwatches extends StatelessWidget {

@@ -268,7 +268,12 @@ void main() {
       );
       expect(
         tester.widget<Text>(byKey('about-why-text')).data,
-        allOf(contains('ปัญหาส่วนตัว'), contains('บอร์ดเกมกับเพื่อน')),
+        allOf(
+          contains('ปัญหาส่วนตัว'),
+          contains('บอร์ดเกมกับเพื่อน'),
+          contains('ฟีเจอร์ใหม่'),
+          contains('แล้วแต่ใจผู้พัฒนา'),
+        ),
       );
       final app = tester.getTopLeft(byKey('about-app')).dy;
       final why = tester.getTopLeft(byKey('about-why')).dy;

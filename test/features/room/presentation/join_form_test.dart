@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hold_my_dice/features/room/data/fake_room_repository.dart';
 import 'package:hold_my_dice/features/room/domain/room_models.dart';
+import 'package:hold_my_dice/features/room/presentation/room_widgets.dart'
+    show roomColorChoices;
 
 import 'room_test_app.dart';
 
@@ -89,6 +91,52 @@ void main() {
     final used = {seats[0]!.color, seats[1]!.color};
     expect(used.length, 2, reason: 'owner and u2 differ');
     expect(seats[2]!.color, isNot(isIn(used)));
+  });
+
+  testWidgets('every seat of a full room can have a colour of its own', (
+    tester,
+  ) async {
+    expect(roomColorChoices.length, greaterThanOrEqualTo(8));
+    expect(
+      {for (final c in roomColorChoices) c.toARGB32()}.length,
+      roomColorChoices.length,
+    );
+    final store = FakeRoomStore();
+    final code = await makeRoom(
+      store,
+      settings: const RoomSettings(
+        startingCash: 1500,
+        goAmount: 200,
+        maxPlayers: 8,
+      ),
+    );
+    // The owner has the first colour; six more take the next six.
+    for (var i = 1; i <= 6; i++) {
+      await repoOn(store, 'u$i').joinAsPlayer(
+        code: code,
+        name: 'คน $i',
+        color: roomColorChoices[i].toARGB32(),
+      );
+    }
+    await openApp(tester, store, '/room/$code', uid: 'last');
+    await join(tester);
+    final seats = await repoOn(store, 'last').readSeats(code);
+    final colors = [for (final s in seats) s!.color];
+    expect(colors.length, 8);
+    expect(colors.toSet().length, 8, reason: 'all eight are different');
+  });
+
+  testWidgets('the swatches offer every colour', (tester) async {
+    final store = FakeRoomStore();
+    final code = await makeRoom(store);
+    await openApp(tester, store, '/room/$code', uid: 'bens');
+    for (final c in roomColorChoices) {
+      expect(
+        find.byKey(ValueKey('color-${c.toARGB32()}')),
+        findsOneWidget,
+        reason: '$c',
+      );
+    }
   });
 
   testWidgets('a room with a password asks for it', (tester) async {
